@@ -1,11 +1,12 @@
 import { h } from '../dom';
 import { t } from '../i18n';
-import { activityLog } from '../mock';
+import { api } from '../api';
 import { openOverlay } from '../components/overlay';
 
 /** "Actividad": the raw yt-dlp output of the download in progress. */
 export function openActivityOverlay(): void {
-  const log = h('pre', { class: 'log-area', text: activityLog.join('\n') });
+  const log = h('pre', { class: 'log-area' });
+  void api.activityLog().then(lines => { log.textContent = lines.join('\n'); });
   openOverlay(t('activity.title'), [
     log,
     h('div', { class: 'row end' },

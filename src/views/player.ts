@@ -1,8 +1,10 @@
 import { h, titleRow } from '../dom';
 import { icon } from '../icons';
 import { t } from '../i18n';
-import { findBlock, onDisk, PLAYABLE, playlists, type FormatBlock, type Playlist, type Track } from '../mock';
+import type { FormatBlock, Playlist, Track } from '../api';
+import { findBlock, library, onDisk } from '../library';
 import * as player from '../player';
+import { PLAYABLE } from '../player';
 import { navigate, onLeave, type Params } from '../router';
 import { subscribe, ui } from '../state';
 import { cover } from '../components/cover';
@@ -19,7 +21,7 @@ export function playerView(params: Params): HTMLElement {
   const left = h('div', { class: 'stack-4 scroll' });
   const right = h('section', { class: 'card player-detail' });
   const render = () => {
-    left.replaceChildren(...playlists.flatMap(p => p.formats.map(b => playlistRow(p, b))));
+    left.replaceChildren(...library.playlists.flatMap(p => p.formats.map(b => playlistRow(p, b))));
     right.replaceChildren(...detail());
   };
   render();

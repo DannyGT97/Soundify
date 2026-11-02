@@ -9,7 +9,7 @@ import { openOverlay } from './overlay';
 import { themePicker } from './themePicker';
 import { cover } from './cover';
 import { homeLogo } from './logo';
-import { findBlock } from '../mock';
+import { findBlock } from '../library';
 import * as player from '../player';
 
 interface Entry { route: Route; label: string; icon: IconName; }

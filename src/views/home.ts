@@ -1,11 +1,12 @@
 import { h, titleRow } from '../dom';
 import { t } from '../i18n';
-import { countBy, onDisk, playlists } from '../mock';
+import { countBy, library, onDisk } from '../library';
 import { navigate } from '../router';
 import { cover } from '../components/cover';
 
 /** Inicio: the whole library at a glance and the playlist list, which leads to the Gestor. */
 export function homeView(): HTMLElement {
+  const playlists = library.playlists;
   const all = playlists.flatMap(p => p.formats.flatMap(b => b.tracks));
   const files = onDisk(all).length;
   const pending = countBy(all, 'pending') + countBy(all, 'failed');

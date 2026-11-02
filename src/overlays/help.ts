@@ -3,6 +3,7 @@ import { icon } from '../icons';
 import { t } from '../i18n';
 import { closeOverlay, openOverlay } from '../components/overlay';
 import { openDevicePicker } from './devicePicker';
+import { importFromFolder } from './transfer';
 
 /**
  * The help of "Importar". Its bottom button IS the action it explains: the
@@ -12,7 +13,10 @@ export function openImportHelp(): void {
   const steps = [1, 2, 3, 4].map(n => h('div', { class: 'help-step' },
     h('span', { class: 'help-step-number', text: String(n) }),
     h('p', { text: t(`help.import.step${n}`) })));
-  const explore = h('button', { class: 'primary-button', onclick: () => closeOverlay() },
+  const explore = h('button', { class: 'primary-button', onclick: () => {
+    closeOverlay();
+    void importFromFolder();
+  } },
     icon('folder', 16), h('span', { text: t('help.import.action') }));
   openOverlay(t('help.import.title'), [
     h('p', { class: 'subtitle', text: t('help.import.intro') }),

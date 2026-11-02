@@ -1,0 +1,58 @@
+{
+  "url" : "https://www.youtube.com/playlist?list=PLexample0000000000000000000000000",
+  "folder" : "MUSIC_DIR/Example (mp3)",
+  "deviceId" : null,
+  "deviceName" : null,
+  "devicePath" : null,
+  "title" : "Example",
+  "numberFiles" : true,
+  "lastNumber" : "002",
+  "lastSyncedAt" : "2026-09-06 12:05",
+  "lastActivityAt" : "2026-09-06 12:05",
+  "entries" : {
+    "zzzzzzzzzz1" : {
+      "number" : "001",
+      "title" : "Primer título",
+      "filePath" : "MUSIC_DIR/Example (mp3)/001 - Primer título.mp3",
+      "addedAt" : "2026-09-02 15:11",
+      "deletedAt" : null,
+      "removedFromPlaylistAt" : null,
+      "unavailableAt" : null,
+      "unavailableReason" : null,
+      "lastFailedAt" : null,
+      "lastFailedReason" : null,
+      "playlistIndex" : 2,
+      "deviceFileName" : null
+    },
+    "aaaaaaaaaa2" : {
+      "number" : "002",
+      "title" : "シュレディンガー",
+      "filePath" : "MUSIC_DIR/Example (mp3)/002 - シュレディンガー.mp3",
+      "addedAt" : "2026-09-02 15:11",
+      "deletedAt" : "2026-09-05 10:00",
+      "removedFromPlaylistAt" : null,
+      "unavailableAt" : null,
+      "unavailableReason" : null,
+      "lastFailedAt" : "2026-09-05 10:00",
+      "lastFailedReason" : "HTTP Error 403",
+      "playlistIndex" : 1,
+      "deviceFileName" : null
+    },
+    "mmmmmmmmmm3" : {
+      "number" : null,
+      "title" : null,
+      "filePath" : null,
+      "addedAt" : "2026-09-03 09:00",
+      "deletedAt" : null,
+      "removedFromPlaylistAt" : null,
+      "unavailableAt" : "2026-09-03 09:01",
+      "unavailableReason" : "Video unavailable",
+      "lastFailedAt" : null,
+      "lastFailedReason" : null,
+      "playlistIndex" : null,
+      "deviceFileName" : null,
+      "someFieldFromAFutureVersion" : 1
+    }
+  },
+  "syncWithPlaylist" : true
+}

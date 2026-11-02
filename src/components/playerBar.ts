@@ -4,7 +4,7 @@
 import { h } from '../dom';
 import { t } from '../i18n';
 import { icon, type IconName } from '../icons';
-import { findBlock } from '../mock';
+import { findBlock } from '../library';
 import * as player from '../player';
 import { navigate } from '../router';
 import { subscribe, ui } from '../state';

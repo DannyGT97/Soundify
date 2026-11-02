@@ -4,7 +4,8 @@ import { t } from '../i18n';
 import { closeOverlay, openOverlay } from '../components/overlay';
 import { navigate } from '../router';
 import { subscribe, ui } from '../state';
-import { clearHistory, markSeen, originText, percent, stopTask } from '../tasks';
+import { api } from '../api';
+import { markSeen, originText, percent } from '../tasks';
 import { openActivityOverlay } from './activity';
 
 let historyVisible = true;
@@ -37,7 +38,7 @@ function content(): Node[] {
       bar,
       h('div', { class: 'row-title', text: pct === null ? t('tasks.pill.preparing') : t('tasks.progress', task.done, task.total) }),
       h('div', { class: 'row wrap gap-8' },
-        h('button', { class: 'secondary-button danger-text', text: t('tasks.stop'), onclick: stopTask }),
+        h('button', { class: 'secondary-button danger-text', text: t('tasks.stop'), onclick: api.stopDownload }),
         h('button', { class: 'secondary-button', text: t('tasks.goTo'), onclick: () => {
           closeOverlay();
           navigate(task.origin === 'manager' ? 'manager' : 'download');
@@ -55,7 +56,7 @@ function content(): Node[] {
   nodes.push(h('div', { class: 'row center gap-8' },
     h('div', { class: 'section-label', text: t('tasks.history', ui.history.length) }),
     h('div', { class: 'grow' }),
-    ui.history.length ? h('button', { class: 'text-button', text: t('tasks.history.clear'), onclick: clearHistory }) : null,
+    ui.history.length ? h('button', { class: 'text-button', text: t('tasks.history.clear'), onclick: api.clearTaskHistory }) : null,
     toggle));
   if (historyVisible) {
     nodes.push(h('div', { class: 'history-list' }, ...ui.history.map(item => h('div', { class: 'history-row' },

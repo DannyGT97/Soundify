@@ -1,7 +1,7 @@
 // UI state shared by every screen. Persistent preferences are stored locally;
 // playback and task data stay as session-only simulations.
 
-import type { Track } from './mock';
+import type { TaskOrigin, Track } from './api/types';
 
 export type Repeat = 'off' | 'all' | 'one';
 export type Theme = 'dark' | 'light' | 'dark-red' | 'dark-blue' | 'amoled' | 'light-red' | 'light-blue';
@@ -9,12 +9,17 @@ export type PlayerPlacement = 'side' | 'bottom' | 'both';
 
 export interface NowPlaying { blockKey: string; track: Track; }
 export type TaskStatus = 'ok' | 'stopped';
-export interface RunningTask { title: string; origin: string; step: 'prepare' | 'download' | 'retry'; done: number; total: number; }
-export interface FinishedTask { title: string; origin: string; status: TaskStatus; finishedAt: string; }
+export interface RunningTask { title: string; origin: TaskOrigin; step: 'prepare' | 'download' | 'retry'; done: number; total: number; }
+export interface FinishedTask { title: string; origin: TaskOrigin; status: TaskStatus; finishedAt: string; }
 
 function stored<T extends string>(key: string, allowed: readonly T[], fallback: T): T {
-  const value = localStorage.getItem(key);
-  return allowed.includes(value as T) ? value as T : fallback;
+  try {
+    const value = localStorage.getItem(key);
+    return allowed.includes(value as T) ? value as T : fallback;
+  } catch {
+    // Private mode or no storage at all (unit tests): the default, just not remembered.
+    return fallback;
+  }
 }
 
 export const ui = {
@@ -37,7 +42,7 @@ export const ui = {
   history: [] as FinishedTask[],
 };
 
-type Topic = 'player' | 'tasks' | 'theme' | 'player-placement';
+type Topic = 'library' | 'player' | 'tasks' | 'theme' | 'player-placement';
 const listeners = new Map<Topic, Set<() => void>>();
 
 export function subscribe(topic: Topic, listener: () => void): () => void {

@@ -1,39 +1,7 @@
-// PLACEHOLDER DATA. Views only for now: everything here stands in for what the
-// archive (ArchiveStore in the Java app) will answer once the logic is ported.
-// Kept in one file so replacing it later touches nothing else.
+// PLACEHOLDER DATA: what the archive (ArchiveStore in the Java app) will answer
+// once the logic is ported. Only the mock API reads it.
 
-export type Status = 'ok' | 'pending' | 'failed' | 'unavailable';
-
-export interface Track {
-  id: string;
-  number: number;
-  title: string;
-  addedDaysAgo: number;
-  seconds: number;
-  status: Status;
-}
-
-/** One playlist in one format: what the Gestor shows as a block and the Player as a row. */
-export interface FormatBlock {
-  key: string;
-  playlistId: string;
-  format: string;
-  video: boolean;
-  numbered: boolean;
-  sync: boolean;
-  lastSync: string;
-  tracks: Track[];
-}
-
-export interface Playlist {
-  id: string;
-  title: string;
-  folder: string;
-  formats: FormatBlock[];
-}
-
-/** What the built-in player can open: by format NAME (ALAC is .m4a too and does not play). */
-export const PLAYABLE = new Set(['MP3', 'M4A', 'WAV', 'MP4']);
+import type { FormatBlock, Playlist, Status, Track } from '../types';
 
 export const AUDIO_FORMATS = ['MP3', 'OPUS', 'M4A', 'FLAC', 'AAC', 'ALAC', 'VORBIS', 'WAV'];
 export const VIDEO_FORMATS = ['MP4', 'MKV', 'AVI', 'FLV', 'MOV', 'WEBM'];
@@ -62,7 +30,9 @@ function tracks(seed: number, count: number, broken: Partial<Record<Status, numb
   for (const [status, n] of Object.entries(broken) as [Status, number][]) {
     for (let k = 0; k < n && cursor >= 0; k++, cursor--) {
       const track = list[cursor];
-      if (track) track.status = status;
+      if (!track) continue;
+      track.status = status;
+      if (status === 'unavailable') track.reason = 'unavailable.privateVideo';
     }
   }
   return list;
@@ -97,24 +67,6 @@ export const playlists: Playlist[] = [
     formats: [block('pl4', 'OPUS', false, true, '28/10/2026 07:55', tracks(4, 15, { pending: 3 }))],
   },
 ];
-
-export function findBlock(key: string | null | undefined): { playlist: Playlist; block: FormatBlock } | null {
-  if (!key) return null;
-  for (const playlist of playlists) {
-    const found = playlist.formats.find(b => b.key === key);
-    if (found) return { playlist, block: found };
-  }
-  return null;
-}
-
-export function countBy(list: Track[], status: Status): number {
-  return list.filter(tr => tr.status === status).length;
-}
-
-/** Files actually on disk: what the player lists and plays. */
-export function onDisk(list: Track[]): Track[] {
-  return list.filter(tr => tr.status === 'ok');
-}
 
 export const activityLog = [
   '[download] Downloading playlist: Chill de domingo',
