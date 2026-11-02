@@ -1,0 +1,84 @@
+// Every icon of the app, from Lucide (https://lucide.dev, ISC licence). They are
+// SVG drawn with `currentColor`: sharp at any scale and in the colour of the
+// text around them, so both themes work without a second set of files.
+// Each one is imported by name, so only the ones listed here end up in the build.
+
+import {
+  Activity, AudioLines, Check, ChevronRight, ChevronsLeft, ChevronsRight, CloudDownload, Ellipsis,
+  Copy, Eye, Film, Folder, FolderInput, FolderOpen, House, Info, Library, Link, List, ListMusic, ListOrdered, ListPlus, Menu, Palette, PanelLeftClose, Trash2, TriangleAlert, CircleX,
+  Pause, Play, RefreshCw, Repeat, Repeat1, Search, Settings, Shuffle, SkipBack, SkipForward,
+  SlidersHorizontal, Smartphone, Square, Volume2, VolumeX, X, createElement, type IconNode,
+} from 'lucide';
+
+const ICONS = {
+  // Menu and screens
+  home: House,
+  download: Link,
+  'new-playlist': ListPlus,
+  manager: Library,
+  player: ListMusic,
+  settings: Settings,
+  palette: Palette,
+  'panel-left-close': PanelLeftClose,
+  warning: TriangleAlert,
+  error: CircleX,
+  info: Info,
+  // Settings tabs
+  general: SlidersHorizontal,
+  interface: Palette,
+  updates: CloudDownload,
+  advanced: Settings,
+  about: Info,
+  // Actions
+  import: FolderInput,
+  sync: RefreshCw,
+  eye: Eye,
+  copy: Copy,
+  'folder-open': FolderOpen,
+  'list-ordered': ListOrdered,
+  list: List,
+  delete: Trash2,
+  folder: Folder,
+  device: Smartphone,
+  activity: Activity,
+  search: Search,
+  menu: Menu,
+  more: Ellipsis,
+  close: X,
+  'summary-hide': ChevronsRight,
+  'summary-show': ChevronsLeft,
+  chevron: ChevronRight,
+  // Player
+  play: Play,
+  pause: Pause,
+  previous: SkipBack,
+  next: SkipForward,
+  shuffle: Shuffle,
+  repeat: Repeat,
+  'repeat-one': Repeat1,
+  volume: Volume2,
+  muted: VolumeX,
+  // Results and kinds
+  ok: Check,
+  stopped: Square,
+  audio: AudioLines,
+  video: Film,
+} satisfies Record<string, IconNode>;
+
+export type IconName = keyof typeof ICONS;
+
+/** An icon at `size` px; `filled` paints its inside too (play, pause, stop). */
+export function icon(name: IconName, size = 18, filled = false): SVGElement {
+  const svg = createElement(ICONS[name], {
+    width: size,
+    height: size,
+    'stroke-width': size <= 16 ? 2.25 : 2,
+    'aria-hidden': 'true',
+    class: 'icon',
+  });
+  if (filled) svg.setAttribute('fill', 'currentColor');
+  return svg;
+}
+
+
+
