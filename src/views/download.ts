@@ -1,7 +1,8 @@
 import { card, h, stepHeading, titleRow } from '../dom';
 import { t } from '../i18n';
-import { destinationCard, formatSelect, isPlaylistUrl, isWebUrl, summaryArt, summaryPanel, summaryRow } from '../components/form';
-import { startTask } from '../tasks';
+import { destinationCard, formatSelect, summaryArt, summaryPanel, summaryRow } from '../components/form';
+import { api } from '../api';
+import { isPlaylistUrl, isWebUrl } from '../urls';
 
 /** Descarga por URL: one video at a time. A playlist URL is pointed to the Gestor. */
 export function downloadView(): HTMLElement {
@@ -42,7 +43,7 @@ export function downloadView(): HTMLElement {
       url.classList.add('input-error');
       return;
     }
-    startTask(url.value.trim(), 'url', 1);
+    api.startDownload({ kind: 'single', url: url.value.trim(), format: format.value, folder: destination.field.value });
   } });
 
   return h('div', { class: 'screen-with-summary' },

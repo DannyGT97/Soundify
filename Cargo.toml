@@ -1,0 +1,6 @@
+# core/ holds the logic and knows nothing about Tauri, so it is tested with a
+# plain `cargo test` and reused as is on Android. src-tauri/ is the app: thin
+# commands that call into core/.
+[workspace]
+members = ["core", "src-tauri"]
+resolver = "3"

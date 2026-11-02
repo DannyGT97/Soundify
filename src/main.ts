@@ -13,12 +13,15 @@ import { nowPlayingView } from './views/nowPlaying';
 import { playerView } from './views/player';
 import { settingsView } from './views/settings';
 import { mountToasts } from './components/toasts';
+import { loadLibrary } from './library';
 import { ui } from './state';
 
 // The shell: menu and page side by side, the player bar under both, and the
 // layer where the windows that open on top live.
 const app = document.getElementById('app');
 if (app) {
+  // Before the first screen: every view reads the library synchronously.
+  await loadLibrary();
   initScale();
   document.documentElement.dataset.theme = ui.theme;
 

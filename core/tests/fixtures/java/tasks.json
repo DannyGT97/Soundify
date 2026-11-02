@@ -1,0 +1,13 @@
+[ {
+  "status" : "WARNING",
+  "title" : "Example",
+  "origin" : "MANAGER",
+  "summary" : "2 archivos no disponibles",
+  "finishedAt" : "2026-11-02 18:30"
+}, {
+  "status" : "OK",
+  "title" : "https://www.youtube.com/watch?v=zzzzzzzzzz1",
+  "origin" : "URL",
+  "summary" : null,
+  "finishedAt" : "2026-11-02 18:00"
+} ]

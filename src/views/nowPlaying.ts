@@ -1,7 +1,7 @@
 import { h } from '../dom';
 import { icon } from '../icons';
 import { t } from '../i18n';
-import { findBlock } from '../mock';
+import { findBlock } from '../library';
 import { navigate, onLeave } from '../router';
 import { subscribe, ui } from '../state';
 import { cover } from '../components/cover';

@@ -1,0 +1,21 @@
+{
+  "theme" : "LIGHT",
+  "uiScale" : 125,
+  "language" : "ca",
+  "downloadsFolder" : "",
+  "cookiesFile" : null,
+  "downloadThumbnails" : false,
+  "autoUpdates" : true,
+  "includeIdInTitleName" : false,
+  "workingPlayerClient" : "web_safari",
+  "appUpdateCheckEnabled" : true,
+  "lastAppUpdateCheck" : "2026-11-02",
+  "taskHistoryVisible" : false,
+  "playerVolume" : 0.25,
+  "lastPlayedArchive" : null,
+  "lastPlayedTrackId" : null,
+  "lastPlayedPlaylist" : null,
+  "lastPlayedFormat" : null,
+  "lastPlayedPosition" : 133.5,
+  "audioQuality" : "BEST"
+}

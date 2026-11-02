@@ -1,9 +1,11 @@
 import { h } from '../dom';
 import { icon } from '../icons';
 import { t } from '../i18n';
-import { countBy, PLAYABLE, type FormatBlock, type Playlist, type Status, type Track } from '../mock';
+import type { FormatBlock, Playlist, Status, Track } from '../api';
+import { countBy, statusText } from '../library';
 import { openOverlay } from '../components/overlay';
 import * as player from '../player';
+import { PLAYABLE } from '../player';
 import { subscribe, ui } from '../state';
 
 const STATUS_ORDER: Status[] = ['ok', 'pending', 'failed', 'unavailable'];
@@ -42,7 +44,7 @@ export function openFilesOverlay(playlist: Playlist, block: FormatBlock): void {
     const row = h('tr', { class: current ? 'is-playing' : '' },
       block.numbered ? h('td', { class: 'num', text: String(track.number).padStart(3, '0') }) : null,
       h('td', { class: 'file-title-cell', text: track.title }),
-      h('td', {}, h('span', { class: `status-pill status-${track.status}`, text: t(`songs.status.${track.status}`) })),
+      h('td', {}, h('span', { class: `status-pill status-${track.status}`, text: statusText(track) })),
       h('td', { class: 'file-action-cell' }, action));
     return row;
   };

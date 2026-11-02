@@ -1,8 +1,9 @@
 import { card, h, stepHeading, titleRow } from '../dom';
 import { t } from '../i18n';
-import { destinationCard, formatSelect, isPlaylistUrl, summaryArt, summaryPanel, summaryRow } from '../components/form';
+import { destinationCard, formatSelect, summaryArt, summaryPanel, summaryRow } from '../components/form';
+import { api } from '../api';
 import { navigate } from '../router';
-import { startTask } from '../tasks';
+import { isPlaylistUrl } from '../urls';
 import { notify } from '../components/toasts';
 
 /** Crear Playlist: registers a YouTube playlist in the Gestor (and optionally downloads it). */
@@ -47,7 +48,10 @@ export function newPlaylistView(): HTMLElement {
       notify({ tone: 'error', text: t('newPlaylist.missingFields') });
       return;
     }
-    if (download) startTask(url.value.trim(), 'manager', 12);
+    if (download) {
+      api.startDownload({ kind: 'new-playlist', url: url.value.trim(), format: format.value,
+        folder: destination.field.value, numbered: numbered.checked });
+    }
     navigate('manager');
   };
 

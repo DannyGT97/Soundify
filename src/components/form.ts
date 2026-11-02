@@ -4,15 +4,17 @@
 import { h, stepHeading } from '../dom';
 import { icon } from '../icons';
 import { t } from '../i18n';
-import { AUDIO_FORMATS, VIDEO_FORMATS } from '../mock';
+import { api } from '../api';
+import { library } from '../library';
 import { ui } from '../state';
 import { openDevicePicker } from '../overlays/devicePicker';
 
 /** One list for every format; options are grouped by audio and video type. */
 export function formatSelect(): HTMLSelectElement {
+  const { audio, video } = library.formats;
   return h('select', { class: 'input' },
-    ...AUDIO_FORMATS.map(f => h('option', { text: f, attrs: { value: f } })),
-    ...VIDEO_FORMATS.map(f => h('option', { text: f, attrs: { value: f } })));
+    ...audio.map(f => h('option', { text: f, attrs: { value: f } })),
+    ...video.map(f => h('option', { text: f, attrs: { value: f } })));
 }
 
 /** "02 Guardar en": the path on its own row and the two buttons below, half and half. */
@@ -22,8 +24,10 @@ export function destinationCard(step: string, placeholderKey: string, changed: (
     field.value = path;
     changed(path);
   };
-  // PLACEHOLDER: the native folder dialog comes with the logic (tauri-plugin-dialog).
-  const folder = h('button', { class: 'secondary-button grow', onclick: () => set('D:\\Música\\Descargas') },
+  const folder = h('button', { class: 'secondary-button grow', onclick: async () => {
+    const chosen = await api.pickFolder(t('download.folder.choose'));
+    if (chosen) set(chosen);
+  } },
     icon('folder', 16), h('span', { text: t('download.chooseFolder') }));
   const device = h('button', { class: 'secondary-button grow', onclick: () => openDevicePicker(set) },
     icon('device', 16), h('span', { text: t('download.chooseDevice') }));
@@ -69,12 +73,4 @@ export function summaryRow(labelKey: string, value: HTMLElement, first = false):
 
 export function summaryArt(): HTMLElement {
   return h('div', { class: 'summary-art' }, h('span', { class: 'summary-note' }, icon('audio', 40)));
-}
-
-export function isWebUrl(text: string): boolean {
-  return /^https?:\/\/\S+\.\S+/i.test(text.trim());
-}
-
-export function isPlaylistUrl(text: string): boolean {
-  return isWebUrl(text) && /[?&]list=/.test(text) && !/[?&]v=/.test(text);
 }

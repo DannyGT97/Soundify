@@ -33,8 +33,9 @@ soundify-tauri/
 
 ### 1.2 Las tres costuras para Android
 
-Lo que en escritorio y Android funciona distinto va detrás de un trait en `core/`, para que el
-resto no se entere:
+Lo que en escritorio y Android funciona distinto va detrás de una interfaz, para que el resto no se
+entere. `Downloader` y `Storage` son traits de `core/`; `PlayerBackend` es una interfaz del front
+(`src/api/types.ts`), porque en escritorio quien suena es el propio webview:
 
 | Trait | Escritorio | Android |
 |---|---|---|
@@ -89,7 +90,8 @@ Reglas:
   de `Motion` o `WindowChrome`, que no tienen equivalente).
 - Nada de red ni de `data/` real en los tests normales; lo que lo necesite va marcado `#[ignore]`.
 - `npm run check` = `tsc` + `vitest` + `cargo test` + `cargo clippy`. Es lo que se ejecuta antes de
-  dar algo por terminado.
+  dar algo por terminado. Playwright va aparte (`npm run test:ui`): necesita el servidor y un
+  navegador, y se ejecuta al tocar pantallas.
 
 ---
 
@@ -99,15 +101,48 @@ Cada fase termina con la app compilando, sus tests en verde y la parte correspon
 `mock.ts` sustituida por la real. Orden pensado para que lo que más tests tiene (y más riesgo de
 romper datos) vaya primero y aislado.
 
-### Fase 0 · Cimientos
-- `git init` del proyecto (hoy **no es un repositorio**) y primer commit con las vistas.
+### Fase 0 · Cimientos — HECHA (02/11/2026)
+Resultado: `npm run check` → tsc ok · vitest 20 · cargo test 8 · clippy ok; `npm run test:ui` → 12.
+Lo que hay está descrito en CLAUDE.md. Decisiones tomadas al hacerla:
+- `PlayerBackend` vive en el front (ver 1.2) y `player.ts` ya habla con él: la fase 7 solo cambia
+  `SimulatedPlayer` por el motor real.
+- La biblioteca se carga una vez antes de la primera pantalla (`library.ts`) y las vistas la leen sin
+  `await`; la API real avisará con el tema `library` cuando cambie.
+- `DownloadRequest` ya lleva lo que cada pantalla pide (URL, formato, carpeta, numerar), aunque el
+  mock lo ignore.
+
+Lo que se pidió:
+- ~~Repositorio~~ hecho: https://github.com/DannyGT97/Soundify (rama `main`, primer commit con las vistas).
 - Workspace de Cargo con `core/` y `src-tauri/`. Vitest y Playwright instalados, `npm run check`.
+- **`npm run check` con salida corta**: si todo pasa, una línea por herramienta con su recuento
+  (`vitest: 12 ok`); si algo falla, solo lo que falla con su error. Nada de listar los tests que
+  pasan ni el progreso de compilación (reporters `dot`/`line`, `cargo test -q`, `clippy -q`). Es lo
+  que se lee después de cada cambio, y la salida completa cuesta miles de líneas de contexto.
 - `src/api/` con la interfaz completa y la implementación mock (moviendo lo de `mock.ts`, `player.ts`
   y `tasks.ts` detrás de ella). Las vistas pasan a usar `api.*`.
 - Los tres traits del 1.2 declarados, aunque solo tengan la implementación de escritorio.
 - Tests: Playwright de navegación y de que cada pantalla carga (= `FxmlLoadUiTest`, `NavigationUiTest`).
 
-### Fase 1 · Modelo y archives (el corazón)
+### Fase 1 · Modelo y archives (el corazón) — HECHA (02/11/2026)
+Resultado: `npm run check` → tsc ok · vitest 20 · cargo test 99 (95 de `core` + 4 de compatibilidad
+con Java) · clippy ok; `npm run test:ui` → 12. Probado en solo lectura contra el `data/` real de la
+app Java: todos los archives y `settings.json` cargan sin errores. Decisiones tomadas al hacerla:
+- `core::archive::ArchiveStore` es la fachada (un `Storage`, la carpeta de archives y un `Clock`);
+  `io`, `sync`, `query` y `maintenance` son sus cuatro piezas, como en Java.
+- `core::library` traduce los archives a lo que pinta el front (`Playlist`/`FormatBlock`/`Track`).
+  `seconds` va a 0 (el archive no guarda duraciones: las pondrá el reproductor) y `sync` siempre a
+  `true` (en Java ya no vive en el archive).
+- **Compatibilidad**: Java escribe `null` en los `String` que nunca rellenó (`"cookiesFile": null`)
+  y eso hacía que serde rechazara `settings.json` ENTERO y se quedara con los valores de fábrica sin
+  avisar. Los campos de texto no opcionales toleran `null`. Lo cubre `core/tests/java_compat.rs`.
+- Carpeta de datos: `data/` junto al ejecutable (portable, como en Java); `SOUNDIFY_DATA_DIR` la
+  cambia (p. ej. para abrir el `data/` de la app Java en desarrollo). **Ojo: el arranque corre
+  `reconcile_all`, que ESCRIBE en esa carpeta.**
+- El front elige la API real solo dentro de Tauri (`insideTauri()`); `npm run dev` y Playwright
+  siguen con el mock. La descarga sigue en el mock hasta la fase 5.
+- `RelativeTime` se queda en el front (`relative(addedDaysAgo)`); su test va con la fase 7.
+
+Lo que se pidió:
 `UserSettings`, `ArchiveData`, `ArchiveEntry`, `PlaylistManifest`, `TaskRecord`; `SettingsManager`;
 `DownloadPathResolver`; `ArchiveIO`, `ArchiveSync`, `ArchiveQuery`, `ArchiveMaintenance` y la fachada
 `ArchiveStore`; `TaskHistory`; `RelativeTime`.
@@ -115,13 +150,49 @@ romper datos) vaya primero y aislado.
   `DownloadPathResolverTest`, `TaskHistoryTest` + compatibilidad con fixtures reales.
 - Al acabar: el Gestor, «Ver archivos» e Inicio enseñan las playlists reales (solo lectura).
 
-### Fase 2 · Copiar e importar
+### Fase 2 · Copiar e importar — HECHA (02/11/2026)
+Resultado: `npm run check` → tsc ok · vitest 39 · cargo test 143 · clippy ok; `npm run test:ui` → 15.
+Decisiones tomadas al hacerla:
+- `core::transfer` = `PlaylistTransfer`. La hora entra como `&str` (la de `ArchiveStore::now()`),
+  igual que en el resto de `core`: los tests la fijan.
+- Los errores llegan al front como **clave de i18n + argumentos** (`CommandError`, desde
+  `TransferError::key/args`), no como texto: así siguen el idioma en uso. Las claves son las de Java.
+- El manifiesto se escribe en los mismos cuatro momentos que en Java (registrar, `commit`,
+  `syncPlaylistMembership` y la reconciliación del arranque); `relinkFromManifest` corre al registrar
+  y al dar de alta ids nuevos.
+- Espacio libre del destino con `fs4` (antes de copiar, como `usableSpace` en Java).
+- Copiar va en un hilo aparte (`spawn_blocking`) con progreso por el evento `copy-progress` y un flag
+  de cancelar; **registrar la copia en el Gestor lo hace el back** al terminar (como en Java), y el
+  resultado dice cómo fue (`registered` / `alreadyRegistered` / `failed`).
+- Los textos del resultado (copiar e importar) están en `src/transfer.ts`, lógica pura con tests; las
+  ventanas en `src/overlays/transfer.ts`. Cerrar a mano la ventana de progreso cancela la copia (si no,
+  seguiría copiando sin que se viera).
+- Ya funcionan de verdad: «Copiar a una carpeta local» (menú del Gestor), «Explorar archivos» de la
+  ayuda de Importar, «Abrir carpeta» en cada formato del Gestor y el botón «Carpeta local» de Descarga y
+  Crear Playlist (diálogo nativo con `tauri-plugin-dialog`; abrir carpetas con `tauri-plugin-opener`).
+
+Lo que se pidió:
 `PlaylistTransfer` (manifiesto siempre en la carpeta, `relinkFromManifest`, `keepWhatWasKnown`,
 `findImportable` con su tope, no copiar sobre sí misma). Diálogos con `tauri-plugin-dialog`, abrir
 carpetas con `tauri-plugin-opener` (= `SystemOpener`).
 - Tests: `PlaylistTransferTest` (826 líneas).
 
-### Fase 3 · yt-dlp sin ejecutarlo
+### Fase 3 · yt-dlp sin ejecutarlo — HECHA (02/11/2026)
+Resultado: `npm run check` → tsc ok · vitest 43 · cargo test 219 · clippy ok; `npm run test:ui` → 15.
+Decisiones tomadas al hacerla:
+- Todo en `core::ytdlp` (`command`, `progress`, `cleaning`, `unavailable`, `client`, `query`) más
+  `core::version` y `core::log_format`. **Nada ejecuta yt-dlp**: cada consulta da sus argumentos (sin
+  el ejecutable, que lo pone el `Downloader`) y una función que lee la salida. Ejecutarlo es la fase 5.
+- Los formatos son cadenas, no enums: audio o vídeo lo decide `library::is_video_format`. Los flags de
+  audio por formato van en una tabla (en Java era un `switch`), con un test que fija los de Java.
+- `ProgressParser::parse` devuelve el progreso en vez de llamar a un callback.
+- `unavailable::reason_key` da una **clave de i18n** (`unavailable.*`), no el texto: el archive sigue
+  guardando el error crudo de yt-dlp y el motivo se calcula al leer, como en Java. `Track.reason` lo
+  lleva al front y «Ver archivos» dice «No disponible, vídeo privado» (`statusText`).
+- `log_format` solo da el texto de cada línea (mismo formato de fecha que Java); escribir y rotar los
+  ficheros llega con el registro de la app.
+
+Lo que se pidió:
 `YtDlpCommandBuilder`, `YtDlpProgressParser`, `OutputCleaning`, `UnavailableReason`,
 `YtDlpClientResolver` (la parte de decidir), parseo de `YtDlpQueryService`, `VersionCompare`,
 `ActivityLogFormatter`.

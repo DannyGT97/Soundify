@@ -1,15 +1,16 @@
 import { h, titleRow } from '../dom';
 import { icon } from '../icons';
 import { t } from '../i18n';
-import { countBy, onDisk, playlists, type FormatBlock, type Playlist } from '../mock';
+import { api, type FormatBlock, type Playlist } from '../api';
+import { countBy, library, onDisk } from '../library';
 import { navigate, onLeave, type Params } from '../router';
 import { subscribe, ui } from '../state';
-import { startTask } from '../tasks';
 import { cover } from '../components/cover';
 import { confirmDialog } from '../overlays/confirm';
 import { openDevicePicker } from '../overlays/devicePicker';
 import { openFilesOverlay } from '../overlays/files';
 import { openImportHelp } from '../overlays/help';
+import { copyToFolder } from '../overlays/transfer';
 
 /**
  * Gestor de Playlists: one folding row per playlist+folder, with a block per
@@ -19,8 +20,9 @@ import { openImportHelp } from '../overlays/help';
 export function managerView(params: Params): HTMLElement {
   if (params.open) ui.expandedPlaylists.add(params.open);
   const list = h('div', { class: 'stack-14' });
-  const render = () => list.replaceChildren(...playlists.map(playlistRow));
+  const render = () => list.replaceChildren(...library.playlists.map(playlistRow));
   onLeave(subscribe('tasks', render));
+  onLeave(subscribe('library', render));
   render();
 
   const importButton = h('button', { class: 'secondary-button', onclick: openImportHelp },
@@ -35,7 +37,7 @@ export function managerView(params: Params): HTMLElement {
     h('div', { class: 'screen-head' },
       titleRow('manager', t('manager.title'), h('div', { class: 'grow' }), importButton),
       h('p', { class: 'subtitle', text: t('manager.description') })),
-    playlists.length ? list : empty);
+    library.playlists.length ? list : empty);
 }
 
 function playlistRow(playlist: Playlist): HTMLElement {
@@ -87,8 +89,8 @@ function formatBlock(playlist: Playlist, block: FormatBlock): HTMLElement {
   ].filter(Boolean).join(' ');
 
   const busy = ui.task !== null;
-  const update = h('button', { class: 'primary-button', onclick: () => startTask(playlist.title, 'manager', onDisk(block.tracks).length) },
-    icon('sync', 16), h('span', { text: 'Sincronizar' }));
+  const update = h('button', { class: 'primary-button', onclick: () => api.startDownload({ kind: 'update', blockKey: block.key }) },
+    icon('sync', 16), h('span', { text: t('manager.sync') }));
   update.disabled = busy;
   const files = h('button', { class: 'secondary-button', onclick: () => openFilesOverlay(playlist, block) },
     icon('eye', 16), h('span', { text: t('manager.viewFiles') }));
@@ -108,6 +110,7 @@ function formatBlock(playlist: Playlist, block: FormatBlock): HTMLElement {
       h('div', { class: 'grow' }),
       numbered),
     h('div', { class: 'row center gap-8 pm-actions' }, update, files, copyMenu(playlist, block),
+    h('button', { class: 'icon-button', title: t('manager.openFolder'), attrs: { 'aria-label': t('manager.openFolder') }, onclick: () => api.revealFolder(playlist.folder) }, icon('folder-open', 17)),
     h('button', { class: 'icon-button pm-delete', title: t('manager.menu.delete'), attrs: { 'aria-label': t('manager.menu.delete') }, onclick: () => deleteBlock(playlist, block) }, icon('delete', 17))));
 }
 
@@ -125,8 +128,7 @@ function copyMenu(playlist: Playlist, block: FormatBlock): HTMLElement {
   const menu = h('div', { class: 'popup-menu pm-copy-menu' },
     h('button', { onclick: () => {
       menu.hidden = true;
-      confirmDialog(t('manager.copy.title'), t('manager.copy.header', playlist.title, block.format),
-        t('manager.copy.body'), [{ label: t('manager.copy.confirm'), kind: 'primary' }]);
+      void copyToFolder(playlist, block);
     } }, icon('folder-open', 16), h('span', { text: t('manager.menu.copy.local') })),
     h('button', { onclick: () => { menu.hidden = true; openDevicePicker(); } },
       icon('device', 16), h('span', { text: t('manager.menu.copy.device') })));
@@ -136,7 +138,7 @@ function copyMenu(playlist: Playlist, block: FormatBlock): HTMLElement {
     const open = menu.hidden;
     document.querySelectorAll<HTMLElement>('.pm-copy-menu').forEach(m => { m.hidden = true; });
     menu.hidden = !open;
-  } }, icon('copy', 16), h('span', { text: 'Copiar' }));
+  } }, icon('copy', 16), h('span', { text: t('manager.copy.button') }));
   return h('div', { class: 'menu-anchor' }, button, menu);
 }
 

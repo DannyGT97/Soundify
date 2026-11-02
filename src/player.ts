@@ -1,15 +1,31 @@
-// PLACEHOLDER PLAYBACK: moves the clock and the queue so the bar and Now
-// Playing can be seen working. Nothing sounds; the real engine (an <audio>
-// element or a Rust backend) replaces the timer, the actions stay the same.
+// The player's actions: queue, shuffle and repeat. What actually sounds is the
+// PlayerBackend behind `api` (a clock in the mock); these actions stay the
+// same when the real engine comes in.
 
-import { findBlock, onDisk, type Track } from './mock';
+import { playerBackend as engine, type Track } from './api';
+import { findBlock, onDisk } from './library';
 import { emit, ui } from './state';
 
-let timer: number | undefined;
+/** What the built-in player can open: by format NAME (ALAC is .m4a too and does not play). */
+export const PLAYABLE = new Set(['MP3', 'M4A', 'WAV', 'MP4']);
+
+engine.onTime(seconds => {
+  ui.position = seconds;
+  emit('player');
+});
+engine.onEnded(() => {
+  if (ui.repeat === 'one') {
+    seek(0);
+    setPlaying(true);
+  } else {
+    step(1, true);
+  }
+});
 
 export function play(blockKey: string, track: Track): void {
   ui.nowPlaying = { blockKey, track };
   ui.position = 0;
+  engine.load(blockKey, track);
   setPlaying(true);
 }
 
@@ -35,6 +51,7 @@ export function previous(): void {
 
 export function seek(seconds: number): void {
   ui.position = seconds;
+  engine.seek(seconds);
   emit('player');
 }
 
@@ -50,11 +67,13 @@ export function cycleRepeat(): void {
 
 export function setVolume(volume: number): void {
   ui.volume = volume;
+  engine.setVolume(volume);
   emit('player');
 }
 
 export function close(): void {
-  setPlaying(false);
+  engine.unload();
+  ui.playing = false;
   ui.nowPlaying = null;
   ui.position = 0;
   emit('player');
@@ -62,19 +81,8 @@ export function close(): void {
 
 function setPlaying(playing: boolean): void {
   ui.playing = playing;
-  window.clearInterval(timer);
-  if (playing) timer = window.setInterval(tick, 1000);
-  emit('player');
-}
-
-function tick(): void {
-  const np = ui.nowPlaying;
-  if (!np) return;
-  ui.position += 1;
-  if (ui.position >= np.track.seconds) {
-    if (ui.repeat === 'one') ui.position = 0;
-    else step(1, true);
-  }
+  if (playing) engine.play();
+  else engine.pause();
   emit('player');
 }
 
@@ -89,8 +97,7 @@ function step(direction: 1 | -1, auto = false): void {
   if (target >= queue.length) {
     if (auto && ui.repeat === 'off') {
       setPlaying(false);
-      ui.position = 0;
-      emit('player');
+      seek(0);
       return;
     }
     target = 0;

@@ -89,6 +89,7 @@ const es: Record<string, string> = {
   'manager.menu.copy.device': 'Copiar a un dispositivo…',
   'manager.menu.cover': 'Cambiar portada…',
   'manager.menu.delete': 'Eliminar',
+  'manager.openFolder': 'Abrir carpeta',
   'manager.row.fold': 'Plegar',
   'manager.row.unfold': 'Desplegar',
   'manager.delete.title': 'Eliminar playlist',
@@ -97,9 +98,55 @@ const es: Record<string, string> = {
   'manager.delete.all': 'Eliminar todo (archivos + registro)',
   'manager.delete.onlyRecord': 'Eliminar solo el registro',
   'manager.copy.title': 'Copiar playlist',
-  'manager.copy.header': '¿Copiar "{0}" ({1}) a otra carpeta?',
   'manager.copy.body': 'La copia lleva la música junto con su soundify-playlist.json: esa carpeta se puede importar tal cual en otro ordenador.',
   'manager.copy.confirm': 'Copiar',
+  'manager.copy.button': 'Copiar',
+  'manager.copy.chooseTarget': '¿Dónde quieres copiar "{0}" ({1})?',
+  'manager.copy.confirmHeader': '¿Copiar "{0}" ({1}) a {2}?',
+  'manager.copy.registerCheckbox': 'Registrar también en el Gestor',
+  'manager.copy.progressTitle': 'Copiando "{0}" ({1})',
+  'manager.copy.cancelled': 'Copia cancelada: se ha deshecho lo copiado ({0} archivo(s)), no queda nada nuevo en el destino.',
+  'manager.copy.done': 'Listo. {0} archivo(s) copiado(s){1}{2}. En {3} — esa carpeta ya se puede llevar a otro disco e importar desde allí.',
+  'manager.copy.doneSkipped': ', {0} ya estaban',
+  'manager.copy.doneMissing': ', {0} sin archivo',
+  'manager.copy.alreadyThere': 'Esta playlist ya está copiada en {0} — no se ha exportado nada nuevo.',
+  'manager.copy.failed': 'No se pudo copiar: {0}',
+  'manager.copy.registered': 'Registrada en el Gestor.',
+  'manager.copy.alreadyRegistered': 'Ya estaba registrada en el Gestor — solo se han actualizado los archivos.',
+  'manager.copy.registerFailed': 'La copia salió bien, pero no se ha podido registrar en el Gestor.',
+  'manager.import.chooseFolder': 'Elige la carpeta de la playlist, o una que contenga varias',
+  'manager.import.nothingFound': 'En "{0}" no hay ninguna playlist de Soundify (ni dentro de sus subcarpetas): esa carpeta no tiene ningún {1}. Vuelve a pulsar "Importar" y elige la carpeta de la música, o la que las contenga a todas.',
+  'manager.import.nothingNew.one': 'Ahí no hay nada nuevo: esa playlist ya estaba registrada.',
+  'manager.import.nothingNew.many': 'Ahí no hay nada nuevo: las {0} playlists que hay ya estaban registradas.',
+  'manager.import.confirmTitle': 'Importar playlists',
+  'manager.import.confirmHeader': 'Se han encontrado {0} playlists nuevas',
+  'manager.import.confirmBody': 'Se registrarán las siguientes:{0}{1}\n\nLos archivos previamente descargados se mantienen: no se descargarán de nuevo.',
+  'manager.import.confirmOmitted': '\n\n({0} más ya estaban registradas y se omiten.)',
+  'manager.import.andMore': '\n  • …y {0} más',
+  'manager.import.confirmButton': 'Importar',
+  'manager.import.one': '"{0}" ({1}) importada: {2} de {3} archivo(s) ya están en la carpeta{4}{5}',
+  'manager.import.onePending': 'y quedan {0} pendiente(s) — pulsa "Sincronizar" para bajarlos.',
+  'manager.import.oneComplete': '. No falta ninguno.',
+  'manager.import.oneAlready': '({0} más ya estaban registradas.)',
+  'manager.import.noneImported': 'No se importó ninguna: {0}',
+  'manager.import.summary': '{0} playlist(s) importadas{1}{2}{3}',
+  'manager.import.summaryAlready': ', {0} ya estaban registradas',
+  'manager.import.summaryFailed': ', {0} con problemas',
+  'manager.import.summaryPending': '. Quedan {0} archivo(s) pendiente(s) en total.',
+
+  'transfer.preparing': 'Preparando...',
+  'transfer.cancel': 'Cancelar',
+  'transfer.cancelling': 'Cancelando: se termina el archivo en curso para no dejarlo a medias...',
+  'transfer.progress': '{0} de {1}: {2}',
+  'transfer.noFolder': 'Este archive no tiene carpeta asociada.',
+  'transfer.sameFolder': 'Esa es la carpeta donde ya está "{0}": elige otra distinta para copiarla.',
+  'transfer.notEnoughSpace': 'No hay espacio suficiente en el destino: hacen falta {0} y quedan {1}.',
+  'transfer.noManifest': 'En esa carpeta no hay ningún {0} — elige la carpeta de la playlist que generó "Copiar playlist".',
+  'transfer.newerSchema': 'Ese fichero lo generó una versión más nueva de Soundify (formato {0}, esta entiende hasta el {1}).',
+  'transfer.alreadyRegistered': '"{0}" ({1}) ya está registrada en esa carpeta. Bórrala desde el Gestor o importa en otra carpeta.',
+  'transfer.driveRoot': 'No se puede importar desde la raíz de una unidad: mueve la carpeta de la playlist dentro de otra carpeta.',
+  'transfer.folderMissing': 'Falta la carpeta "{0}": el manifiesto la nombra pero no está por ninguna parte.',
+  'transfer.ioError': '{0}',
 
   'player.title': 'Reproductor',
   'player.description': 'Escucha las playlists que tienes en local. Sigue sonando aunque cambies de pantalla.',
@@ -228,6 +275,16 @@ const es: Record<string, string> = {
   'songs.status.pending': 'Pendiente',
   'songs.status.failed': 'Con fallo',
   'songs.status.unavailable': 'No disponible',
+  'songs.status.unavailableWithReason': 'No disponible, {0}',
+  'unavailable.accountTerminated': 'cuenta del autor cerrada',
+  'unavailable.copyright': 'retirado por copyright',
+  'unavailable.privateVideo': 'vídeo privado',
+  'unavailable.removedByUploader': 'borrado por el autor',
+  'unavailable.membersOnly': 'solo para miembros del canal',
+  'unavailable.ageRestricted': 'restringido por edad',
+  'unavailable.geoBlocked': 'bloqueado en tu país',
+  'unavailable.liveEnded': 'directo ya terminado',
+  'unavailable.generic': 'no disponible en YouTube',
   'songs.totalFiles': '{0} archivo(s) en total',
 
   'help.import.title': 'Importar playlists',
@@ -253,6 +310,14 @@ const es: Record<string, string> = {
   'relative.weeks': 'hace {0} semanas',
   'relative.months': 'hace {0} meses',
 };
+
+export function hasKey(key: string): boolean {
+  return key in es;
+}
+
+export function keys(): string[] {
+  return Object.keys(es);
+}
 
 /** The text for `key`, with {0}, {1}… replaced by `args`. A missing key shows itself, so it gets noticed. */
 export function t(key: string, ...args: (string | number)[]): string {
