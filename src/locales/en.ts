@@ -274,7 +274,7 @@ export const en: Record<string, string> = {
   'settings.about.license': 'License',
   'settings.about.license.desc': 'Free software: you can use it, study it and modify it. If you pass it on, it has to stay free.',
   'settings.about.tools': 'Third-party tools',
-  'settings.about.author': 'Developed by DgtSoftware',
+  'settings.about.author': 'Developed by DannyGT97',
   'common.select': 'Select',
   'common.remove': 'Remove',
   'common.cancel': 'Cancel',

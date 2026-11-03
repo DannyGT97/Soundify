@@ -8,7 +8,7 @@ import type {
   CopyOutcome, CopyProgress, CreatedPlaylist, DeleteResult, DeviceEntry, DeviceTarget, DownloadNotice, DownloadRequest, ExportResult, PlayerMemory, Preferences, TaskOrigin,
 } from '../types';
 import { emit, ui, type TaskStatus } from '../../state';
-import { activityLog, AUDIO_FORMATS, playlists, VIDEO_FORMATS } from './data';
+import { activityLog, AUDIO_FORMATS, importedPlaylist, playlists, VIDEO_FORMATS } from './data';
 import { mockTools } from './tools';
 
 let timer: number | undefined;
@@ -41,12 +41,15 @@ export const mockApi: Api = {
     found: 2,
     candidates: [{ folder: `${folder}\\Lo-fi para estudiar`, title: 'Lo-fi para estudiar', format: 'mp3' }],
   }),
-  importPlaylists: async folders => folders.map(folder => ({
-    folder,
-    result: { title: 'Lo-fi para estudiar', format: 'mp3', total: 12, downloaded: 10, pending: 2 },
-    error: null,
-    alreadyRegistered: false,
-  })),
+  importPlaylists: async folders => folders.map(folder => {
+    const playlist = importedPlaylist();
+    return {
+      folder,
+      result: { title: playlist?.title ?? 'Lo-fi para estudiar', format: 'mp3', total: 12, downloaded: 10, pending: 2 },
+      error: null,
+      alreadyRegistered: false,
+    };
+  }),
   revealFolder: () => {},
   deletePlaylistFormat,
   // One made-up phone, always connected, with a playlist already on it to import.

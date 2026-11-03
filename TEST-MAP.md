@@ -33,7 +33,7 @@ Estados: **portado** · **pendiente (fase N)** · **descartado** (con el motivo)
 |---|---|---|
 | `PlaylistTransferTest` | `core/src/transfer/tests.rs` (43: manifiesto, copiar, reintentar, cancelar, espacio libre, importar, `findImportable`, `relinkFromManifest`, `keepWhatWasKnown`) | portado; los casos de `null` en argumentos no aplican (Rust no los admite) |
 | — (estaba en `PlaylistManagerController`) | `src/transfer.test.ts` (textos y tono del resultado de copiar e importar, lista de la confirmación con su tope) | nuevo |
-| — | `e2e/transfer.spec.ts` (copiar con confirmación y progreso, cancelar, importar desde la ayuda) | nuevo |
+| — | `e2e/transfer.spec.ts` (copiar con confirmación y progreso, cancelar, importar desde la ayuda, regresión: importar con el Gestor vacío enseña la playlist sin salir de la pantalla — `?mockLibrary=empty` arranca el mock sin playlists) | nuevo |
 
 ## Fase 3
 | Java | Tauri | Estado |

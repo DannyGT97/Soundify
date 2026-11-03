@@ -28,10 +28,18 @@ import { errorText } from '../transfer';
 export function managerView(params: Params): HTMLElement {
   if (params.open) ui.expandedPlaylists.add(params.open);
   const list = h('div', { class: 'stack-14' });
+  const empty = h('section', { class: 'card stack-14' },
+    h('p', { class: 'subtitle', text: t('manager.empty') }),
+    h('p', { class: 'subtitle', text: t('manager.empty.recover') }),
+    h('div', { class: 'row center-x' }, h('button', { class: 'secondary-button', text: t('manager.findPlaylists'), onclick: openImportHelp })));
   let shape = '';
+  // Empty or not is decided on every render, not once on arrival: importing
+  // from the empty screen filled the rows while the empty card stayed on
+  // show, until leaving and coming back.
   const render = () => {
     shape = liveShape();
-    list.replaceChildren(...library.playlists.map(playlistRow));
+    if (library.playlists.length) list.replaceChildren(...library.playlists.map(playlistRow));
+    else list.replaceChildren(empty);
   };
   // Every percent emits `tasks`: rebuilding the rows each time restarted the
   // outline's sweep and took the focus off a button under the pointer. Only a
@@ -47,16 +55,12 @@ export function managerView(params: Params): HTMLElement {
   const importButton = h('button', { class: 'secondary-button', onclick: openImportHelp },
     icon('import', 16), h('span', { text: t('manager.import') }));
 
-  const empty = h('section', { class: 'card stack-14' },
-    h('p', { class: 'subtitle', text: t('manager.empty') }),
-    h('p', { class: 'subtitle', text: t('manager.empty.recover') }),
-    h('div', { class: 'row center-x' }, h('button', { class: 'secondary-button', text: t('manager.findPlaylists'), onclick: openImportHelp })));
 
   return h('div', { class: 'screen' },
     h('div', { class: 'screen-head' },
       titleRow('manager', t('manager.title'), h('div', { class: 'grow' }), importButton),
       h('p', { class: 'subtitle', text: t('manager.description') })),
-    library.playlists.length ? list : empty);
+    list);
 }
 
 // The row just unfolded by hand: only its blocks slide in. Rebuilt by a

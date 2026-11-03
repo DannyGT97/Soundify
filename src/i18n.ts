@@ -287,7 +287,7 @@ export const es: Record<string, string> = {
   'settings.about.license': 'Licencia',
   'settings.about.license.desc': 'Software libre: puedes usarlo, estudiarlo y modificarlo. Si lo distribuyes, tiene que seguir siéndolo.',
   'settings.about.tools': 'Herramientas de terceros',
-  'settings.about.author': 'Desarrollado por DgtSoftware',
+  'settings.about.author': 'Desarrollado por DannyGT97',
   'common.select': 'Seleccionar',
   'common.remove': 'Quitar',
   'common.cancel': 'Cancelar',
