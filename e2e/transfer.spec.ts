@@ -35,6 +35,18 @@ test('importing from the help window ends in a notice', async ({ page }) => {
   await expect(page.locator('.toast-success')).toContainText('importada');
 });
 
+test('regression: importing into an empty Gestor shows the playlist without leaving the screen', async ({ page }) => {
+  await page.goto('/?mockLibrary=empty#/manager');
+  await expect(page.getByRole('button', { name: 'Buscar playlists…' })).toBeVisible();
+
+  await page.getByRole('button', { name: 'Buscar playlists…' }).click();
+  await page.getByRole('button', { name: 'Explorar archivos' }).click();
+
+  await expect(page.locator('.toast-success')).toContainText('importada');
+  await expect(page.locator('.pm-row-header').filter({ hasText: 'Chill de domingo' })).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Buscar playlists…' })).toBeHidden();
+});
+
 test('copying to a phone goes through the picker and names where it went', async ({ page }) => {
   await page.goto('/#/manager?open=pl1');
   await page.locator('.pm-copy-button').first().click();

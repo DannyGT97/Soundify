@@ -46,7 +46,8 @@ function block(playlistId: string, format: string, numbered: boolean, sync: bool
   };
 }
 
-export const playlists: Playlist[] = [
+/** Every playlist the mock knows; `playlists` is the ones registered right now. */
+const SEED: Playlist[] = [
   {
     id: 'pl1', title: 'Chill de domingo', folder: 'D:\\Música\\Chill de domingo',
     formats: [
@@ -67,6 +68,19 @@ export const playlists: Playlist[] = [
     formats: [block('pl4', 'OPUS', false, true, '28/10/2026 07:55', tracks(4, 15, { pending: 3 }))],
   },
 ];
+
+// `?mockLibrary=empty` opens on a Gestor with nothing in it, the way a new
+// portable starts, so importing into it can be seen.
+const emptyLibrary = typeof location !== 'undefined' && new URLSearchParams(location.search).get('mockLibrary') === 'empty';
+
+export const playlists: Playlist[] = emptyLibrary ? [] : [...SEED];
+
+/** What importing a folder registers: a seed playlist the library lacks. */
+export function importedPlaylist(): Playlist | undefined {
+  const missing = SEED.find(seed => !playlists.some(p => p.id === seed.id));
+  if (missing) playlists.push(missing);
+  return missing;
+}
 
 export const activityLog = [
   '[download] Downloading playlist: Chill de domingo',

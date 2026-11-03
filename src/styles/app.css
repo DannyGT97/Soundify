@@ -423,7 +423,10 @@ select.input { cursor: pointer; }
   padding: 12px; font: 12px/1.5 Consolas, monospace; color: var(--sp-text); white-space: pre-wrap;
 }
 
-.update-notes { flex: none; min-height: 160px; max-height: 340px; }
+.update-notes {
+  max-height: 340px; overflow-y: auto; background: var(--sp-card); border-radius: 8px;
+  padding: 12px 14px; color: var(--sp-text); font-size: 13px; line-height: 1.6; white-space: pre-wrap;
+}
 
 .help-step { display: flex; gap: 12px; align-items: flex-start; }
 .help-step p { color: var(--sp-text); }

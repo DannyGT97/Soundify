@@ -1,8 +1,8 @@
 {
   "$schema": "../node_modules/@tauri-apps/cli/config.schema.json",
   "productName": "Soundify",
-  "version": "1.0.0",
-  "identifier": "dtg.software.soundify",
+  "version": "1.0.1",
+  "identifier": "com.dannygt97.soundify",
   "build": {
     "frontendDist": "../dist",
     "devUrl": "http://localhost:5180",

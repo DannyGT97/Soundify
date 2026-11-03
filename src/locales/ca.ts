@@ -274,7 +274,7 @@ export const ca: Record<string, string> = {
   'settings.about.license': 'Llicència',
   'settings.about.license.desc': 'Programari lliure: pots usar-lo, estudiar-lo i modificar-lo. Si el distribueixes, ho ha de continuar sent.',
   'settings.about.tools': 'Eines de tercers',
-  'settings.about.author': 'Desenvolupat per DgtSoftware',
+  'settings.about.author': 'Desenvolupat per DannyGT97',
   'common.select': 'Selecciona',
   'common.remove': 'Treu',
   'common.cancel': 'Cancel·la',
