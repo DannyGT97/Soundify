@@ -1,9 +1,10 @@
 import { h } from '../dom';
+import { appVersion } from '../appInfo';
 import { t } from '../i18n';
 import { icon, type IconName } from '../icons';
 import { navigate, type Route } from '../router';
-import { subscribe, ui } from '../state';
-import { percent } from '../tasks';
+import { subscribeWhile, ui } from '../state';
+import { percent, statusMark } from '../tasks';
 import { openTasksOverlay } from '../overlays/tasks';
 import { openOverlay } from './overlay';
 import { themePicker } from './themePicker';
@@ -50,7 +51,7 @@ export function buildSidebar(): HTMLElement {
   const footer = h('div', { class: 'sidebar-bottom' }, buildTasksPill(), buildMiniPlayer(),
     h('div', { class: 'sidebar-separator' }),
     navButton('settings', 'nav.settings', 'settings'),
-    h('div', { class: 'sidebar-version' }, h('span', { class: 'sidebar-version-text grow', text: `${t('nav.version')} ${t('app.version')}` }),
+    h('div', { class: 'sidebar-version' }, h('span', { class: 'sidebar-version-text grow', text: `${t('nav.version')} ${appVersion()}` }),
       h('button', { class: 'theme-button', title: t('settings.interface.theme'), onclick: () => openOverlay(t('settings.interface.theme'), [themePicker()]) }, icon('palette', 17))));
   sidebar.append(h('div', { class: 'sidebar-header' }, wordmark, toggle), nav, h('div', { class: 'grow' }), footer);
   sidebar.classList.toggle('collapsed', ui.sidebarCollapsed);
@@ -74,10 +75,10 @@ function buildTasksPill(): HTMLElement {
   const pill = h('button', { class: 'tasks-pill', title: t('tasks.title'), onclick: openTasksOverlay }, ring, h('div', { class: 'tasks-pill-text' }, title, sub));
   const refresh = () => {
     const task = ui.task; pill.hidden = !task && !ui.unseenResult;
-    if (task) { const pct = percent(); ring.replaceChildren(progressRing(pct)); title.textContent = pct === null ? t('tasks.pill.preparing') : t('tasks.pill.downloading', pct); sub.textContent = task.title; }
-    else if (ui.unseenResult) { const ok = ui.unseenResult === 'ok'; ring.replaceChildren(icon(ok ? 'ok' : 'stopped', 18)); title.textContent = ok ? t('tasks.pill.ok') : t('tasks.pill.stopped'); sub.textContent = ui.history[0]?.title ?? ''; }
+    if (task) { const pct = percent(); ring.replaceChildren(progressRing(pct)); title.textContent = task.step === 'retry' ? t('tasks.pill.retry') : pct === null ? t('tasks.pill.preparing') : t('tasks.pill.downloading', pct); sub.textContent = task.title; }
+    else if (ui.unseenResult) { const status = ui.unseenResult, mark = statusMark(status); ring.replaceChildren(h('span', { class: `mark-${status}` }, icon(mark.icon, 18))); title.textContent = t(`tasks.pill.${status}`); sub.textContent = ui.history[0]?.title ?? ''; }
   };
-  subscribe('tasks', refresh); refresh(); return pill;
+  subscribeWhile(pill, 'tasks', refresh); refresh(); return pill;
 }
 function progressRing(pct: number | null): SVGSVGElement {
   const ns = 'http://www.w3.org/2000/svg', svg = document.createElementNS(ns, 'svg');
@@ -87,19 +88,27 @@ function progressRing(pct: number | null): SVGSVGElement {
   if (pct === null) svg.classList.add('ring-spin'); return svg;
 }
 function buildMiniPlayer(): HTMLElement {
-  const art = h('div', { class: 'mini-cover' }), title = h('b', { class: 'ellipsis' }), meta = h('span', { class: 'ellipsis' });
+  // Cover and title open Reproduciendo; the playlist's name, that playlist in the Reproductor.
+  const art = h('div', { class: 'mini-cover', onclick: () => navigate('now-playing') });
+  const title = h('b', { class: 'ellipsis player-link', onclick: () => navigate('now-playing') });
+  const meta = h('span', { class: 'ellipsis player-link', title: t('nowPlaying.openPlaylist'), onclick: () => {
+    if (ui.nowPlaying) navigate('player', { b: ui.nowPlaying.blockKey });
+  } });
   const toggle = h('button', { class: 'mini-play', title: t('player.play'), onclick: player.togglePlay });
   const progress = h('div', { class: 'mini-progress' });
   const mini = h('div', { class: 'mini-player' }, art, h('div', { class: 'mini-text' }, title, meta), toggle, progress);
+  let shownKey = '';
   const refresh = () => {
     const np = ui.nowPlaying; mini.hidden = !np || !['side', 'both'].includes(ui.playerPlacement); if (!np) return;
     const found = findBlock(np.blockKey); title.textContent = np.track.title; meta.textContent = found?.playlist.title ?? '';
-    art.replaceChildren(cover(np.track.title, found?.block.video ?? false, 40));
+    // Only when the track changes: this runs on every tick, and a new tile would fetch its picture again.
+    const key = `${np.blockKey}/${np.track.id}`;
+    if (key !== shownKey) { shownKey = key; art.replaceChildren(cover(np.track.title, found?.block.video ?? false, 40, { kind: 'thumbnail', id: np.track.id })); }
     toggle.replaceChildren(icon(ui.playing ? 'pause' : 'play', 16, true));
     toggle.title = t(ui.playing ? 'player.pause' : 'player.play');
-    progress.style.setProperty('--mini-progress', `${Math.min(100, ui.position / np.track.seconds * 100)}%`);
+    progress.style.setProperty('--mini-progress', `${ui.duration > 0 ? Math.min(100, ui.position / ui.duration * 100) : 0}%`);
   };
-  subscribe('player', refresh); subscribe('player-placement', refresh); refresh(); return mini;
+  subscribeWhile(mini, 'player', refresh); subscribeWhile(mini, 'player-placement', refresh); refresh(); return mini;
 }
 
 

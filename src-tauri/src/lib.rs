@@ -1,45 +1,157 @@
 // The commands are thin: every piece of logic lives in `soundify-core`, which
-// knows nothing of Tauri. The download pipeline (yt-dlp, ffmpeg, deno) joins
-// them in later phases of MIGRATION-PLAN.md.
+// knows nothing of Tauri.
 
 mod app_paths;
+mod app_update;
+mod bootstrap;
 mod commands;
+mod covers;
+mod devices;
+mod downloads;
+mod mtp;
+mod process;
+mod tools;
 
 use std::sync::Arc;
 
 use soundify_core::archive::ArchiveStore;
-use soundify_core::clock;
+use soundify_core::cover_art::ThumbnailFetcher;
+use soundify_core::http::{Http, ReqwestHttp};
+use soundify_core::engine::tasks::BackgroundTasks;
+use soundify_core::logs::FileLogger;
+use soundify_core::{clock, task_history};
 use soundify_core::storage::LocalStorage;
+use tauri::{Emitter, Manager};
 
 use app_paths::AppPaths;
 use commands::AppState;
 
+/// A panic used to close the app leaving nothing in the log: it only went to
+/// the console, which the portable does not have. Now it is written down
+/// first, and then the usual handling goes on.
+fn log_panics() {
+  let previous = std::panic::take_hook();
+  std::panic::set_hook(Box::new(move |info| {
+    log::error!("The app panicked: {info}\n{}", std::backtrace::Backtrace::force_capture());
+    log::logger().flush();
+    previous(info);
+  }));
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
+  // The staged copy of a new version only swaps the app and leaves.
+  if app_update::apply_if_asked() {
+    return;
+  }
   let paths = AppPaths::resolve();
+  // First of all: everything after this can already leave a trace.
+  if let Err(e) = FileLogger::new(&paths.logs(), clock::system()).install() {
+    eprintln!("No log files: {e}");
+  }
+  log_panics();
+  // Started properly: the way back of the last update is no longer needed.
+  app_update::clean_up(&paths);
   let archives = ArchiveStore::new(Arc::new(LocalStorage), paths.archives(), clock::system());
-
-  // Startup reconciliation (the Java Bootstrap): which ids still have a file.
-  // Off the main thread, and never fatal: the library is "last known state".
-  let reconciling = archives.clone();
-  std::thread::spawn(move || {
-    reconciling.reconcile_all();
-  });
+  let phone = mtp::current();
+  let tools = bootstrap::start(&paths, &archives, &phone);
+  let history = task_history::load(&LocalStorage, &paths.task_history());
 
   tauri::Builder::default()
     .plugin(tauri_plugin_dialog::init())
     .plugin(tauri_plugin_opener::init())
-    .manage(AppState { paths, archives, copy_cancelled: Default::default() })
+    .manage(app_update::AppUpdates::default())
+    .manage(AppState {
+      paths,
+      archives,
+      phone,
+      copy_cancelled: Default::default(),
+      health: tools.health,
+      progress: tools.progress,
+      formats: tools.formats,
+      tools: tools.paths,
+      installing: Default::default(),
+      downloads: downloads::Downloads::new(BackgroundTasks::new(clock::system(), history)),
+    })
+    .setup(|app| {
+      // Problems noted down before the front listens are asked for with
+      // `tool_health`; this carries the ones that come later.
+      let handle = app.handle().clone();
+      app.state::<AppState>().health.on_problem(Box::new(move |key| {
+        let _ = handle.emit("tool-health", key);
+      }));
+      let handle = app.handle().clone();
+      app.state::<AppState>().progress.on_change(Box::new(move |downloads| {
+        let _ = handle.emit("tool-downloads", downloads);
+      }));
+
+      // The covers: the thumbnails' cache and the picked covers (inside the
+      // archives) are the only local pictures the webview loads.
+      let paths = &app.state::<AppState>().paths;
+      let thumbnails = paths.thumbnails();
+      covers::allow_folder(app.handle(), &thumbnails);
+      if let Some(archives) = paths.archives().as_path() {
+        covers::allow_folder(app.handle(), archives);
+      }
+      // Without an HTTP client there are no thumbnails, and nothing else is
+      // lost: the `thumbnail` command fails and the gradient tile stays.
+      match ReqwestHttp::new(env!("CARGO_PKG_VERSION")) {
+        Ok(http) => {
+          let handle = app.handle().clone();
+          let http: Arc<dyn Http> = Arc::new(http);
+          app.manage(ThumbnailFetcher::new(thumbnails, http, move |id| {
+            let _ = handle.emit("thumbnail-ready", id);
+          }));
+        }
+        Err(e) => log::warn!("No HTTP client for the thumbnails: {e}"),
+      }
+      app_update::check_at_startup(app.handle());
+      Ok(())
+    })
     .invoke_handler(tauri::generate_handler![
       commands::list_playlists,
       commands::formats,
-      commands::task_history,
+      commands::tool_health,
+      commands::tool_downloads,
+      tools::tools_report,
+      tools::install_tool,
+      tools::check_ytdlp_update,
+      tools::open_tools_folder,
+      commands::tasks_view,
       commands::clear_task_history,
+      commands::set_tasks_window_open,
+      commands::start_download,
+      commands::create_playlist,
+      commands::stop_download,
+      commands::activity_log,
+      commands::clear_activity,
       commands::settings,
+      commands::preferences,
+      commands::save_preferences,
+      commands::reset_preferences,
+      commands::pick_cookies_file,
+      commands::file_exists,
+      commands::player_memory,
+      commands::save_player_memory,
       commands::copy_playlist,
       commands::cancel_copy,
       commands::scan_import,
       commands::import_playlists,
+      commands::first_video_id,
+      commands::delete_playlist_format,
+      devices::list_devices,
+      devices::list_device_folder,
+      devices::open_device_folder,
+      devices::create_device_playlist,
+      devices::copy_to_device,
+      devices::copy_from_device,
+      devices::scan_device_import,
+      devices::import_from_device,
+      app_update::check_app_update,
+      app_update::install_app_update,
+      covers::thumbnail,
+      covers::pick_cover_image,
+      covers::set_cover,
     ])
     .run(tauri::generate_context!())
     .expect("error while running tauri application");

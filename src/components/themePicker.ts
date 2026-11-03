@@ -1,6 +1,7 @@
 import { h } from '../dom';
 import { t } from '../i18n';
-import { setTheme, type Theme, ui } from '../state';
+import { type Theme, ui } from '../state';
+import { chooseTheme } from '../preferences';
 
 const THEMES: { id: Theme; label: string; official: boolean }[] = [
   { id: 'dark', label: 'theme.dark', official: true },
@@ -23,7 +24,7 @@ export function themePicker(): HTMLElement {
     const sample = h('div', { class: 'theme-swatch', attrs: { 'data-theme': theme.id } }, h('i'), h('i'));
     const label = h('span', { class: 'theme-option-label' }, h('span', { text: t(theme.label) }), theme.official ? h('small', { text: t('theme.official') }) : null);
     const button = h('button', { class: 'theme-option', attrs: { role: 'radio', 'data-theme': theme.id } }, sample, label);
-    button.addEventListener('click', () => { setTheme(theme.id); refresh(); });
+    button.addEventListener('click', () => { chooseTheme(theme.id); refresh(); });
     grid.append(button);
   }
   refresh();

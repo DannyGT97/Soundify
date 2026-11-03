@@ -6,6 +6,8 @@
 
 use indexmap::IndexMap;
 
+use crate::cover_art;
+
 /// The literal phrase YouTube returns when the authenticated account (the
 /// configured cookies) has no permission to see THAT particular playlist — a
 /// genuine sign of "expired cookies, or the wrong account", different from a
@@ -91,7 +93,7 @@ pub fn playlist_title(output: &str) -> Option<String> {
 
 /// The video id in a [`first_video_id_args`] output, if it looks like one.
 pub fn first_video_id(output: &str) -> Option<String> {
-    first_non_diagnostic_line(output).filter(|id| is_video_id(id)).map(str::to_string)
+    first_non_diagnostic_line(output).filter(|id| cover_art::is_video_id(id)).map(str::to_string)
 }
 
 /// The entries in a [`playlist_entries_args`] output, in playlist order. The
@@ -182,6 +184,17 @@ pub fn parse_supported_list(help_text: &str, option_marker: &str) -> Vec<String>
     result
 }
 
+/// The app's formats that this yt-dlp really supports, in the app's order
+/// (the Java `DownloadPathResolver.availableAudioFormats`). An empty
+/// `supported` means "could not check", so everything is offered: hiding every
+/// format because `--help` changed shape would leave nothing to download with.
+pub fn filter_supported(all: &[&'static str], supported: &[String]) -> Vec<&'static str> {
+    if supported.is_empty() {
+        return all.to_vec();
+    }
+    all.iter().copied().filter(|format| supported.iter().any(|s| s.eq_ignore_ascii_case(format))).collect()
+}
+
 // === HELPERS ===
 
 fn flat_first_item_args(field: &str, url: &str, cookies_file: Option<&str>) -> Vec<String> {
@@ -211,10 +224,6 @@ fn first_non_diagnostic_line(output: &str) -> Option<&str> {
         .lines()
         .map(str::trim)
         .find(|l| !l.is_empty() && !l.starts_with('[') && !l.starts_with("WARNING:") && !l.starts_with("ERROR:"))
-}
-
-fn is_video_id(s: &str) -> bool {
-    s.len() == 11 && s.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'_' || b == b'-')
 }
 
 #[cfg(test)]
@@ -377,5 +386,16 @@ mod tests {
         assert!(args.windows(2).any(|w| w[0] == "--cookies" && w[1] == "c.txt"));
         assert!(!playlist_title_args("u", None).contains(&"--cookies".to_string()));
         assert_eq!(probe_unavailable_args("abc", None).last().unwrap(), "https://www.youtube.com/watch?v=abc");
+    }
+
+    #[test]
+    fn filters_the_app_formats_by_what_yt_dlp_supports() {
+        let supported = vec!["wav".to_string(), "mp3".to_string()];
+        assert_eq!(filter_supported(&["MP3", "OPUS", "WAV"], &supported), ["MP3", "WAV"]);
+    }
+
+    #[test]
+    fn nothing_known_about_yt_dlp_offers_every_format() {
+        assert_eq!(filter_supported(&["MP3", "OPUS"], &[]), ["MP3", "OPUS"]);
     }
 }

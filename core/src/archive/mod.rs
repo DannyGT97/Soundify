@@ -4,11 +4,13 @@
 //!
 //! [`ArchiveStore`] is the facade; the work lives in [`io`] (disk), [`sync`]
 //! (recording downloads, finding files again, numbering), [`query`] (reads for
-//! the interface) and [`maintenance`] (startup reconciliation and deleting).
+//! the interface), [`maintenance`] (startup reconciliation and deleting) and
+//! [`device`] (the same for a playlist whose music lives on a phone).
 //!
 //! Entries are never deleted: they only get dates stamped. The single source of
 //! truth is the JSON; `archive.txt` is regenerated from it for yt-dlp.
 
+pub mod device;
 pub mod io;
 pub mod maintenance;
 pub mod query;
@@ -16,6 +18,7 @@ pub mod sync;
 
 use std::collections::{HashMap, HashSet};
 use std::io::Result;
+use std::path::Path;
 use std::sync::Arc;
 
 use log::info;
@@ -27,6 +30,7 @@ pub use sync::TitleCollision;
 
 use crate::Location;
 use crate::clock::{self, Clock};
+use crate::device::PortableDevice;
 use crate::model::{ArchiveData, ArchiveEntry};
 use crate::storage::Storage;
 use crate::transfer;
@@ -327,6 +331,88 @@ impl ArchiveStore {
         Ok(())
     }
 
+    /// The device twin of [`Self::register_playlist`]: the music goes to a
+    /// phone, so there is no local folder, only where on the device it lives.
+    #[allow(clippy::too_many_arguments)]
+    pub fn register_device_playlist(
+        &self,
+        phone: &dyn PortableDevice,
+        scratch: &Path,
+        json: &Location,
+        url: Option<&str>,
+        title: Option<&str>,
+        target: &crate::device::DeviceTarget,
+        id_to_title: &[(String, String)],
+        number_files_if_new: bool,
+    ) -> Result<()> {
+        let is_new = !self.storage.exists(json)?;
+        let mut data = self.load(json)?;
+        if let Some(url) = url.filter(|u| !u.trim().is_empty()) {
+            data.url = Some(url.to_string());
+        }
+        if let Some(title) = title.filter(|t| !t.trim().is_empty()) {
+            data.title = Some(title.to_string());
+        }
+        set_device(&mut data, target);
+        if is_new {
+            data.number_files = number_files_if_new;
+        }
+        self.add_missing_entries(&mut data, id_to_title);
+        let now = self.now();
+        data.last_synced_at = Some(now.clone());
+        self.save(json, &data)?;
+        io::export_work_file(self.storage(), &Self::txt_for(json)?, &data)?;
+        transfer::device::write_manifest_quietly(self.storage(), phone, json, scratch, &now);
+        info!("Device playlist registered ({} known ids): {json}", id_to_title.len());
+        Ok(())
+    }
+
+    /// The loose downloads sent to a device folder: only where they go.
+    pub fn register_device_individual(&self, json: &Location, target: &crate::device::DeviceTarget) -> Result<()> {
+        let mut data = self.load(json)?;
+        set_device(&mut data, target);
+        self.save(json, &data)?;
+        io::export_work_file(self.storage(), &Self::txt_for(json)?, &data)
+    }
+
+    /// One file pushed to the device, persisted as soon as it lands (the
+    /// device twin of [`Self::register_single`]).
+    pub fn register_device_single(
+        &self,
+        json: &Location,
+        id: &str,
+        device_file_name: &str,
+        title: Option<&str>,
+        number: Option<&str>,
+    ) -> Result<()> {
+        let mut data = self.load(json)?;
+        if !data.entries.contains_key(id) {
+            let entry = self.new_entry();
+            data.entries.insert(id.to_string(), entry);
+        }
+        let entry = data.entries.get_mut(id).expect("inserted above");
+        entry.device_file_name = Some(device_file_name.to_string());
+        entry.deleted_at = None;
+        entry.unavailable_at = None;
+        entry.unavailable_reason = None;
+        entry.last_failed_at = None;
+        entry.last_failed_reason = None;
+        if let Some(title) = title.filter(|t| !t.trim().is_empty()) {
+            // A title that is only the id (yt-dlp did not say) never replaces
+            // a real one already known.
+            let has_real_title = entry.title.as_deref().is_some_and(|t| !t.trim().is_empty() && t != id);
+            if title != id || !has_real_title {
+                entry.title = Some(title.to_string());
+            }
+        }
+        let number = number.filter(|n| !n.trim().is_empty());
+        if let Some(number) = number {
+            entry.number = Some(number.to_string());
+        }
+        sync::bump_last_number(&mut data, number);
+        self.save(json, &data)
+    }
+
     fn add_missing_entries(&self, data: &mut ArchiveData, id_to_title: &[(String, String)]) -> usize {
         let mut added = 0;
         for (id, title) in id_to_title {
@@ -458,14 +544,35 @@ impl ArchiveStore {
         maintenance::reconcile_all(self.storage(), &self.archives, &self.now())
     }
 
-    pub fn delete_all_downloaded_files(&self, json: &Location) -> DeleteResult {
-        maintenance::delete_all_downloaded_files(self.storage(), json)
+    /// The startup pass for the device archives: the caller runs it on a
+    /// thread of its own, a phone that does not answer never delays startup.
+    pub fn reconcile_device_archives(&self, phone: &dyn PortableDevice, scratch: &Path) -> Vec<Location> {
+        device::reconcile_device_archives(self.storage(), phone, &self.archives, scratch, &self.now())
+    }
+
+    /// Right before syncing a device playlist: what is really on the phone now.
+    pub fn reconcile_device_archive_now(&self, phone: &dyn PortableDevice, json: &Location) -> bool {
+        device::reconcile_device_archive(self.storage(), phone, json, &self.now())
+    }
+
+    /// "Eliminar todo": the folder on disk, or on the phone for a device playlist.
+    pub fn delete_all_downloaded_files(&self, phone: &dyn PortableDevice, json: &Location) -> DeleteResult {
+        match self.load(json) {
+            Ok(data) if data.is_device_backed() => device::delete_all_from_device(self.storage(), phone, &data),
+            _ => maintenance::delete_all_downloaded_files(self.storage(), json),
+        }
     }
 
     /// Never deletes music files.
     pub fn forget_playlist_format(&self, json: &Location) {
         maintenance::forget_playlist_format(self.storage(), json)
     }
+}
+
+fn set_device(data: &mut ArchiveData, target: &crate::device::DeviceTarget) {
+    data.device_id = Some(target.device_id.clone());
+    data.device_name = Some(target.device_name.clone());
+    data.device_path = Some(target.path.clone());
 }
 
 #[cfg(test)]

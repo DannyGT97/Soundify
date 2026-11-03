@@ -1,10 +1,11 @@
 /// <reference types="vite/client" />
 import { describe, expect, it } from 'vitest';
-import { hasKey, keys } from './i18n';
+import { DICTIONARIES, hasKey, keys } from './i18n';
 
 // The front's twin of the Java app's I18nKeysTest: a key used in the code and
 // missing from the dictionary shows the raw key on screen, and nothing else fails.
 
+const rustSources = import.meta.glob<string>(['../core/src/**/*.rs', '../src-tauri/src/**/*.rs'], { query: '?raw', import: 'default', eager: true });
 const sources = import.meta.glob<string>(['./**/*.ts', '!./**/*.test.ts'], { query: '?raw', import: 'default', eager: true });
 
 function matches(pattern: RegExp): { file: string; key: string }[] {
@@ -31,6 +32,36 @@ describe('i18n keys', () => {
     // Keys stored in tables and translated later (the menu's entries, settings tabs).
     const named = matches(/\b(?:label|labelKey|titleKey|captionKey|key):\s*'([a-z][\w-]*(?:\.[\w-]+)+)'/g);
     expect(named.length).toBeGreaterThan(0);
+    expect(named.filter(({ key }) => !hasKey(key))).toEqual([]);
+  });
+
+  it('the three languages carry the same keys, none of them empty', () => {
+    // A key only in Spanish would show Spanish in the middle of an English screen.
+    const reference = Object.keys(DICTIONARIES.es).sort();
+    for (const [language, dictionary] of Object.entries(DICTIONARIES)) {
+      expect(Object.keys(dictionary).sort(), language).toEqual(reference);
+      expect(Object.entries(dictionary).filter(([, text]) => !text.trim()).map(([key]) => key), language).toEqual([]);
+    }
+  });
+
+  it('a translation keeps the {n} placeholders of the Spanish text', () => {
+    const placeholders = (text: string) => [...text.matchAll(/\{\d\}/g)].map(m => m[0]).sort().join();
+    for (const [language, dictionary] of Object.entries(DICTIONARIES)) {
+      const broken = Object.keys(DICTIONARIES.es).filter(key => placeholders(dictionary[key] ?? '') !== placeholders(DICTIONARIES.es[key] ?? ''));
+      expect(broken, language).toEqual([]);
+    }
+  });
+
+  it('every key the back hands over exists', () => {
+    // The back names keys too (error messages, the tools notice). A Rust string
+    // literal in one of the dictionary's namespaces has to be a real key.
+    const all = keys();
+    const namespaces = new Set(all.map(k => k.split('.')[0]));
+    const named = Object.entries(rustSources).flatMap(([file, text]) =>
+      [...text.matchAll(/"([a-z][A-Za-z]*\.[A-Za-z][\w.]*)"/g)].map(m => ({ file, key: m[1] ?? '' })))
+      // File names ("settings.json") share a namespace's first word.
+      .filter(({ key }) => namespaces.has(key.split('.')[0] ?? '') && !/\.(json|txt|exe|zip|jpg)$/.test(key));
+    expect(named.some(({ key }) => key === 'toolHealth.willFail')).toBe(true);
     expect(named.filter(({ key }) => !hasKey(key))).toEqual([]);
   });
 });

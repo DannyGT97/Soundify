@@ -142,7 +142,7 @@ select.input { cursor: pointer; }
 .ring-arc { fill: none; stroke: var(--sp-accent); stroke-width: 3; stroke-linecap: round; transform: rotate(-90deg); transform-origin: 13px 13px; }
 .ring-spin { animation: spin 1s linear infinite; }
 .tasks-mark { width: 26px; flex: none; display: inline-flex; align-items: center; justify-content: center; }
-.mark-ok { color: var(--sp-success); } .mark-stopped { color: var(--sp-muted); }
+.mark-ok { color: var(--sp-success); } .mark-stopped { color: var(--sp-muted); } .mark-warning { color: var(--sp-warn); } .mark-failed { color: var(--sp-error); }
 .mini-player { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; padding: 7px; border-radius: 9px; background: var(--sp-field); white-space: nowrap; }
 .mini-cover { width: 40px; height: 40px; flex: none; }
 .mini-text { min-width: 0; flex: 1; display: flex; flex-direction: column; }
@@ -175,19 +175,22 @@ select.input { cursor: pointer; }
   overflow-y: auto; margin-bottom: 16px;
 }
 .summary-art {
-  aspect-ratio: 1; border-radius: 8px; display: flex; align-items: center; justify-content: center;
+  position: relative; overflow: hidden; aspect-ratio: 1; border-radius: 8px; display: flex; align-items: center; justify-content: center;
   background: radial-gradient(circle at 65% 25%, var(--sp-summary-a), var(--sp-summary-b) 48%, var(--sp-summary-c));
 }
 .summary-note { display: inline-flex; color: color-mix(in srgb, var(--sp-white) 80%, transparent); }
 
 .status-strip { border-radius: 8px; padding: 12px 14px; font-weight: 700; font-size: 12px; }
+.status-strip.warning { background: color-mix(in srgb, var(--sp-warn) 14%, transparent); border: 1px solid color-mix(in srgb, var(--sp-warn) 45%, transparent); color: var(--sp-text-strong); }
 .status-strip.danger { background: color-mix(in srgb, var(--sp-error) 13%, transparent); border: 1px solid color-mix(in srgb, var(--sp-error) 40%, transparent); color: var(--sp-text-strong); }
 
 /* Covers: the gradient tile with the initial (green audio, violet video). */
 .cover {
   flex: none; border-radius: 6px; display: flex; align-items: center; justify-content: center;
-  color: var(--sp-white); font-weight: 800; overflow: hidden;
+  color: var(--sp-white); font-weight: 800; overflow: hidden; position: relative;
 }
+/* The real picture over the tile, placed by `covers.ts` (percentages of the tile). */
+.cover-img { position: absolute; max-width: none; pointer-events: none; }
 .cover-audio { background: linear-gradient(135deg, var(--sp-cover-a), var(--sp-cover-b)); }
 .cover-video { background: linear-gradient(135deg, var(--sp-video-a), var(--sp-video-b)); }
 
@@ -212,13 +215,40 @@ select.input { cursor: pointer; }
 .pm-row-header:hover { background: var(--sp-nav-hover); }
 .chevron { display: inline-flex; color: var(--sp-muted); transition: transform 0.2s; }
 .chevron.open { transform: rotate(90deg); }
-.pm-blocks { display: flex; flex-direction: column; gap: 10px; padding: 10px 18px 18px; animation: enter 0.2s ease-out; }
+.pm-blocks { display: flex; flex-direction: column; gap: 10px; padding: 10px 18px 18px; }
+.pm-blocks.entering { animation: enter 0.2s ease-out; }
 .pm-block { background: var(--sp-field); border-radius: 8px; padding: 14px; display: flex; flex-direction: column; gap: 10px; }
 .pm-block .secondary-button { background: var(--sp-card); }
 .pm-block .secondary-button:hover { background: var(--sp-icon-btn-hover); }
 .pm-actions { flex-wrap: wrap; }
 .pm-actions .primary-button, .pm-actions .secondary-button { white-space: nowrap; }
 .pm-copy-button .icon { color: var(--sp-muted); }
+/* The playlist being downloaded: the row says it even folded, the block that
+   downloads is outlined (with a light that runs along its border) and its
+   siblings step back while they wait. */
+.pm-row.active { border-color: color-mix(in srgb, var(--sp-live) 35%, transparent); position: relative; overflow: hidden; }
+.pm-row-bar.progress { height: 3px; border-radius: 0; position: absolute; left: 0; right: 0; bottom: 0; background: transparent; }
+.pm-live { display: inline-flex; align-items: center; gap: 6px; flex: none; padding: 3px 9px; border-radius: 10px; font-size: 11px; font-weight: 800;
+  color: var(--sp-live); background: color-mix(in srgb, var(--sp-live) 14%, transparent); white-space: nowrap; }
+.pm-live-dot { width: 7px; height: 7px; border-radius: 50%; background: var(--sp-live); animation: live-pulse 1.3s ease-in-out infinite; animation-delay: var(--live-phase, 0s); }
+@keyframes live-pulse { 50% { opacity: .35; transform: scale(.75); } }
+.pm-block { position: relative; border: 1px solid transparent; transition: opacity .2s; }
+.pm-block.active { border-color: var(--sp-live);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--sp-live) 18%, transparent), 0 0 22px color-mix(in srgb, var(--sp-live) 14%, transparent); }
+.pm-block.active::before { content: ""; position: absolute; inset: -1px; border-radius: 9px; padding: 1px; pointer-events: none;
+  background: conic-gradient(from var(--sweep-angle), transparent 0 70%, var(--sp-glint) 85%, transparent 100%);
+  -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0); -webkit-mask-composite: xor; mask-composite: exclude;
+  animation: sweep 2.6s linear infinite; animation-delay: var(--live-phase, 0s); }
+@property --sweep-angle { syntax: "<angle>"; inherits: false; initial-value: 0deg; }
+@keyframes sweep { to { --sweep-angle: 360deg; } }
+.pm-block.waiting { opacity: .72; }
+.pm-badge { padding: 3px 8px; border-radius: 10px; font-size: 11px; font-weight: 800; color: var(--sp-on-live); background: var(--sp-live); }
+.pm-row.active .progress-fill { background: var(--sp-live); }
+/* Ended well: green for a moment, then it fades by itself. */
+.pm-block.done { border-color: var(--sp-success); box-shadow: 0 0 0 3px color-mix(in srgb, var(--sp-success) 16%, transparent);
+  animation: done-fade 3s forwards; animation-delay: var(--done-delay, 1.2s); }
+@keyframes done-fade { to { border-color: transparent; box-shadow: none; } }
+@media (prefers-reduced-motion: reduce) { .pm-block.active::before, .pm-live-dot { animation: none; } }
 .pm-numbered-icon { display: inline-flex; align-items: center; justify-content: center; color: var(--sp-muted); }
 .pm-numbered-icon.off { opacity: .75; }
 .pm-delete { background: transparent; color: var(--sp-error); }
@@ -273,6 +303,8 @@ select.input { cursor: pointer; }
 .np-screen { position: relative; padding: 0; overflow: hidden; }
 .np-backdrop { position: absolute; inset: 0; overflow: hidden; border-radius: 10px; display: flex; align-items: center; justify-content: center; }
 .np-backdrop .cover { width: 140% !important; height: 140% !important; filter: blur(60px); }
+/* Lets the theme's own background show through the blurred picture. */
+.np-backdrop { opacity: 0.6; }
 .np-tint { position: absolute; inset: 0; border-radius: 10px; background: linear-gradient(to bottom, var(--sp-backdrop-top), var(--sp-backdrop-bottom)); }
 .np-content { position: relative; flex: 1; display: flex; flex-direction: column; gap: 16px; padding: 18px 20px 24px; min-height: 0; }
 .np-art { flex: 1; min-height: 0; display: flex; align-items: center; justify-content: center; }
@@ -281,8 +313,35 @@ select.input { cursor: pointer; }
   width: min(100%, 720px); aspect-ratio: 16 / 9; background: var(--sp-black); border-radius: 10px;
   display: flex; align-items: center; justify-content: center; color: color-mix(in srgb, var(--sp-white) 53%, transparent); font-size: 48px;
 }
+/* The player's own element, moved in: it fills the box and letterboxes inside
+   it, so the video's size never becomes the box's (the Java MediaView did). */
+.np-art .np-media { width: 100%; height: 100%; object-fit: contain; background: var(--sp-black); border-radius: 10px; }
 .np-info { display: flex; flex-direction: column; align-items: center; gap: 4px; text-align: center; }
 .np-title { color: var(--sp-text-strong); font-size: 22px; font-weight: 800; }
+.np-controls { display: flex; align-items: center; gap: 12px; width: min(100%, 680px); margin: 0 auto; }
+.np-controls .player-center { margin: 0; }
+.np-controls .np-fullscreen-button { flex: none; }
+.np-controls .player-volume { flex: none; }
+.np-controls .player-slider { width: 90px; }
+/* Full screen: this screen covers the whole window, the video fills it and
+   the controls float over its bottom edge, fading while the mouse rests. */
+.np-screen.np-fullscreen { position: fixed; inset: 0; z-index: 900; background: var(--sp-black); border-radius: 0; }
+.np-fullscreen .np-tint, .np-fullscreen .np-head, .np-fullscreen .np-info { display: none; }
+.np-fullscreen .np-content { padding: 0; }
+.np-fullscreen .np-art .np-media, .np-fullscreen .np-video { width: 100%; height: 100%; border-radius: 0; }
+.np-fullscreen .np-controls {
+  position: absolute; left: 0; right: 0; bottom: 0; width: auto; padding: 28px 24px 18px;
+  background: linear-gradient(to top, color-mix(in srgb, var(--sp-black) 85%, transparent), transparent);
+  transition: opacity 0.3s;
+}
+.np-fullscreen .np-controls .player-center { max-width: none; }
+.np-fullscreen .player-control, .np-fullscreen .player-time { color: color-mix(in srgb, var(--sp-white) 80%, transparent); }
+.np-fullscreen .player-play { background: var(--sp-white); color: var(--sp-black); }
+.np-fullscreen.np-idle { cursor: none; }
+.np-fullscreen.np-idle .np-controls { opacity: 0; }
+.player-link { cursor: pointer; }
+.player-link:hover { text-decoration: underline; color: var(--sp-text-strong); }
+.mini-cover { cursor: pointer; }
 
 /* === SETTINGS === */
 .settings-search { width: 280px; min-width: 160px; }
@@ -291,6 +350,7 @@ select.input { cursor: pointer; }
   padding: 8px 16px; display: inline-flex; align-items: center; gap: 8px;
 }
 .settings-tab:hover { background: var(--sp-nav-hover); }
+.tab-badge { background: var(--sp-warn); color: var(--sp-bg); border-radius: 9px; font-size: 11px; font-weight: 800; min-width: 18px; padding: 1px 6px; text-align: center; }
 .settings-tab.active { background: var(--sp-text-strong); color: var(--sp-bg); }
 .settings-card { gap: 10px; transition: box-shadow 0.3s, border-color 0.3s; }
 .settings-card.highlight { border-color: var(--sp-accent); box-shadow: 0 0 0 2px var(--sp-accent); }
@@ -316,6 +376,7 @@ select.input { cursor: pointer; }
 .player-time { color: var(--sp-muted); font-size: 11px; min-width: 40px; }
 .player-progress .player-time:first-child { text-align: right; }
 .player-right { display: flex; align-items: center; justify-content: flex-end; gap: 8px; width: 300px; min-width: 200px; }
+.player-volume { display: flex; align-items: center; gap: 8px; }
 .player-volume-icon { display: inline-flex; color: var(--sp-muted); }
 .player-slider {
   --filled: 0%; appearance: none; flex: 1; height: 4px; border-radius: 2px; cursor: pointer; margin: 0;
@@ -362,6 +423,8 @@ select.input { cursor: pointer; }
   padding: 12px; font: 12px/1.5 Consolas, monospace; color: var(--sp-text); white-space: pre-wrap;
 }
 
+.update-notes { flex: none; min-height: 160px; max-height: 340px; }
+
 .help-step { display: flex; gap: 12px; align-items: flex-start; }
 .help-step p { color: var(--sp-text); }
 .help-step-number {
@@ -370,9 +433,12 @@ select.input { cursor: pointer; }
 }
 .help-note { background: var(--sp-card); border-left: 3px solid var(--sp-accent); border-radius: 6px; padding: 10px 12px; color: var(--sp-muted); font-size: 12px; }
 
-.device-list { display: flex; flex-direction: column; gap: 2px; min-height: 120px; }
+.device-list { display: flex; flex-direction: column; gap: 2px; min-height: 120px; max-height: 280px; overflow-y: auto; }
 .device-folder { display: flex; align-items: center; gap: 10px; padding: 8px 10px; border-radius: 6px; text-align: left; }
 .device-folder:hover { background: var(--sp-nav-hover); }
+.device-limits summary { cursor: pointer; width: fit-content; }
+.device-limits summary:hover { color: var(--sp-text); }
+.device-limits[open] > .stack { margin-top: 12px; }
 
 .table-wrap { flex: 1; min-height: 0; overflow: auto; border-radius: 8px; background: var(--sp-card); }
 .files-table { width: 100%; border-collapse: collapse; }
@@ -384,7 +450,11 @@ select.input { cursor: pointer; }
 .files-table .num { width: 60px; color: var(--sp-muted); }
 .files-toolbar { flex-wrap: wrap; }
 .files-table tr.is-playing td { background: var(--sp-nav-selected); }
+/* A file that just came down while the window was open: which one it was, for a moment. */
+.files-table tr.just-landed td { animation: landed 2.4s ease-out; }
+@keyframes landed { from { background: color-mix(in srgb, var(--sp-success) 22%, transparent); } }
 .files-table tr.is-playing .file-title-cell { color: var(--sp-accent); font-weight: 700; }
+.files-table .file-title-cell .cover { flex: none; border-radius: 4px; }
 .file-action-heading, .file-action-cell { width: 92px; text-align: center !important; }
 .file-play-button { width: 32px; height: 32px; border-radius: 50%; display: inline-flex; align-items: center; justify-content: center; color: var(--sp-text); }
 .file-play-button:hover:not(:disabled) { background: var(--sp-nav-hover); color: var(--sp-accent); }
@@ -425,7 +495,20 @@ select.input { cursor: pointer; }
 .toast-error > .icon { color: var(--sp-error); }
 .toast-neutral { background: var(--sp-panel-bottom); border-color: var(--sp-line); }
 .toast-text { flex: 1; min-width: 0; }
+.toast-action { color: var(--sp-accent); font-weight: 800; white-space: nowrap; padding: 3px 4px; }
+.toast-action:hover { text-decoration: underline; }
 .toast-close { color: var(--sp-muted); display: inline-flex; padding: 3px; }
 .toast-leaving { animation: toast-out .18s ease-in forwards; }
 @keyframes toast-in { from { opacity: 0; transform: translateY(6px); } }
 @keyframes toast-out { to { opacity: 0; transform: translateY(6px); } }
+/* A state that stays on its card (not a notice): the same green and amber as the notices. */
+.help.status-text-ok { color: var(--sp-success); }
+.help.status-text-warn { color: var(--sp-warn); }
+
+/* === TOOLS (first-start assistant) === */
+.tools-row { display: flex; align-items: center; gap: 14px; padding: 10px 12px; border-radius: 9px; background: var(--sp-field); }
+.tools-chip { white-space: nowrap; }
+.tools-chip-busy { color: var(--sp-accent); }
+.tools-chip-ok { color: var(--sp-success); }
+.tools-chip-warn { color: var(--sp-warn); }
+.tools-chip-error { color: var(--sp-error); }

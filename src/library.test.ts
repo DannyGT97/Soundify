@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import type { Playlist, Status, Track } from './api';
 import { hasKey } from './i18n';
-import { countBy, findBlock, onDisk, statusText } from './library';
+import { countBy, findBlock, groupByStatus, onDisk, statusText } from './library';
 
 function track(id: string, status: Status): Track {
   return { id, number: 1, title: id, addedDaysAgo: 0, seconds: 100, status };
@@ -25,6 +25,12 @@ describe('library helpers', () => {
 
   it('keeps only the files on disk, in their order', () => {
     expect(onDisk(tracks).map(tr => tr.id)).toEqual(['a', 'c']);
+  });
+
+  it('groups by state with the downloaded files first, keeping the playlist order inside each group', () => {
+    const mixed = [track('a', 'pending'), track('b', 'ok'), track('c', 'unavailable'), track('d', 'failed'), track('e', 'ok')];
+    expect(groupByStatus(mixed).map(tr => tr.id)).toEqual(['b', 'e', 'a', 'd', 'c']);
+    expect(mixed.map(tr => tr.id)).toEqual(['a', 'b', 'c', 'd', 'e']);
   });
 
   it('finds a block by its key, with its playlist', () => {

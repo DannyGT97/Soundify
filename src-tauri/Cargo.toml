@@ -1,6 +1,6 @@
 [package]
 name = "soundify"
-version = "0.1.0"
+version = "1.0.0"
 description = "Soundify: descarga y organiza tu música"
 license = "GPL-3.0-or-later"
 repository = "https://github.com/DannyGT97/Soundify"
@@ -19,7 +19,16 @@ soundify-core = { path = "../core" }
 chrono = { version = "0.4", default-features = false, features = ["clock", "std"] }
 serde_json = "1.0"
 serde = { version = "1.0", features = ["derive"] }
-tauri = { version = "2.12.5", features = [] }
+tauri = { version = "2.12.5", features = ["protocol-asset"] }
 tauri-plugin-dialog = "2"
 tauri-plugin-opener = "2"
 log = "0.4"
+
+[target.'cfg(windows)'.dependencies]
+windows = { version = "0.62", features = [
+  "Win32_System_Com",
+  "Win32_System_Ole",
+  "Win32_System_Variant",
+  "Win32_UI_Shell",
+  "Win32_UI_Shell_Common",
+] }

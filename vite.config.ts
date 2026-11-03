@@ -11,7 +11,9 @@ export default defineConfig({
     strictPort: true,
     host: host || false,
     hmr: host ? { protocol: 'ws', host, port: 5181 } : undefined,
-    watch: { ignored: ['**/src-tauri/**'] },
+    // Cargo's workspace target lives at the root since `core/` exists: watching it
+    // makes Vite crash with EBUSY on a .dll being written by the build.
+    watch: { ignored: ['**/src-tauri/**', '**/core/**', '**/target/**'] },
   },
   build: { target: 'es2022' },
 });

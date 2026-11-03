@@ -1,10 +1,13 @@
 // Every text the user sees comes from here, never written inside a view.
-// Spanish only for now; English and Catalan join with the same keys once the
-// views settle (the Java app keeps es/en/ca in step).
+// Spanish is the reference; English and Catalan (src/locales/) carry the same
+// keys, and a test keeps the three in step, like the Java app's I18nKeysTest.
 
-const es: Record<string, string> = {
+import { ca } from './locales/ca';
+import { en } from './locales/en';
+
+export const es: Record<string, string> = {
   'app.description': 'Descarga playlists y vídeos de YouTube fácilmente y guárdalos localmente.',
-  'app.version': 'v1.4',
+  'app.unknownVersion': 'desconocida',
 
   'nav.group.download': 'Descargar',
   'nav.group.library': 'Biblioteca',
@@ -64,7 +67,21 @@ const es: Record<string, string> = {
   'newPlaylist.numbered': 'numerada',
   'newPlaylist.notNumbered': 'sin numerar',
   'newPlaylist.cover.change': 'Cambiar portada…',
+  'newPlaylist.cover.title': 'Portada de la playlist',
+  'newPlaylist.cover.failed': 'La playlist se creó, pero no se pudo guardar su portada.',
+  'cover.choose.title': 'Portada de «{0}»',
+  'cover.choose.filter': 'Imágenes',
+  'cover.choose.failed': 'No se pudo usar esa imagen como portada.',
   'newPlaylist.missingFields': 'Rellena la URL y la carpeta antes de continuar.',
+  'newPlaylist.notAPlaylist': 'Esto no parece una URL de playlist — para un vídeo suelto, usa «Descarga por URL».',
+  'newPlaylist.querying': 'Consultando la playlist...',
+  'newPlaylist.cookiesExpired': 'Las cookies configuradas ya no dan acceso a esta playlist — lo más probable es que hayan caducado (o sean de otra cuenta). Vuelve a exportarlas desde tu navegador y actualiza el fichero en Ajustes → Avanzado.',
+  'newPlaylist.queryFailed': 'No se pudo consultar la playlist. Si es privada o no listada, comprueba que las cookies de Ajustes → Avanzado sean de la cuenta que tiene acceso a ella (sesión reciente, no caducada) — si es pública, revisa la URL o tu conexión.',
+  'newPlaylist.registered': '"{0}" registrada ({1} vídeo(s) listados).',
+  'newPlaylist.registeredGenericName': 'Registrada con nombre genérico ("{0}") — no se pudo obtener el título real. {1} vídeo(s) listados.',
+  'newPlaylist.registerFailed': 'Error al registrar la playlist: {0}',
+  'newPlaylist.numberMode.sameFormat': 'Ya estaba registrada en esta carpeta y este formato: se mantiene su modo ({0}), que no se puede cambiar. Para tenerla del otro modo, regístrala en otra carpeta.',
+  'newPlaylist.numberMode.otherFormat': 'Se ha heredado el modo de los otros formatos ya registrados de esta misma playlist y carpeta ({0}).',
 
   'manager.title': 'Gestor de Playlists',
   'manager.description': 'Playlists que ya conoces en local, una fila por playlist+carpeta. El estado que se ve aquí es siempre el último conocido — para comprobar de verdad si hay algo nuevo o pendiente, pulsa "Sincronizar" en el formato que quieras.',
@@ -82,6 +99,10 @@ const es: Record<string, string> = {
   'manager.sync': 'Sincronizar',
   'manager.update': 'Actualizar',
   'manager.viewFiles': 'Ver archivos',
+  'manager.live.prepare': 'Preparando {0}…',
+  'manager.live.download': 'Descargando {0} · {1}/{2}',
+  'manager.live.retry': 'Segunda pasada {0}',
+  'manager.block.downloading': 'Descargando',
   'manager.numbered': 'Archivos numerados',
   'manager.notNumbered': 'Archivos sin numerar',
   'manager.menu.more': 'Más opciones',
@@ -94,7 +115,7 @@ const es: Record<string, string> = {
   'manager.row.unfold': 'Desplegar',
   'manager.delete.title': 'Eliminar playlist',
   'manager.delete.header': '{0} — {1} archivo(s) registrados',
-  'manager.delete.body': '"Eliminar todo" vacía la carpeta de esta playlist+formato y se la lleva, junto con el registro interno — no se puede deshacer.\n\n"Eliminar solo el registro" no toca ningún fichero de música, solo olvida el archive interno.',
+  'manager.delete.body': '"Eliminar todo" vacía la carpeta de esta playlist+formato y se la lleva, junto con el registro interno — no se puede deshacer.\n\nSe borra todo lo que haya dentro, incluidos los archivos que la app no tenga registrados (restos de descargas anteriores):\n{0}\n\n"Eliminar solo el registro" no toca ningún fichero de música, solo olvida el archive interno — la próxima vez que descargues esta playlist en esta carpeta, empezará de cero.',
   'manager.delete.all': 'Eliminar todo (archivos + registro)',
   'manager.delete.onlyRecord': 'Eliminar solo el registro',
   'manager.copy.title': 'Copiar playlist',
@@ -174,6 +195,8 @@ const es: Record<string, string> = {
   'nowPlaying.title': 'Reproduciendo',
   'nowPlaying.openPlaylist': 'Ver la playlist',
   'nowPlaying.empty': 'No suena nada. Elige una playlist en el Reproductor.',
+  'nowPlaying.fullscreen': 'Pantalla completa',
+  'nowPlaying.exitFullscreen': 'Salir de pantalla completa',
 
   'settings.title': 'Ajustes',
   'settings.search.placeholder': 'Buscar ajustes...',
@@ -218,6 +241,32 @@ const es: Record<string, string> = {
   'settings.updates.title': 'Actualizaciones',
   'settings.updates.check.desc': 'Comprueba si hay nuevas versiones disponibles.',
   'settings.updates.checkNow': 'Buscar actualizaciones',
+  'update.available.heading': '🔄 Hay una versión nueva: {0}',
+  'update.available.from': 'Tienes instalada la {0}. Al instalarla, Soundify se cerrará y volverá a abrirse solo. Tus ajustes, tus playlists y tu música no se tocan.',
+  'update.available.trust': 'Antes de instalar nada se comprueba que la descarga sea auténtica (huella y firma digital). Si no lo es, no se instala.',
+  'update.available.noNotes': 'Esta versión se publicó sin notas.',
+  'update.available.install': '↓ Descargar e instalar',
+  'update.available.later': 'Ahora no',
+  'update.signatureEmpty': 'La firma publicada está vacía.',
+  'update.signatureInvalid': 'La firma no es válida: esa descarga no la ha publicado quien tiene la clave de firma de Soundify.',
+  'update.badHashFile': 'El fichero de hash publicado no tiene forma de SHA-256.',
+  'update.hashMismatch': 'El SHA-256 no coincide con el publicado (esperado {0}, calculado {1}).',
+  'update.untrustedSource': 'Esa descarga no sale del repositorio de Soundify en GitHub: {0}',
+  'update.keyUnreadable': 'No se pudo leer la clave de firma: {0}',
+  'update.emptyZip': 'El ZIP descargado está vacío.',
+  'update.noAppInZip': 'El ZIP descargado no contiene {0}.',
+  'update.ioError': '{0}',
+  'update.devBuild': 'esta es una compilación de desarrollo y no hay un portable que sustituir.',
+  'update.nothingFound': 'no hay ninguna versión nueva pendiente; vuelve a buscar.',
+  'settings.updates.checking': 'Comprobando si hay una versión nueva...',
+  'settings.updates.upToDate': 'Estás al día (v{0}).',
+  'settings.updates.checkFailed': 'No se pudo comprobar: {0}. Puede ser un problema de conexión — vuelve a intentarlo más tarde.',
+  'settings.updates.downloading': 'Descargando {0}... {1}%',
+  'settings.updates.verified': 'Descarga verificada. Preparando la instalación...',
+  'settings.updates.installing': 'Instalando {0}. Soundify se cerrará y volverá a abrirse solo.',
+  'settings.updates.installFailed': 'No se ha instalado nada: {0}',
+  'settings.updates.checkAgain': 'Buscar ahora',
+  'settings.updates.downloadAndInstall': 'Descargar e instalar {0}',
   'settings.updates.auto': 'Actualizaciones automáticas',
   'settings.updates.auto.desc': 'Comprueba una vez al día si hay una versión nueva. La consulta no envía ningún dato tuyo; solo pregunta qué versión hay publicada.',
   'settings.advanced.cookies': 'Cookies de YouTube',
@@ -226,6 +275,15 @@ const es: Record<string, string> = {
   'settings.advanced.reset': 'Reset configuración',
   'settings.advanced.reset.desc': 'Restablece todos los ajustes a valores predeterminados.',
   'settings.advanced.reset.button': 'Reset',
+  'settings.advanced.reset.confirm.title': 'Restablecer configuración',
+  'settings.advanced.reset.confirm.header': '¿Restablecer todos los ajustes?',
+  'settings.advanced.reset.confirm.body': 'Tema, idioma, escala de la interfaz, carpeta de descargas y archivo de cookies vuelven a sus valores de fábrica. No se puede deshacer.\n\nTu música, tus playlists y su registro no se tocan.',
+  'settings.advanced.reset.done': 'Configuración restablecida. Los cambios ya están aplicados.',
+  'settings.cookies.ok': '✓ Cookies configuradas correctamente.',
+  'settings.cookies.missing': '⚠ El archivo no existe en la ruta indicada.',
+  'settings.cookies.none': 'Sin cookies configuradas — playlists limitadas a 100 archivos.',
+  'settings.cookies.fileFilter': 'Archivo de cookies',
+  'settings.cookies.chooseFile': 'Seleccionar archivo cookies.txt',
   'settings.about.license': 'Licencia',
   'settings.about.license.desc': 'Software libre: puedes usarlo, estudiarlo y modificarlo. Si lo distribuyes, tiene que seguir siéndolo.',
   'settings.about.tools': 'Herramientas de terceros',
@@ -234,6 +292,67 @@ const es: Record<string, string> = {
   'common.remove': 'Quitar',
   'common.cancel': 'Cancelar',
   'common.close': 'Cerrar',
+  // The tools notice; its {0} comes from the back (soundify_core::tools::health).
+  'toolHealth.message': '⚠️ No se ha podido preparar del todo el sistema de descargas al arrancar, así que {0}. Suele ser la conexión a internet, o un antivirus/cortafuegos bloqueando la aplicación: compruébalo y vuelve a abrirla. El detalle está en la carpeta data/logs.',
+  'toolDownloads.message': 'Descargando las herramientas que necesitan las descargas: {0}. Puedes seguir usando la app; para descargar, espera a que termine y no la cierres mientras tanto.',
+  'settings.nav.tools': 'Herramientas',
+  'settings.tools.subtitle': 'Los programas que usa Soundify para descargar. Viven en data/systemtools, dentro de la carpeta de la app.',
+  'settings.tools.installMissing': 'Instalar lo que falta',
+  'settings.tools.openFolder': 'Abrir carpeta',
+  'settings.tools.loading': 'Comprobando las herramientas…',
+  'settings.tools.system': 'En este sistema se usan el yt-dlp, el ffmpeg y el Deno instalados en el propio sistema: la app no los instala ni los actualiza.',
+  'settings.tools.failed': '✕ Falló la descarga',
+  'settings.tools.installed': '✓ Instalado · Versión {0}',
+  'settings.tools.newer': 'Nueva: {0}',
+  'settings.tools.missingBundled': 'No instalado · incluido en la app',
+  'settings.tools.missing': 'No instalado · ≈ {0} MB',
+  'settings.tools.install': 'Instalar',
+  'settings.tools.update': 'Actualizar',
+  'settings.tools.checkUpdate': 'Buscar actualización',
+  'settings.tools.reinstall': 'Reinstalar',
+  'settings.tools.recommended': 'recomendado',
+  'settings.tools.autoUpdates': 'Buscar actualizaciones de yt-dlp al arrancar',
+  'settings.tools.autoUpdates.desc': 'Si hay una versión nueva, la descarga sola. YouTube cambia a menudo y un yt-dlp viejo deja de funcionar.',
+  'settings.tools.note': 'ffmpeg y Deno solo se instalan si faltan: no cambian a menudo. «Reinstalar» los vuelve a bajar por si se estropearon.',
+  'tools.ytdlp.desc': 'Es el que habla con YouTube y baja los archivos. Imprescindible.',
+  'tools.ffmpeg.desc': 'Convierte al formato elegido (MP3, M4A…) y une audio y vídeo. Imprescindible.',
+  'tools.deno.desc': 'Resuelve una comprobación de YouTube; sin él, a veces solo hay calidad baja. Recomendado.',
+  'tools.chip.downloading': 'Descargando {0}%',
+  'tools.chip.downloadingUnknown': 'Descargando…',
+  'tools.chip.copying': 'Copiando…',
+  'tools.chip.installing': 'Instalando…',
+  'tools.chip.queued': 'En cola',
+  'tools.chip.failed': '✕ Falló',
+  'tools.chip.ready': '✓ Listo · {0}',
+  'tools.chip.bundled': 'Incluido en la app',
+  'tools.chip.missing': 'Falta · ≈ {0} MB',
+  'tools.check.failed': 'No se pudo comprobar si hay un yt-dlp nuevo. Puede ser la conexión: vuelve a intentarlo más tarde.',
+  'tools.check.upToDate': '✓ {0} está al día.',
+  'tools.notice.view': 'Ver',
+  'tools.retry': 'Reintentar',
+  'tools.setup.intro.title': 'Antes de descargar',
+  'tools.setup.installing.title': 'Instalando…',
+  'tools.setup.done.title': 'Todo listo',
+  'tools.setup.failed.title': 'No se pudo completar',
+  'tools.setup.intro': 'Soundify usa tres programas gratuitos para bajar y convertir los archivos. Se guardan dentro de la carpeta de la app; no se instala nada en Windows.',
+  'tools.setup.background': 'Puedes cerrar esta ventana y seguir usando la app: el progreso seguirá en el aviso de abajo.',
+  'tools.setup.failed.text': 'Sin conexión con el servidor de descarga. Comprueba la red y reinténtalo; lo ya descargado no se pierde.',
+  'tools.setup.summary': 'Se descargarán {0} (≈ {1} MB). Puedes usar la app mientras tanto, pero no cerrarla.',
+  'tools.setup.allReady': 'Todo está listo.',
+  'tools.setup.laterHint': 'Podrás hacerlo después en Ajustes → Herramientas',
+  'tools.setup.later': 'Ahora no',
+  'tools.setup.install': 'Instalar lo necesario',
+  'tools.setup.start': 'Empezar',
+  'tools.setup.background.button': 'Seguir en segundo plano',
+  'tools.setup.start.done': 'Empezar a usar Soundify',
+  'tools.later.notice': 'Sin herramientas no se puede descargar.',
+  'tools.later.action': 'Ir a Ajustes → Herramientas',
+  'tools.error.busy': 'Esa herramienta ya se está instalando.',
+  'tools.error.failed': 'No se pudo instalar {0}: {1}',
+  'download.toolsMissing': '⚠ Faltan herramientas para descargar ({0}). Instálalas una vez y listo.',
+  'download.toolsMissing.install': 'Instalar ahora',
+  'toolHealth.willFail': 'las descargas van a fallar',
+  'toolHealth.mayFail': 'las descargas pueden fallar o salir con peor calidad',
 
   'tasks.title': 'Tareas en segundo plano',
   'tasks.running': 'En curso',
@@ -251,15 +370,80 @@ const es: Record<string, string> = {
   'tasks.origin.manager': 'Sincronización del Gestor',
   'tasks.status.ok': 'Terminada',
   'tasks.status.stopped': 'Detenida',
+  'tasks.status.warning': 'Terminada con avisos',
+  'tasks.status.failed': 'Falló',
   'tasks.pill.preparing': 'Preparando…',
   'tasks.pill.downloading': 'Descargando · {0}%',
   'tasks.pill.ok': 'Terminada',
   'tasks.pill.stopped': 'Detenida',
+  'tasks.pill.warning': 'Terminada con avisos',
+  'tasks.pill.failed': 'Falló · ver detalle',
+  'tasks.pill.retry': 'Segunda pasada…',
   'tasks.progress': 'Archivo {0} de {1}',
 
   'activity.title': 'Actividad',
   'activity.open': 'Ver actividad',
   'activity.clear': 'Limpiar',
+
+  // The download engine's messages (Activity, notices and the history): the
+  // Java app's texts and keys, so a history written by it still reads.
+  'activity.alreadyDownloaded.playlist': '✅ Ya tienes todos los archivos descargados en formato {0} de la playlist "{1}" en la carpeta seleccionada — no se ha descargado nada.',
+  'activity.alreadyDownloaded.single': '✅ Ya existe una descarga de este archivo en formato {0} en la carpeta seleccionada — no se ha descargado nada.',
+  'activity.botcheck.blocked': '⛔ Ningún player_client de YouTube ha pasado el bot-check (web_safari, web, mweb, android) — no se ha lanzado la descarga.',
+  'activity.botcheck.notice': 'YouTube está bloqueando las peticiones de esta sesión ahora mismo. Inténtalo de nuevo más tarde, o añade un fichero de cookies recién exportado en Ajustes → Avanzado.',
+  'activity.client.stoppedWorking': '⚠️ El cliente de YouTube \'{0}\' ha dejado de funcionar — se volverá a detectar en la próxima descarga.',
+  'activity.download.single': '🎵 Descarga individual',
+  'activity.error.emptyInput': '❌ URL o carpeta vacía',
+
+  'activity.error.urlNotRecognised': '❌ No se reconoce esa URL de YouTube — comprueba que sea la de un vídeo suelto',
+  'activity.error.ffmpegMissing': '❌ Falta ffmpeg, que hace falta para convertir lo descargado. Si se está descargando (lo dice el aviso con el porcentaje), espera a que termine y vuelve a intentarlo.',
+  'activity.error.startFailed': '❌ Error al iniciar la descarga: {0}',
+  'activity.folder.resuming': '📋 Carpeta con archivos existentes — continuando desde {0}',
+  'activity.manager.checkFailed': '⚠️ No se ha podido comprobar "{0}" ahora mismo — puede ser un problema de red, o que YouTube esté limitando temporalmente las peticiones.',
+  'activity.manager.cookiesExpired': '⚠️ Las cookies configuradas ya no dan acceso a "{0}" (probablemente caducadas) — no se ha podido comprobar ni actualizar. Revísalas en Ajustes → Avanzado.',
+  'activity.manager.upToDate': '✅ "{0}" ya está al día — no había nada pendiente que descargar.',
+  'activity.pending.partial': '⚡ {0} archivo(s) pendientes de {1} — descargando esos, sin recorrer las demás.',
+  'activity.playlist.checking': '🔄 Comprobando cambios en la playlist...',
+  'activity.playlist.detected': '📋 Playlist detectada: {0}',
+  'activity.playlist.titleCookiesExpired': '⚠️ Las cookies configuradas ya no dan acceso a esta playlist (probablemente caducadas) — se usará un nombre genérico (\'{0}\'). Vuelve a exportarlas en Ajustes → Avanzado.',
+  'activity.playlist.titleFailed': '⚠️ No se pudo comprobar el título de la playlist esta vez (fallo puntual de red, o YouTube limitando temporalmente tras varias consultas seguidas) — se sigue usando el nombre ya conocido (\'{0}\').',
+  'activity.playlist.titleNoAccess': '⚠️ No se pudo obtener el título real de la playlist (¿es privada y las cookies configuradas no tienen acceso a ella?) — se usará un nombre genérico (\'{0}\').',
+  'activity.retry.failedOne': '❌ No se pudo descargar "{0}": {1}',
+  'activity.retry.starting': '↻ {0} archivo(s) no se pudieron descargar en esta tanda — reintentando con otros clientes de YouTube...',
+  'activity.retry.summaryMany': '⚠️ {0} archivo(s) no se pudieron descargar (p. ej. "{1}": {2}). Míralos en "Ver archivos" — se reintentan solos en la próxima sincronización.',
+  'activity.retry.summaryOne': '⚠️ No se pudo descargar "{0}": {1}. Se reintentará sola en la próxima sincronización.',
+  'activity.stop.download': '🛑 Deteniendo descarga...',
+  'activity.stop.safetyNet': '🛑 Deteniendo segunda pasada de seguridad...',
+  'activity.sync.cookiesExpired': '⚠️ Las cookies configuradas ya no dan acceso a esta playlist (probablemente caducadas) — se omite la sincronización esta vez. Vuelve a exportarlas en Ajustes → Avanzado.',
+  'activity.sync.done': '🔄 Sincronización con la playlist actualizada.',
+  'activity.sync.failed': '⚠️ No se pudo comprobar la playlist de origen — se omite la sincronización esta vez.',
+  'activity.sync.skipped': '⚠️ No se pudo comprobar la playlist de origen al terminar — se omite esta vez.',
+  'activity.unavailable.checking': '🔎 {0} vídeo(s) de la playlist no dan ni su título — comprobando si siguen existiendo...',
+  'activity.unavailable.marked': '⛔ {0}: {1} — no se volverá a intentar.',
+  'activity.unavailable.rateLimited': '⏸️ No se ha podido comprobar {0} ahora mismo (YouTube está limitando las peticiones) — se deja como estaba y se reintenta en la próxima sincronización.',
+  'activity.unavailable.single': '⛔ No disponible en YouTube, no se volverá a intentar: {0}',
+  'activity.unavailable.summary': '⛔ {0} vídeo(s) ya no existen en YouTube (privados, borrados o de cuentas cerradas): dejan de contar como pendientes. Puedes ver el motivo de cada uno en "Ver archivos".',
+  'client.noneWorked': '⚠️ Ningún cliente de YouTube probado ha funcionado.',
+  'client.ok': '✅ Cliente de YouTube OK: {0}',
+  'client.probing': '🔍 Probando cliente de YouTube: {0}...',
+  'failReason.ageRestricted': 'tiene restricción de edad: hacen falta cookies. Añade tu cookies.txt en Ajustes → Avanzado y vuelve a sincronizar',
+  'failReason.botCheck': 'YouTube está limitando las peticiones de esta sesión. Inténtalo más tarde o añade unas cookies recientes en Ajustes → Avanzado',
+  'failReason.geoBlocked': 'está bloqueado en tu país',
+  'failReason.membersOnly': 'es contenido solo para miembros del canal: hacen falta cookies de una cuenta suscrita (Ajustes → Avanzado)',
+  'failReason.noClient': 'ningún cliente de YouTube fue válido',
+  'failReason.privateVideo': 'es un vídeo privado: solo se puede con cookies de una cuenta que tenga acceso',
+  'retry.cancelled': '🛑 Segunda pasada de seguridad cancelada.',
+  'retry.downloadedOnRetry': '✅ Descargado en el segundo intento: {0}',
+  'retry.failed': '❌ No se pudo descargar \'{0}\': {1} — se reintentará en la próxima sincronización de esta playlist.',
+  'retry.fileMissing': '⚠️ Se descargó \'{0}\' pero no se encontró el fichero resultante (ruta esperada: {1}).',
+  'retry.finished': '✅ Segunda pasada de seguridad terminada.',
+  'retry.folderGone': '❌ La carpeta de destino ya no existe, se omite: {0}',
+  'retry.nextClient': '↻ \'{0}\' no funcionó con ese cliente, probando con {1}...',
+  'retry.pathGuessed': 'ℹ️ No se encontró la ruta exacta reportada ({0}), pero se detectó un fichero recién creado que probablemente es este: {1}',
+  'retry.prepareFailed': '❌ Error preparando \'{0}\': {1}',
+  'retry.registerFailed': '⚠️ Se descargó \'{0}\' pero no se pudo registrar en el archive: {1}',
+  'retry.trying': '↻ Reintentando: {0} ({1})...',
+  'warn.titleCollision': '⚠️ {0} vídeos de esta playlist se titulan igual ("{1}") y, al no llevar número, comparten nombre de fichero — solo uno puede quedarse en la carpeta. Activa "Incluir ID\'s de descargas" en Ajustes o renómbralos a mano si los quieres todos.',
 
   'songs.groupByStatus': 'Agrupar por estado',
   'songs.searchPlaceholder': 'Buscar por título...',
@@ -304,12 +488,85 @@ const es: Record<string, string> = {
   'devicePicker.up': '⬆ Subir',
   'devicePicker.selectHere': 'Seleccionar esta carpeta',
 
-  'relative.today': 'hoy',
-  'relative.yesterday': 'ayer',
-  'relative.days': 'hace {0} días',
-  'relative.weeks': 'hace {0} semanas',
-  'relative.months': 'hace {0} meses',
+  'player.added.today': 'hoy',
+  'player.added.yesterday': 'ayer',
+  'player.added.days': 'hace {0} días',
+  'player.added.week': 'hace 1 semana',
+  'player.added.weeks': 'hace {0} semanas',
+  'player.added.month': 'hace 1 mes',
+  'player.added.months': 'hace {0} meses',
+  'player.added.year': 'hace 1 año',
+  'player.added.years': 'hace {0} años',
+  'manager.importDevice.windowTitle': 'Importar de dispositivo',
+  'manager.importDevice.scanningTitle': 'Buscando playlists…',
+  'manager.importDevice.scanning': 'Explorando el dispositivo…',
+  'manager.importDevice.importingTitle': 'Importando playlists…',
+  'manager.deleteDevice.windowTitle': 'Eliminando del dispositivo',
+  'manager.deleteDevice.title': 'Eliminando…',
+  'manager.deleteDevice.inProgress': 'Eliminando "{0}" del dispositivo…',
+  'manager.deleteLocal.windowTitle': 'Eliminando',
+  'manager.deleteLocal.inProgress': 'Eliminando "{0}"…',
+  'help.deviceLimits.link': '¿Problemas con el dispositivo?',
+  'help.deviceLimits.title': '📱 Limitaciones de USB/MTP',
+  'help.deviceLimits.intro': 'Un móvil Android conectado por USB no se comporta exactamente igual que una carpeta o una memoria normal — esto es lo que conviene saber. No son fallos de la app, es cómo Windows habla con los móviles por este sistema (MTP).',
+  'help.deviceLimits.step1': 'Tras borrar muchos archivos de golpe (por ejemplo, "Eliminar todo"), el Explorador de Windows puede tardar en enterarse, o incluso quedarse "No responde" un momento. No hace falta hacer nada especial: si no se recupera solo, desconectar y volver a conectar el cable lo arregla.',
+  'help.deviceLimits.step2': 'Una operación grande (copiar, borrar) puede tardar más de lo que parece. A veces Windows muestra su propio diálogo de fondo y hay que esperar a que termine solo, sin que la app pueda acelerarlo.',
+  'help.deviceLimits.step3': 'Si el móvil está en modo "Solo carga", aparece como conectado pero no se puede hacer nada con él. Cámbialo a "Transferencia de archivos" (o MTP) desde la notificación de USB del propio móvil.',
+  'help.deviceLimits.step4': 'Si algo falla justo después de desconectar el cable, inténtalo de nuevo tras reconectarlo: la app siempre comprueba la conexión de verdad antes de dar nada por hecho.',
+  'help.deviceLimits.note': 'Nada de esto es exclusivo de Soundify: es una limitación conocida de cómo Windows y Android se hablan por USB.',
+  'download.chooseDevice.tooltip': 'Elegir un móvil conectado por USB como destino, en vez de una carpeta',
+  'download.deviceChosen': '{0} / {1}',
+  'devicePicker.importWindowTitle': 'Elegir dónde buscar',
+  'devicePicker.copyWindowTitle': 'Elegir dónde copiar',
+  'devicePicker.noDevices': 'No se ha encontrado ningún dispositivo. Conéctalo por USB, desbloquéalo y ponlo en modo "Transferencia de archivos".',
+  'devicePicker.loading': 'Cargando...',
+  'devicePicker.root': '(raíz)',
+  'devicePicker.emptyFolder': 'Esta carpeta no tiene subcarpetas.',
+  'deviceSync.downloading': '🎵 Descargando: {0}',
+  'deviceSync.itemDownloadFailed': '❌ No se pudo descargar: {0}',
+  'deviceSync.pushing': '📱 Subiendo al dispositivo: {0}',
+  'deviceSync.pushed': '✅ Subido al dispositivo: {0}',
+  'deviceSync.pushFailed': '⚠️ No se pudo subir "{0}" al dispositivo — se reintentará en la próxima sincronización.',
+  'deviceSync.resuming': '🔄 Retomando una subida pendiente: {0}',
+  'deviceSync.cancelled': 'Sincronización con el dispositivo cancelada.',
+  'deviceSync.finished': 'Sincronización con el dispositivo completada.',
+  'deviceSync.disconnected': '⚠️ Se ha desconectado el dispositivo. Vuelva a conectarlo para reanudar la sincronización.',
+  'deviceSync.summaryOneFailed': '⚠️ No se pudo subir "{0}" al dispositivo. Se reintentará sola en la próxima sincronización.',
+  'deviceSync.summaryManyFailed': '⚠️ {0} archivo(s) no se pudieron subir al dispositivo (p. ej. "{1}"). Se reintentan solos en la próxima sincronización.',
+  'manager.openFolder.deviceFailed': '⚠️ No se pudo abrir esa carpeta en el dispositivo — comprueba que sigue conectado y desbloqueado.',
+  'manager.menu.copy.toComputer': 'Copiar a este ordenador…',
+  'manager.delete.bodyUnreachable': '⚠ La carpeta de esta playlist no está accesible ahora mismo, así que no se puede borrar ningún archivo: sus archivos siguen donde estén.\n\n"Eliminar solo el registro" olvida el archive interno sin tocar nada más. Si lo que quieres es borrar también los archivos, vuelve a conectar la unidad primero.',
+  'manager.delete.leftOver': '⚠️ Se eliminó "{0}" ({1} archivo(s)), pero {2} no se pudieron borrar — puede que estén abiertos en otro programa: {3}',
+  'manager.delete.done': '🗑 Eliminado "{0}" ({1}): {2} archivo(s) borrados y el registro.',
+  'transfer.deviceUnreachable': 'No se puede copiar: el dispositivo no está disponible ahora mismo.',
+  'transfer.copyToDeviceFailed': 'No se pudo subir "{0}" al dispositivo.',
+  'transfer.copyFromDeviceFailed': 'No se pudo bajar "{0}" del dispositivo.',
 };
+
+export type Language = 'es' | 'en' | 'ca';
+/** Each language under its own name, so whoever does not read the current one still finds theirs. */
+export const LANGUAGES: [Language, string][] = [['es', 'Español'], ['en', 'English'], ['ca', 'Català']];
+export const DICTIONARIES: Record<Language, Record<string, string>> = { es, en, ca };
+
+let current: Language = 'es';
+const listeners = new Set<() => void>();
+
+export function language(): Language {
+  return current;
+}
+
+/** Switches the texts; whoever drew some (the shell) is told so it draws them again. Unknown codes are ignored. */
+export function setLanguage(code: string): void {
+  if (!(code in DICTIONARIES) || code === current) return;
+  current = code as Language;
+  document.documentElement.lang = current;
+  listeners.forEach(listener => listener());
+}
+
+export function onLanguageChange(listener: () => void): () => void {
+  listeners.add(listener);
+  return () => listeners.delete(listener);
+}
 
 export function hasKey(key: string): boolean {
   return key in es;
@@ -319,8 +576,11 @@ export function keys(): string[] {
   return Object.keys(es);
 }
 
-/** The text for `key`, with {0}, {1}… replaced by `args`. A missing key shows itself, so it gets noticed. */
+/**
+ * The text for `key` in the current language, with {0}, {1}… replaced by
+ * `args`. A missing key shows itself, so it gets noticed.
+ */
 export function t(key: string, ...args: (string | number)[]): string {
-  const text = es[key] ?? key;
+  const text = DICTIONARIES[current][key] ?? es[key] ?? key;
   return args.reduce<string>((acc, arg, i) => acc.split(`{${i}}`).join(String(arg)), text);
 }

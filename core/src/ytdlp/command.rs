@@ -44,8 +44,8 @@ pub struct BuildConfig {
     /// Whether to number the files ("001 - Title.mp3") or not ("Title.mp3").
     /// It comes from the local playlist's archive (`numberFiles`), NOT from
     /// Settings: it is decided when registering it and does not change
-    /// afterwards. For loose downloads (not a playlist) true is passed — there
-    /// the number is still decided by the destination folder's offset.
+    /// afterwards. A loose download (not a playlist) is never numbered: it
+    /// goes into whatever folder the user picked.
     pub number_files: bool,
     pub player_client: Option<String>,
     /// yt-dlp indexes (1-based, comma-separated, "342,344,345" for instance) to

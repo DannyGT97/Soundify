@@ -3,6 +3,9 @@ import { t } from '../i18n';
 import { destinationCard, formatSelect, summaryArt, summaryPanel, summaryRow } from '../components/form';
 import { api } from '../api';
 import { isPlaylistUrl, isWebUrl } from '../urls';
+import { subscribeWhile } from '../state';
+import { missingRequired, tools } from '../tools';
+import { openToolsSetup } from '../overlays/toolsSetup';
 
 /** Descarga por URL: one video at a time. A playlist URL is pointed to the Gestor. */
 export function downloadView(): HTMLElement {
@@ -43,14 +46,32 @@ export function downloadView(): HTMLElement {
       url.classList.add('input-error');
       return;
     }
-    api.startDownload({ kind: 'single', url: url.value.trim(), format: format.value, folder: destination.field.value });
+    const target = destination.device();
+    api.startDownload(target
+      ? { kind: 'single-to-device', url: url.value.trim(), format: format.value, target }
+      : { kind: 'single', url: url.value.trim(), format: format.value, folder: destination.field.value });
   } });
+
+  // Without yt-dlp or ffmpeg nothing downloads: said here, before the click,
+  // and the button waits. Deno is only recommended and does not block.
+  const missingText = h('span', { class: 'grow' });
+  const missingNotice = h('div', { class: 'status-strip warning row center gap-10' }, missingText,
+    h('button', { class: 'primary-button', text: t('download.toolsMissing.install'), onclick: openToolsSetup }));
+  const showMissing = () => {
+    const missing = missingRequired(tools.report);
+    missingNotice.hidden = missing.length === 0;
+    missingText.textContent = t('download.toolsMissing', missing.map(tool => tool.name).join(', '));
+    start.disabled = missing.length > 0;
+  };
+  subscribeWhile(missingNotice, 'tools', showMissing);
+  showMissing();
 
   return h('div', { class: 'screen-with-summary' },
     h('div', { class: 'screen' },
       h('div', { class: 'screen-head' },
         titleRow('download', t('download.title'), h('div', { class: 'grow' }), summary.showButton),
         h('p', { class: 'subtitle', text: t('download.description') })),
+      missingNotice,
       card(stepHeading('01', t('download.url')), url, playlistHint, h('p', { class: 'help', text: t('download.source.hint') })),
       destination.card,
       card(stepHeading('03', t('download.format')), format, h('p', { class: 'help', text: t('download.format.hint') })),

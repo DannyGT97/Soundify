@@ -443,3 +443,67 @@ fn what_is_already_on_disk_is_linked_instead_of_counted_as_pending() {
 
     assert_eq!(status_of(&store, &json, "id1"), EntryStatus::Ok, "the manifest knew where it was");
 }
+
+// === DEVICE PLAYLISTS ===
+
+fn device_target() -> crate::device::DeviceTarget {
+    use crate::device::fake::{ID, NAME};
+    crate::device::DeviceTarget { device_id: ID.into(), device_name: NAME.into(), path: "Music/P (mp3)".into() }
+}
+
+#[test]
+fn a_device_playlist_is_registered_with_its_place_on_the_device_and_its_manifest() {
+    let (store, _) = store();
+    let json = path(JSON);
+    let phone = crate::device::fake::FakeDevice::new();
+    phone.mkdirs(crate::device::fake::ID, "Music/P (mp3)");
+    let scratch = tempfile::tempdir().unwrap();
+    store
+        .register_device_playlist(&phone, scratch.path(), &json, Some("https://x"), Some("P"), &device_target(), &items(&[("aaa", "A")]), true)
+        .unwrap();
+    let data = store.load(&json).unwrap();
+    assert!(data.is_device_backed());
+    assert_eq!(data.device_path.as_deref(), Some("Music/P (mp3)"));
+    assert_eq!(data.title.as_deref(), Some("P"));
+    assert!(data.number_files);
+    assert!(data.entries.contains_key("aaa"));
+    assert!(phone.file("Music/P (mp3)/soundify-playlist.json").is_some());
+}
+
+#[test]
+fn registering_a_device_file_clears_old_marks_and_bumps_the_number() {
+    let (store, _) = store();
+    let json = path(JSON);
+    store.register_device_individual(&json, &device_target()).unwrap();
+    store.mark_unavailable(&json, "aaa", "Private video").unwrap();
+    store.register_device_single(&json, "aaa", "007 - A.mp3", Some("A"), Some("007")).unwrap();
+    let data = store.load(&json).unwrap();
+    let entry = &data.entries["aaa"];
+    assert_eq!(entry.device_file_name.as_deref(), Some("007 - A.mp3"));
+    assert_eq!(entry.unavailable_at, None);
+    assert_eq!(entry.number.as_deref(), Some("007"));
+    assert_eq!(data.last_number.as_deref(), Some("007"));
+}
+
+#[test]
+fn a_title_that_is_only_the_id_never_replaces_a_real_one() {
+    let (store, _) = store();
+    let json = path(JSON);
+    store.register_device_individual(&json, &device_target()).unwrap();
+    store.register_device_single(&json, "aaa", "A.mp3", Some("A"), None).unwrap();
+    store.register_device_single(&json, "aaa", "A.mp3", Some("aaa"), None).unwrap();
+    assert_eq!(store.load(&json).unwrap().entries["aaa"].title.as_deref(), Some("A"));
+}
+
+#[test]
+fn deleting_everything_of_a_device_playlist_goes_to_the_phone() {
+    let (store, _) = store();
+    let json = path(JSON);
+    let phone = crate::device::fake::FakeDevice::new();
+    phone.put_file("Music/P (mp3)/A.mp3", b"a");
+    store.register_device_individual(&json, &device_target()).unwrap();
+    store.register_device_single(&json, "aaa", "A.mp3", Some("A"), None).unwrap();
+    let result = store.delete_all_downloaded_files(&phone, &json);
+    assert_eq!(result, DeleteResult { deleted: 1, unregistered: 0, left_over: 0 });
+    assert!(!phone.has_folder("Music/P (mp3)"));
+}
