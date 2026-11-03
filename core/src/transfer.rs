@@ -46,6 +46,9 @@ pub enum TransferError {
     AlreadyRegistered { title: String, format: String },
     DriveRoot,
     FolderMissing { folder_name: String },
+    DeviceUnreachable,
+    CopyToDeviceFailed { file_name: String },
+    CopyFromDeviceFailed { file_name: String },
     Io(String),
 }
 
@@ -60,19 +63,23 @@ impl TransferError {
             Self::AlreadyRegistered { .. } => "transfer.alreadyRegistered",
             Self::DriveRoot => "transfer.driveRoot",
             Self::FolderMissing { .. } => "transfer.folderMissing",
+            Self::DeviceUnreachable => "transfer.deviceUnreachable",
+            Self::CopyToDeviceFailed { .. } => "transfer.copyToDeviceFailed",
+            Self::CopyFromDeviceFailed { .. } => "transfer.copyFromDeviceFailed",
             Self::Io(_) => "transfer.ioError",
         }
     }
 
     pub fn args(&self) -> Vec<String> {
         match self {
-            Self::NoFolder | Self::DriveRoot => vec![],
+            Self::NoFolder | Self::DriveRoot | Self::DeviceUnreachable => vec![],
             Self::SameFolder { title } => vec![title.clone()],
             Self::NotEnoughSpace { needed, free } => vec![needed.clone(), free.clone()],
             Self::NoManifest => vec![MANIFEST_NAME.to_string()],
             Self::NewerSchema { found, supported } => vec![found.to_string(), supported.to_string()],
             Self::AlreadyRegistered { title, format } => vec![title.clone(), format.clone()],
             Self::FolderMissing { folder_name } => vec![folder_name.clone()],
+            Self::CopyToDeviceFailed { file_name } | Self::CopyFromDeviceFailed { file_name } => vec![file_name.clone()],
             Self::Io(message) => vec![message.clone()],
         }
     }
@@ -92,6 +99,9 @@ impl std::fmt::Display for TransferError {
             Self::AlreadyRegistered { title, format } => write!(f, "\"{title}\" ({format}) is already registered"),
             Self::DriveRoot => write!(f, "cannot import from the root of a drive"),
             Self::FolderMissing { folder_name } => write!(f, "folder \"{folder_name}\" is missing"),
+            Self::DeviceUnreachable => write!(f, "the device is not reachable"),
+            Self::CopyToDeviceFailed { file_name } => write!(f, "could not copy \"{file_name}\" to the device"),
+            Self::CopyFromDeviceFailed { file_name } => write!(f, "could not copy \"{file_name}\" from the device"),
             Self::Io(message) => f.write_str(message),
         }
     }
@@ -532,7 +542,7 @@ pub fn export(
 /// Deletes what this run copied and, if that leaves the folder empty, the
 /// folder too. Returns how many were really deleted (one in use by another
 /// program may resist; no reason to fail anything).
-fn undo_copies(storage: &dyn Storage, copied_now: &[Location], target: &Location) -> usize {
+pub(crate) fn undo_copies(storage: &dyn Storage, copied_now: &[Location], target: &Location) -> usize {
     let mut undone = 0;
     for file in copied_now {
         if !storage.exists(file).unwrap_or(false) || storage.remove_file(file).is_ok() {
@@ -545,7 +555,7 @@ fn undo_copies(storage: &dyn Storage, copied_now: &[Location], target: &Location
     undone
 }
 
-fn remove_if_empty(storage: &dyn Storage, folder: &Location) {
+pub(crate) fn remove_if_empty(storage: &dyn Storage, folder: &Location) {
     if storage.list(folder).is_ok_and(|children| children.is_empty())
         && let Err(e) = storage.remove_dir_all(folder)
     {
@@ -739,7 +749,7 @@ pub fn count_downloaded(storage: &dyn Storage, data: &ArchiveData) -> usize {
 
 /// Pending after importing: neither downloaded nor marked unavailable (those
 /// are never retried).
-fn pending_count(manifest: &PlaylistManifest, downloaded: usize) -> usize {
+pub(crate) fn pending_count(manifest: &PlaylistManifest, downloaded: usize) -> usize {
     let unavailable = manifest.items.iter().filter(|i| i.file_name.is_none() && i.unavailable_at.is_some()).count();
     manifest.items.len().saturating_sub(downloaded + unavailable)
 }
@@ -764,7 +774,7 @@ fn is_dir(storage: &dyn Storage, location: &Location) -> bool {
     storage.list(location).is_ok()
 }
 
-fn is_file(storage: &dyn Storage, location: &Location) -> bool {
+pub(crate) fn is_file(storage: &dyn Storage, location: &Location) -> bool {
     storage.exists(location).unwrap_or(false) && !is_dir(storage, location)
 }
 
@@ -774,6 +784,8 @@ fn parent(location: &Location) -> Option<Location> {
         Location::Uri(uri) => uri.rsplit_once('/').map(|(parent, _)| Location::Uri(parent.to_string())),
     }
 }
+
+pub mod device;
 
 #[cfg(test)]
 mod tests;

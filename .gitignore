@@ -6,3 +6,9 @@ test-results
 playwright-report
 src-tauri/gen/schemas
 src-tauri/gen/android/.kotlin
+# The ffmpeg that travels with the app: ~200 MB, fetched with scripts/fetch-ffmpeg.mjs
+src-tauri/resources/ffmpeg/*.exe
+
+# Prototipos de diseno (HTML sueltos, solo de referencia)
+design/
+release/

@@ -1,4 +1,8 @@
-/* Theme tokens copied from the approved themes prototype. */
+/* Theme tokens copied from the approved themes prototype.
+   --sp-live marks something running (the Gestor's download): the accent, except
+   in the red themes, where a red outline read as an error. --sp-glint is the
+   light that runs along that outline: lighter than it on dark themes, darker on
+   light ones (a pale glint on a light background looked like a gap). */
 [data-theme="dark"] {
   --sp-white: #ffffff; --sp-black: #000000; --sp-overlay: #000000a0; --sp-shadow: #000000cc; --sp-shadow-soft: #00000059;
   --sp-summary-a: #d8bc67; --sp-summary-b: #a4513f; --sp-summary-c: #302444; --sp-video-a: #8b5cf6; --sp-video-b: #3b1f7a;
@@ -10,6 +14,7 @@
   --sp-nav-selected: #ffffff18; --sp-nav-hover: #ffffff0e; --sp-line: #ffffff18;
   --sp-accent: #1ed760; --sp-accent-hover: #37e878; --sp-on-accent: #071108;
   --sp-success: #1ed760; --sp-warn: #f5b942; --sp-error: #ff4d4d; --sp-cover-a: #1ed760; --sp-cover-b: #0b6b3a;
+  --sp-live: #1ed760; --sp-on-live: #071108; --sp-glint: #b4f5cc;
   color-scheme: dark;
 }
 [data-theme="dark-red"] {
@@ -23,6 +28,7 @@
   --sp-nav-selected: #ffffff18; --sp-nav-hover: #ffffff0e; --sp-line: #ffffff18;
   --sp-accent: #f0303c; --sp-accent-hover: #ff5560; --sp-on-accent: #ffffff;
   --sp-success: #4ade80; --sp-warn: #f5b942; --sp-error: #ff8f5a; --sp-cover-a: #f0303c; --sp-cover-b: #6b0f16;
+  --sp-live: #e8dcdc; --sp-on-live: #170f10; --sp-glint: #ffffff;
   color-scheme: dark;
 }
 [data-theme="dark-blue"] {
@@ -36,6 +42,7 @@
   --sp-nav-selected: #ffffff18; --sp-nav-hover: #ffffff0e; --sp-line: #ffffff18;
   --sp-accent: #2f7cf6; --sp-accent-hover: #4b90ff; --sp-on-accent: #ffffff;
   --sp-success: #4ade80; --sp-warn: #f5b942; --sp-error: #ff4d4d; --sp-cover-a: #2f7cf6; --sp-cover-b: #12306b;
+  --sp-live: #2f7cf6; --sp-on-live: #ffffff; --sp-glint: #b3d0ff;
   color-scheme: dark;
 }
 [data-theme="amoled"] {
@@ -49,6 +56,7 @@
   --sp-nav-selected: #ffffff1c; --sp-nav-hover: #ffffff10; --sp-line: #ffffff1c;
   --sp-accent: #1ed760; --sp-accent-hover: #37e878; --sp-on-accent: #071108;
   --sp-success: #1ed760; --sp-warn: #f5b942; --sp-error: #ff4d4d; --sp-cover-a: #1ed760; --sp-cover-b: #0b6b3a;
+  --sp-live: #1ed760; --sp-on-live: #071108; --sp-glint: #b4f5cc;
   color-scheme: dark;
 }
 [data-theme="light"] {
@@ -62,6 +70,7 @@
   --sp-nav-selected: #0000001a; --sp-nav-hover: #0000000f; --sp-line: #0000001f;
   --sp-accent: #1db954; --sp-accent-hover: #17a34a; --sp-on-accent: #ffffff;
   --sp-success: #1a9e48; --sp-warn: #b7791f; --sp-error: #d93636; --sp-cover-a: #1db954; --sp-cover-b: #0b6b3a;
+  --sp-live: #1db954; --sp-on-live: #ffffff; --sp-glint: #0b5c31;
   color-scheme: light;
 }
 [data-theme="light-red"] {
@@ -75,6 +84,7 @@
   --sp-nav-selected: #5a00001a; --sp-nav-hover: #5a00000f; --sp-line: #3a00001f;
   --sp-accent: #d42a36; --sp-accent-hover: #b51f2a; --sp-on-accent: #ffffff;
   --sp-success: #15803d; --sp-warn: #b7791f; --sp-error: #a3245c; --sp-cover-a: #e0404a; --sp-cover-b: #7a1219;
+  --sp-live: #4a3b3c; --sp-on-live: #ffffff; --sp-glint: #120a0b;
   color-scheme: light;
 }
 [data-theme="light-blue"] {
@@ -88,6 +98,7 @@
   --sp-nav-selected: #0a2a6a1a; --sp-nav-hover: #0a2a6a0f; --sp-line: #0a1f4a1f;
   --sp-accent: #2563eb; --sp-accent-hover: #1d4ed8; --sp-on-accent: #ffffff;
   --sp-success: #15803d; --sp-warn: #b7791f; --sp-error: #d93636; --sp-cover-a: #3b82f6; --sp-cover-b: #1e3a8a;
+  --sp-live: #2563eb; --sp-on-live: #ffffff; --sp-glint: #172f70;
   color-scheme: light;
 }
 

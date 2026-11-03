@@ -20,17 +20,6 @@ pub fn format_extension(format: &str) -> String {
 
 // === MUSIC FOLDERS ===
 
-/// `base/soundify_<ext>` for single downloads, or `base` itself if it already is that folder.
-pub fn format_folder(storage: &dyn Storage, base: &Location, format: &str) -> std::io::Result<Location> {
-    let ext = format_extension(format);
-    let folder_name = format!("soundify_{ext}");
-    let name = base.name();
-    if name.eq_ignore_ascii_case(&folder_name) || name.eq_ignore_ascii_case(&ext) {
-        return Ok(base.clone());
-    }
-    storage.child(base, &folder_name)
-}
-
 /// `base/<Title> (<ext>)`, or `base` itself if the user already picked that folder.
 pub fn playlist_folder(storage: &dyn Storage, base: &Location, title: &str, format: &str) -> std::io::Result<Location> {
     let folder_name = playlist_folder_name(title, format);
@@ -369,9 +358,6 @@ mod tests {
         assert_eq!(playlist_folder(&storage, &base, "Chill", "MP3").unwrap(), base);
         let other = Location::path("/music");
         assert_eq!(playlist_folder(&storage, &other, "Chill", "MP3").unwrap(), Location::path("/music/Chill (mp3)"));
-        assert_eq!(format_folder(&storage, &other, "MP3").unwrap(), Location::path("/music/soundify_mp3"));
-        let already = Location::path("/music/soundify_mp3");
-        assert_eq!(format_folder(&storage, &already, "MP3").unwrap(), already);
     }
 
     #[test]

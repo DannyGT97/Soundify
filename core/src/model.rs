@@ -108,6 +108,15 @@ pub struct UserSettings {
     pub last_played_playlist: Option<String>,
     pub last_played_format: Option<String>,
     pub last_played_position: f64,
+    /// The full look ("dark-blue", "amoled"...): the Java app only knows
+    /// `theme`, DARK or LIGHT, and an enum value it does not know would make
+    /// its Jackson reject the whole file. A field it does not know, it skips.
+    /// See [`crate::settings::preferences`].
+    #[serde(deserialize_with = "null_as_empty")]
+    pub appearance: String,
+    /// Where the player shows: "side", "bottom" or "both".
+    #[serde(deserialize_with = "null_as_empty")]
+    pub player_placement: String,
 }
 
 impl Default for UserSettings {
@@ -131,8 +140,63 @@ impl Default for UserSettings {
             last_played_playlist: None,
             last_played_format: None,
             last_played_position: 0.0,
+            appearance: String::new(),
+            player_placement: String::new(),
         }
     }
+}
+
+/// What Ajustes shows and changes (a slice of [`UserSettings`]).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Preferences {
+    pub appearance: String,
+    pub language: String,
+    pub ui_scale: i32,
+    pub player_placement: String,
+    pub download_thumbnails: bool,
+    pub include_id_in_title_name: bool,
+    pub app_update_check_enabled: bool,
+    pub auto_updates: bool,
+    pub cookies_file: String,
+    pub last_app_update_check: String,
+}
+
+/// A change from Ajustes: only what is set is touched.
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", default)]
+pub struct PreferencesPatch {
+    pub appearance: Option<String>,
+    pub language: Option<String>,
+    pub ui_scale: Option<i32>,
+    pub player_placement: Option<String>,
+    pub download_thumbnails: Option<bool>,
+    pub include_id_in_title_name: Option<bool>,
+    pub app_update_check_enabled: Option<bool>,
+    pub auto_updates: Option<bool>,
+    pub cookies_file: Option<String>,
+}
+
+/// What the player keeps between launches (a slice of [`UserSettings`]): the
+/// volume, and the last file with the second it was left at, so the next
+/// launch brings it back to the bar, paused.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PlayerMemory {
+    pub volume: f64,
+    pub last: Option<LastPlayed>,
+}
+
+/// The last file played: its archive (the block it came from), its id, and the
+/// playlist and format it was shown under.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct LastPlayed {
+    pub archive: String,
+    pub track_id: String,
+    pub playlist: String,
+    pub format: String,
+    pub position: f64,
 }
 
 /// The `soundify-playlist.json` that sits inside a playlist's music folder: it
@@ -198,8 +262,12 @@ pub struct TaskRecord {
     pub title: Option<String>,
     /// An i18n key, so the history follows the language in use.
     pub origin: Option<String>,
-    /// The result line, already translated.
+    /// The result line: an i18n key when this app wrote it (with
+    /// [`TaskRecord::summary_args`]), already translated text when the Java app
+    /// did. The front translates it if it is a key and shows it as is if not.
     pub summary: Option<String>,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub summary_args: Vec<String>,
     pub finished_at: Option<String>,
 }
 

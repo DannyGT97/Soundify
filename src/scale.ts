@@ -6,7 +6,8 @@
 // failed before. In a plain browser (npm run dev) there is no webview to ask,
 // so the zoom goes on #app, whose height is a percentage and is not scaled.
 //
-// The choice is remembered in localStorage until the logic brings settings.json.
+// The value is settings.json's `uiScale`: `preferences.ts` hands it in at
+// startup and saves every change (it listens with `onScaleChange`).
 
 import { isTauri } from '@tauri-apps/api/core';
 import { getCurrentWebview } from '@tauri-apps/api/webview';
@@ -14,7 +15,6 @@ import { getCurrentWebview } from '@tauri-apps/api/webview';
 export const SCALE_STEPS = [80, 90, 100, 110, 125, 150, 175] as const;
 export const DEFAULT_SCALE = 100;
 
-const STORAGE_KEY = 'soundify.uiScale';
 const listeners = new Set<(percent: number) => void>();
 let current = DEFAULT_SCALE;
 
@@ -23,8 +23,8 @@ export function currentScale(): number {
 }
 
 /** Applies the saved scale; called once, before the first screen is drawn. */
-export function initScale(): void {
-  current = clampToStep(readSaved());
+export function initScale(saved: number): void {
+  current = clampToStep(saved);
   void apply(current);
   document.addEventListener('keydown', onShortcut);
 }
@@ -33,7 +33,6 @@ export function setScale(percent: number): void {
   const next = clampToStep(percent);
   if (next === current) return;
   current = next;
-  try { localStorage.setItem(STORAGE_KEY, String(next)); } catch { /* private mode: just not remembered */ }
   void apply(next);
   listeners.forEach(listener => listener(next));
 }
@@ -58,15 +57,6 @@ export function stepFrom(percent: number, direction: 1 | -1): number {
 }
 
 // === PRIVATE ===
-
-function readSaved(): number {
-  try {
-    const saved = localStorage.getItem(STORAGE_KEY);
-    return saved === null ? DEFAULT_SCALE : Number(saved);
-  } catch {
-    return DEFAULT_SCALE;
-  }
-}
 
 async function apply(percent: number): Promise<void> {
   const factor = percent / 100;

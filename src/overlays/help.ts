@@ -2,8 +2,7 @@ import { h } from '../dom';
 import { icon } from '../icons';
 import { t } from '../i18n';
 import { closeOverlay, openOverlay } from '../components/overlay';
-import { openDevicePicker } from './devicePicker';
-import { importFromFolder } from './transfer';
+import { importFromDevice, importFromFolder } from './transfer';
 
 /**
  * The help of "Importar". Its bottom button IS the action it explains: the
@@ -26,6 +25,9 @@ export function openImportHelp(): void {
     h('div', { class: 'stack center-text' },
       h('p', { class: 'help', text: t('help.import.deviceNote') }),
       h('div', { class: 'row center-x' },
-        h('button', { class: 'secondary-button', text: t('help.import.deviceAction'), onclick: () => openDevicePicker() }))),
+        h('button', { class: 'secondary-button', text: t('help.import.deviceAction'), onclick: () => {
+          closeOverlay();
+          importFromDevice();
+        } }))),
   ]);
 }

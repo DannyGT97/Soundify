@@ -1,8 +1,10 @@
 import { h, titleRow } from '../dom';
+import { appVersion } from '../appInfo';
 import { t } from '../i18n';
 import { countBy, library, onDisk } from '../library';
 import { navigate } from '../router';
 import { cover } from '../components/cover';
+import { playlistPicture } from '../covers';
 
 /** Inicio: the whole library at a glance and the playlist list, which leads to the Gestor. */
 export function homeView(): HTMLElement {
@@ -20,7 +22,7 @@ export function homeView(): HTMLElement {
     const tracks = p.formats.flatMap(b => b.tracks);
     const waiting = countBy(tracks, 'pending');
     return h('button', { class: 'list-row', onclick: () => navigate('manager', { open: p.id }) },
-      cover(p.title, p.formats.every(b => b.video), 40),
+      cover(p.title, p.formats.every(b => b.video), 40, playlistPicture(p)),
       h('div', { class: 'grow min0' },
         h('div', { class: 'row-title ellipsis', text: p.title }),
         h('div', { class: 'subtitle ellipsis', text: p.folder })),
@@ -33,7 +35,7 @@ export function homeView(): HTMLElement {
   return h('div', { class: 'screen' },
     h('div', { class: 'screen-head' },
       titleRow('home', t('home.title'), h('div', { class: 'grow' }),
-        h('span', { class: 'chip', text: t('app.version') })),
+        h('span', { class: 'chip', text: appVersion() })),
       h('p', { class: 'subtitle', text: t('app.description') })),
     h('section', { class: 'card' }, bar,
       h('div', { class: 'row gap-10' },

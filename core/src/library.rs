@@ -8,8 +8,10 @@
 use chrono::NaiveDate;
 use serde::Serialize;
 
-use crate::archive::{ArchiveStore, EntryStatus};
+use crate::archive::{ArchiveStore, EntryStatus, PlaylistFormatInfo};
 use crate::clock::parse_day;
+use crate::cover_art;
+use crate::device::DeviceTarget;
 use crate::storage::Storage;
 use crate::ytdlp::unavailable;
 
@@ -46,6 +48,15 @@ pub struct FormatBlock {
     /// Every update syncs with the source playlist: the Java per-format switch is gone.
     pub sync: bool,
     pub last_sync: String,
+    /// The video whose thumbnail is the default cover (the first in the
+    /// playlist's order, without asking YouTube).
+    pub first_video_id: Option<String>,
+    /// Whether its folder (or phone) can be reached now: «Eliminar todo» is
+    /// only offered then. A phone is optimistically reachable, "last known state".
+    pub accessible: bool,
+    /// Set when its files live on a phone: copying, opening and deleting go
+    /// through the device instead of the disk.
+    pub device: Option<DeviceTarget>,
     pub tracks: Vec<Track>,
 }
 
@@ -55,6 +66,9 @@ pub struct Playlist {
     pub id: String,
     pub title: String,
     pub folder: String,
+    /// The picture the user picked as its cover, if any (otherwise its first
+    /// format's first video's thumbnail is shown).
+    pub cover: Option<String>,
     pub formats: Vec<FormatBlock>,
 }
 
@@ -79,6 +93,9 @@ pub fn library(store: &ArchiveStore, today: NaiveDate) -> Vec<Playlist> {
                     numbered: info.number_files,
                     sync: true,
                     last_sync: info.last_synced_at.clone().unwrap_or_default(),
+                    first_video_id: store.first_video_id(&info.json),
+                    accessible: info.folder_accessible,
+                    device: device_of(info),
                     tracks: tracks(store, &info.json, today),
                 })
                 .collect();
@@ -88,9 +105,18 @@ pub fn library(store: &ArchiveStore, today: NaiveDate) -> Vec<Playlist> {
                 .find_map(|f| f.folder.as_ref().map(ToString::to_string))
                 .or(playlist.base_folder.clone())
                 .unwrap_or_default();
-            Playlist { id, title: playlist.title, folder, formats }
+            let cover = cover_art::custom_cover(store.storage(), &playlist.root_dir).map(|c| c.to_string());
+            Playlist { id, title: playlist.title, folder, cover, formats }
         })
         .collect()
+}
+
+fn device_of(info: &PlaylistFormatInfo) -> Option<DeviceTarget> {
+    Some(DeviceTarget {
+        device_id: info.device_id.clone()?,
+        device_name: info.device_name.clone().unwrap_or_default(),
+        path: info.device_path.clone()?,
+    })
 }
 
 fn tracks(store: &ArchiveStore, json: &crate::Location, today: NaiveDate) -> Vec<Track> {
@@ -172,6 +198,25 @@ mod tests {
         assert_eq!(block.tracks[1].file.as_deref(), Some("/music/P (mp3)/001 - A.mp3"));
         assert_eq!(block.tracks[0].file, None);
         assert!(block.tracks.iter().all(|t| t.reason.is_none()));
+        assert_eq!(library[0].cover, None);
+    }
+
+    #[test]
+    fn a_playlist_carries_its_picked_cover_and_each_block_its_first_video() {
+        let storage = Arc::new(MemoryStorage::new());
+        let store = ArchiveStore::new(storage.clone(), Location::path("/archives"), clock::fixed("2026-11-02 10:00"));
+        let json = Location::path("/archives/pl_P_000000/mp3/data.json");
+        let items: Vec<(String, String)> =
+            [("aaaaaaaaaaa", "A"), ("bbbbbbbbbbb", "B")].iter().map(|(i, t)| (i.to_string(), t.to_string())).collect();
+        store.register_playlist(&json, None, Some(&Location::path("/music/P (mp3)")), &items, false).unwrap();
+        let order = [("aaaaaaaaaaa".to_string(), 2), ("bbbbbbbbbbb".to_string(), 1)].into();
+        store.refresh_playlist_order(&json, &order).unwrap();
+        storage.write(&Location::path("/archives/pl_P_000000/cover.jpg"), &[0xFF, 0xD8, 0xFF]).unwrap();
+
+        let playlist = &library(&store, NaiveDate::from_ymd_opt(2026, 11, 2).unwrap())[0];
+        let cover = playlist.cover.as_deref().map(Location::parse);
+        assert_eq!(cover, Some(Location::path("/archives/pl_P_000000/cover.jpg")));
+        assert_eq!(playlist.formats[0].first_video_id.as_deref(), Some("bbbbbbbbbbb"));
     }
 
     #[test]

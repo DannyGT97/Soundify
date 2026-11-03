@@ -10,14 +10,22 @@ rust-version = "1.90"
 name = "soundify_core"
 
 [dependencies]
+base64 = "0.22"
 chrono = { version = "0.4", default-features = false, features = ["clock", "std", "serde"] }
 fs4 = "0.13"
 indexmap = { version = "2", features = ["serde"] }
-log = "0.4"
+log = { version = "0.4", features = ["std"] }
 regex = "1"
+# Ed25519 for the update signature (already in the tree through rustls).
+ring = "0.17"
+# Blocking on purpose: the updaters run on threads of their own, never inside
+# the async runtime. rustls (ring) so no system OpenSSL is needed.
+reqwest = { version = "0.12", default-features = false, features = ["blocking", "rustls-tls"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 sha2 = "0.10"
+url = "2"
+zip = { version = "4", default-features = false, features = ["deflate"] }
 
 [dev-dependencies]
 tempfile = "3"

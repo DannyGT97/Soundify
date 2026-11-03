@@ -17,6 +17,20 @@ export async function loadLibrary(): Promise<void> {
   emit('library');
 }
 
+let reloadTimer: ReturnType<typeof setTimeout> | undefined;
+
+/**
+ * A reload a moment later, folding a burst into one: a playlist can bring
+ * down several files a second, and each one asks for the whole library.
+ */
+export function loadLibrarySoon(delay = 400): void {
+  if (reloadTimer !== undefined) return;
+  reloadTimer = setTimeout(() => {
+    reloadTimer = undefined;
+    void loadLibrary();
+  }, delay);
+}
+
 export function findBlock(key: string | null | undefined,
                           playlists: Playlist[] = library.playlists): { playlist: Playlist; block: FormatBlock } | null {
   if (!key) return null;
@@ -46,4 +60,12 @@ export function statusText(track: Track): string {
 /** Files actually on disk: what the player lists and plays. */
 export function onDisk(list: Track[]): Track[] {
   return list.filter(tr => tr.status === 'ok');
+}
+
+/** The order «Agrupar por estado» shows: what is already on disk first. */
+export const STATUS_ORDER: readonly Status[] = ['ok', 'pending', 'failed', 'unavailable'];
+
+/** The files grouped by state in that order, each group keeping the playlist's order. */
+export function groupByStatus(list: readonly Track[]): Track[] {
+  return [...list].sort((a, b) => STATUS_ORDER.indexOf(a.status) - STATUS_ORDER.indexOf(b.status));
 }

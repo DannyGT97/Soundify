@@ -6,7 +6,7 @@
 import {
   Activity, AudioLines, Check, ChevronRight, ChevronsLeft, ChevronsRight, CloudDownload, Ellipsis,
   Copy, Eye, Film, Folder, FolderInput, FolderOpen, House, Info, Library, Link, List, ListMusic, ListOrdered, ListPlus, Menu, Palette, PanelLeftClose, Trash2, TriangleAlert, CircleX,
-  Pause, Play, RefreshCw, Repeat, Repeat1, Search, Settings, Shuffle, SkipBack, SkipForward,
+  Maximize, Minimize, Pause, Play, Wrench, RefreshCw, Repeat, Repeat1, Search, Settings, Shuffle, SkipBack, SkipForward,
   SlidersHorizontal, Smartphone, Square, Volume2, VolumeX, X, createElement, type IconNode,
 } from 'lucide';
 
@@ -29,6 +29,7 @@ const ICONS = {
   updates: CloudDownload,
   advanced: Settings,
   about: Info,
+  tools: Wrench,
   // Actions
   import: FolderInput,
   sync: RefreshCw,
@@ -58,6 +59,8 @@ const ICONS = {
   'repeat-one': Repeat1,
   volume: Volume2,
   muted: VolumeX,
+  fullscreen: Maximize,
+  'fullscreen-exit': Minimize,
   // Results and kinds
   ok: Check,
   stopped: Square,

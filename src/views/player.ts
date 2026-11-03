@@ -4,10 +4,13 @@ import { t } from '../i18n';
 import type { FormatBlock, Playlist, Track } from '../api';
 import { findBlock, library, onDisk } from '../library';
 import * as player from '../player';
-import { PLAYABLE } from '../player';
+import { isPlayable } from '../player';
+import { filterByTitle } from '../search';
+import { ago } from '../relativeTime';
 import { navigate, onLeave, type Params } from '../router';
 import { subscribe, ui } from '../state';
 import { cover } from '../components/cover';
+import { playlistPicture } from '../covers';
 
 /**
  * Reproductor: the local playlists on the left (one row per playlist+format)
@@ -37,11 +40,11 @@ export function playerView(params: Params): HTMLElement {
 }
 
 function playlistRow(playlist: Playlist, block: FormatBlock): HTMLElement {
-  const playable = PLAYABLE.has(block.format);
+  const playable = isPlayable(block.format);
   const row = h('button', { class: `player-playlist${ui.selectedBlock === block.key ? ' selected' : ''}${playable ? '' : ' off'}`,
     title: playable ? '' : t('player.unplayable', block.format),
     onclick: () => navigate('player', { b: block.key }) },
-    cover(playlist.title, block.video, 40),
+    cover(playlist.title, block.video, 40, playlistPicture(playlist)),
     h('div', { class: 'min0' },
       h('div', { class: 'row-title ellipsis', text: playlist.title }),
       h('div', { class: 'subtitle', text: t('player.meta', block.format, onDisk(block.tracks).length) })));
@@ -52,13 +55,13 @@ function detail(): Node[] {
   const found = findBlock(ui.selectedBlock);
   if (!found) return [h('p', { class: 'help', text: t('player.pick') })];
   const { playlist, block } = found;
-  const playable = PLAYABLE.has(block.format);
+  const playable = isPlayable(block.format);
   const tracks = onDisk(block.tracks);
 
   const list = h('div', { class: 'track-list' });
   const noMatch = h('p', { class: 'help' });
   const fill = (query: string) => {
-    const shown = tracks.filter(tr => tr.title.toLowerCase().includes(query.toLowerCase()));
+    const shown = filterByTitle(tracks, query);
     list.replaceChildren(...shown.map((tr, i) => trackRow(block, tr, i + 1, playable)));
     noMatch.hidden = shown.length > 0;
     noMatch.textContent = t('player.search.none', query);
@@ -82,7 +85,7 @@ function detail(): Node[] {
   fill('');
   return [
     h('div', { class: 'row center gap-18' },
-      cover(playlist.title, block.video, 96),
+      cover(playlist.title, block.video, 96, playlistPicture(playlist)),
       h('div', { class: 'grow min0' },
         h('h2', { class: 'page-title ellipsis', text: playlist.title }),
         h('div', { class: 'subtitle', text: t('player.meta', block.format, tracks.length) }),
@@ -102,11 +105,13 @@ function trackRow(block: FormatBlock, track: Track, index: number, playable: boo
   return h('button', { class: `track-row${playing ? ' playing' : ''}${playable ? '' : ' off'}`, attrs: { 'data-id': track.id },
     onclick: () => {
       if (!playable) return;
-      player.play(block.key, track);
+      // The one already loaded is not started again from 0:00: it only goes to Reproduciendo.
+      const loaded = ui.nowPlaying?.blockKey === block.key && ui.nowPlaying.track.id === track.id;
+      if (!loaded) player.play(block.key, track);
       navigate('now-playing');
     } },
     h('span', { class: 'col-num', text: String(index) }),
-    cover(track.title, block.video, 40),
+    cover(track.title, block.video, 40, { kind: 'thumbnail', id: track.id }),
     h('span', { class: 'grow ellipsis row-title', text: track.title }),
     h('span', { class: 'col-added subtitle', text: relative(track.addedDaysAgo) }));
 }
@@ -119,9 +124,6 @@ function markPlaying(root: HTMLElement): void {
 }
 
 function relative(days: number): string {
-  if (days === 0) return t('relative.today');
-  if (days === 1) return t('relative.yesterday');
-  if (days < 7) return t('relative.days', days);
-  if (days < 30) return t('relative.weeks', Math.floor(days / 7));
-  return t('relative.months', Math.floor(days / 30));
+  const { key, amount } = ago(days);
+  return t(key, amount);
 }

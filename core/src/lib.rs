@@ -10,16 +10,23 @@
 
 pub mod archive;
 pub mod clock;
+pub mod cover_art;
+pub mod device;
 pub mod downloader;
+pub mod engine;
+pub mod http;
 pub mod library;
 pub mod location;
 pub mod log_format;
+pub mod logs;
 pub mod model;
 pub mod paths;
 pub mod settings;
 pub mod storage;
 pub mod task_history;
+pub mod tools;
 pub mod transfer;
+pub mod updater;
 pub mod version;
 pub mod ytdlp;
 

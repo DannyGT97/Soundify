@@ -1,52 +1,106 @@
-// The player's actions: queue, shuffle and repeat. What actually sounds is the
-// PlayerBackend behind `api` (a clock in the mock); these actions stay the
-// same when the real engine comes in.
+// The player's actions (the Java `PlayerService`): one player for the whole
+// app, so it keeps sounding while moving between screens. What to play next
+// is the `PlayerQueue`'s; what actually sounds is the PlayerBackend behind
+// `api` (the webview's media element in the app, a clock in the mock).
+//
+// The last file and its second are kept between runs (`PlayerMemory`): at
+// startup it comes back to the bar PAUSED where it was left.
 
-import { playerBackend as engine, type Track } from './api';
+import { api, playerBackend as engine, type PlayerMemory, type Track } from './api';
 import { findBlock, onDisk } from './library';
+import { PlayerQueue, nextRepeat } from './playerQueue';
 import { emit, ui } from './state';
 
-/** What the built-in player can open: by format NAME (ALAC is .m4a too and does not play). */
-export const PLAYABLE = new Set(['MP3', 'M4A', 'WAV', 'MP4']);
+/**
+ * What the built-in player can open, by format NAME (ALAC is .m4a too and
+ * does not play). Tried one by one on WebView2: AVI and FLV do not open in
+ * any codec yt-dlp leaves them in, and they are not converted (decided: the
+ * rest of the list is listed but dimmed, with the reason).
+ */
+export const PLAYABLE: ReadonlySet<string> = new Set([
+  'MP3', 'OPUS', 'M4A', 'FLAC', 'AAC', 'VORBIS', 'WAV', 'MP4', 'MKV', 'MOV', 'WEBM',
+]);
+
+let queue: PlayerQueue<Track> | null = null;
+let currentBlock = '';
+// Files that failed one after another: when all of them have, it stops
+// instead of going round the list for ever.
+let failures = 0;
+// The second to jump to once the file is open; before that a seek is ignored.
+let pendingSeek = 0;
+let memory: PlayerMemory = { volume: ui.volume, last: null };
 
 engine.onTime(seconds => {
   ui.position = seconds;
   emit('player');
 });
+engine.onDuration(seconds => {
+  failures = 0;
+  ui.duration = seconds;
+  if (pendingSeek > 0 && pendingSeek < seconds - 1) seek(pendingSeek);
+  pendingSeek = 0;
+  emit('player');
+});
 engine.onEnded(() => {
-  if (ui.repeat === 'one') {
+  if (!queue) return;
+  if (queue.repeat === 'one') {
     seek(0);
     setPlaying(true);
+    return;
+  }
+  const after = queue.afterEnd();
+  if (after) {
+    load(after, true);
   } else {
-    step(1, true);
+    // End of the list: it stays loaded at the start, like every player.
+    setPlaying(false);
+    seek(0);
   }
 });
+engine.onError(() => {
+  failures++;
+  if (!queue || failures >= queue.size) stop();
+  else load(queue.next(), true);
+});
 
-export function play(blockKey: string, track: Track): void {
-  ui.nowPlaying = { blockKey, track };
-  ui.position = 0;
-  engine.load(blockKey, track);
-  setPlaying(true);
+// === PUBLIC API ===
+
+export function isPlayable(format: string | null | undefined): boolean {
+  return !!format && PLAYABLE.has(format.toUpperCase());
 }
 
+/** Plays `track` of a block, with the block's files on disk as the queue. */
+export function play(blockKey: string, track: Track): void {
+  const index = queueOf(blockKey).findIndex(tr => tr.id === track.id);
+  if (index >= 0) start(blockKey, index, true);
+}
+
+/** From the first file (shuffled, the rest come in a fixed random order). */
 export function playAll(blockKey: string): void {
-  const queue = queueOf(blockKey);
-  const first = ui.shuffle ? queue[Math.floor(Math.random() * queue.length)] : queue[0];
-  if (first) play(blockKey, first);
+  start(blockKey, 0, true);
 }
 
 export function togglePlay(): void {
-  if (ui.nowPlaying) setPlaying(!ui.playing);
+  if (!ui.nowPlaying) return;
+  setPlaying(!ui.playing);
+  if (!ui.playing) void savePosition();
 }
 
 export function next(): void {
-  step(1);
+  if (!queue) return;
+  failures = 0;
+  load(queue.next(), true);
 }
 
 export function previous(): void {
+  if (!queue) return;
   // Like every player: past the first seconds, "previous" restarts the file.
-  if (ui.position > 3) seek(0);
-  else step(-1);
+  if (ui.position > 3) {
+    seek(0);
+    return;
+  }
+  failures = 0;
+  load(queue.previous(), true);
 }
 
 export function seek(seconds: number): void {
@@ -57,25 +111,115 @@ export function seek(seconds: number): void {
 
 export function toggleShuffle(): void {
   ui.shuffle = !ui.shuffle;
+  queue?.setShuffled(ui.shuffle);
   emit('player');
 }
 
 export function cycleRepeat(): void {
-  ui.repeat = ui.repeat === 'off' ? 'all' : ui.repeat === 'all' ? 'one' : 'off';
+  ui.repeat = nextRepeat(ui.repeat);
+  if (queue) queue.repeat = ui.repeat;
   emit('player');
 }
 
+/** While the slider moves; `saveVolume` once it is let go. */
 export function setVolume(volume: number): void {
   ui.volume = volume;
   engine.setVolume(volume);
   emit('player');
 }
 
+export function saveVolume(): void {
+  memory.volume = ui.volume;
+  void persist();
+}
+
+/** The bar's ✕: stops and forgets the last file, so it does not come back at startup. */
 export function close(): void {
+  stop();
+  memory.last = null;
+  void persist();
+}
+
+/** Saves the second it is at: on every pause and when the app closes. */
+export function savePosition(): Promise<void> {
+  if (memory.last && ui.nowPlaying) memory.last.position = ui.position;
+  return persist();
+}
+
+/**
+ * At startup: the saved volume, and the last file back in the bar, paused at
+ * its second. If it is not on disk any more there is simply no bar.
+ */
+export async function restoreLast(): Promise<void> {
+  memory = await api.playerMemory().catch(() => memory);
+  ui.volume = memory.volume;
+  engine.setVolume(memory.volume);
+  const last = memory.last;
+  const index = last ? queueOf(last.archive).findIndex(tr => tr.id === last.trackId) : -1;
+  if (last && index >= 0) start(last.archive, index, false, last.position);
+  emit('player');
+}
+
+/** The element a video is drawn in, for Now Playing; null when nothing draws. */
+export function videoView(): HTMLVideoElement | null {
+  return engine.view();
+}
+
+/** Takes the video back from Now Playing without stopping it. */
+export function parkVideo(): void {
+  engine.park();
+}
+
+/** "3:07", or "1:02:45" past the hour; nonsense (NaN, negative) is "0:00". */
+export function formatTime(seconds: number): string {
+  const s = Number.isFinite(seconds) ? Math.max(0, Math.floor(seconds)) : 0;
+  const hours = Math.floor(s / 3600);
+  const minutes = Math.floor((s % 3600) / 60);
+  const secs = String(s % 60).padStart(2, '0');
+  return hours > 0 ? `${hours}:${String(minutes).padStart(2, '0')}:${secs}` : `${minutes}:${secs}`;
+}
+
+// === PRIVATE HELPERS ===
+
+/** A new queue over the block's files on disk; false when there is nothing to play there. */
+function start(blockKey: string, index: number, autoplay: boolean, resumeAt = 0): boolean {
+  const found = findBlock(blockKey);
+  const tracks = queueOf(blockKey);
+  if (!found || !isPlayable(found.block.format) || tracks.length === 0) return false;
+  queue = new PlayerQueue(tracks, index);
+  queue.repeat = ui.repeat;
+  if (ui.shuffle) queue.setShuffled(true);
+  currentBlock = blockKey;
+  failures = 0;
+  load(queue.current(), autoplay, resumeAt);
+  return true;
+}
+
+function load(track: Track, autoplay: boolean, resumeAt = 0): void {
+  const found = findBlock(currentBlock);
+  ui.nowPlaying = { blockKey: currentBlock, track };
+  ui.position = resumeAt;
+  ui.duration = 0;
+  pendingSeek = resumeAt;
+  engine.load(currentBlock, track);
+  memory.last = {
+    archive: currentBlock,
+    trackId: track.id,
+    playlist: found?.playlist.title ?? '',
+    format: found?.block.format ?? '',
+    position: resumeAt,
+  };
+  void persist();
+  setPlaying(autoplay);
+}
+
+function stop(): void {
   engine.unload();
-  ui.playing = false;
+  queue = null;
   ui.nowPlaying = null;
+  ui.playing = false;
   ui.position = 0;
+  ui.duration = 0;
   emit('player');
 }
 
@@ -86,36 +230,11 @@ function setPlaying(playing: boolean): void {
   emit('player');
 }
 
-function step(direction: 1 | -1, auto = false): void {
-  const np = ui.nowPlaying;
-  if (!np) return;
-  const queue = queueOf(np.blockKey);
-  const index = queue.findIndex(tr => tr.id === np.track.id);
-  let target = ui.shuffle && direction === 1
-      ? Math.floor(Math.random() * queue.length)
-      : index + direction;
-  if (target >= queue.length) {
-    if (auto && ui.repeat === 'off') {
-      setPlaying(false);
-      seek(0);
-      return;
-    }
-    target = 0;
-  }
-  if (target < 0) target = queue.length - 1;
-  const track = queue[target];
-  if (track) play(np.blockKey, track);
+function persist(): Promise<void> {
+  const copy: PlayerMemory = { volume: memory.volume, last: memory.last ? { ...memory.last } : null };
+  return api.savePlayerMemory(copy).catch(() => {});
 }
 
 function queueOf(blockKey: string): Track[] {
   return onDisk(findBlock(blockKey)?.block.tracks ?? []);
-}
-
-/** "3:07", or "1:02:45" past the hour. */
-export function formatTime(seconds: number): string {
-  const s = Math.max(0, Math.floor(seconds));
-  const hours = Math.floor(s / 3600);
-  const minutes = Math.floor((s % 3600) / 60);
-  const secs = String(s % 60).padStart(2, '0');
-  return hours > 0 ? `${hours}:${String(minutes).padStart(2, '0')}:${secs}` : `${minutes}:${secs}`;
 }

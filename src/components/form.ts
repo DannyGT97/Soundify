@@ -4,10 +4,10 @@
 import { h, stepHeading } from '../dom';
 import { icon } from '../icons';
 import { t } from '../i18n';
-import { api } from '../api';
+import { api, type DeviceTarget } from '../api';
 import { library } from '../library';
 import { ui } from '../state';
-import { openDevicePicker } from '../overlays/devicePicker';
+import { deviceLabel, openDevicePicker } from '../overlays/devicePicker';
 
 /** One list for every format; options are grouped by audio and video type. */
 export function formatSelect(): HTMLSelectElement {
@@ -17,24 +17,36 @@ export function formatSelect(): HTMLSelectElement {
     ...video.map(f => h('option', { text: f, attrs: { value: f } })));
 }
 
+export interface Destination {
+  card: HTMLElement;
+  /** The folder, or how the chosen phone folder reads ("Pixel 8 / Music"); empty = nothing chosen. */
+  field: HTMLInputElement;
+  /** The phone folder when that is what was chosen; null for a folder of this computer. */
+  device: () => DeviceTarget | null;
+}
+
 /** "02 Guardar en": the path on its own row and the two buttons below, half and half. */
-export function destinationCard(step: string, placeholderKey: string, changed: (path: string) => void): { card: HTMLElement; field: HTMLInputElement } {
+export function destinationCard(step: string, placeholderKey: string, changed: (text: string) => void): Destination {
   const field = h('input', { class: 'input', attrs: { readonly: '', placeholder: t(placeholderKey) } });
-  const set = (path: string) => {
-    field.value = path;
-    changed(path);
+  let device: DeviceTarget | null = null;
+  const set = (text: string, target: DeviceTarget | null) => {
+    field.value = text;
+    device = target;
+    changed(text);
   };
-  const folder = h('button', { class: 'secondary-button grow', onclick: async () => {
+  const folderButton = h('button', { class: 'secondary-button grow', onclick: async () => {
     const chosen = await api.pickFolder(t('download.folder.choose'));
-    if (chosen) set(chosen);
+    if (chosen) set(chosen, null);
   } },
     icon('folder', 16), h('span', { text: t('download.chooseFolder') }));
-  const device = h('button', { class: 'secondary-button grow', onclick: () => openDevicePicker(set) },
+  const deviceButton = h('button', { class: 'secondary-button grow', title: t('download.chooseDevice.tooltip'),
+    onclick: () => openDevicePicker('destination', target => set(deviceLabel(target), target)) },
     icon('device', 16), h('span', { text: t('download.chooseDevice') }));
   return {
     card: h('section', { class: 'card' }, stepHeading(step, t('download.saveIn')), field,
-      h('div', { class: 'row gap-8' }, folder, device)),
+      h('div', { class: 'row gap-8' }, folderButton, deviceButton)),
     field,
+    device: () => device,
   };
 }
 

@@ -10,11 +10,14 @@ export class SimulatedPlayer implements PlayerBackend {
   private duration = 0;
   private timeListeners: ((seconds: number) => void)[] = [];
   private endListeners: (() => void)[] = [];
+  private durationListeners: ((seconds: number) => void)[] = [];
 
   load(_blockKey: string, track: Track): void {
     this.pause();
     this.position = 0;
     this.duration = track.seconds;
+    // A real engine needs a moment to open the file: never in the same call.
+    window.setTimeout(() => this.durationListeners.forEach(listener => listener(this.duration)), 0);
   }
 
   play(): void {
@@ -47,6 +50,22 @@ export class SimulatedPlayer implements PlayerBackend {
 
   onEnded(listener: () => void): void {
     this.endListeners.push(listener);
+  }
+
+  onDuration(listener: (seconds: number) => void): void {
+    this.durationListeners.push(listener);
+  }
+
+  onError(_listener: () => void): void {
+    // A clock never fails to open anything.
+  }
+
+  view(): null {
+    return null;
+  }
+
+  park(): void {
+    // No view to take back.
   }
 
   private tick(): void {

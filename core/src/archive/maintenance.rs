@@ -95,7 +95,8 @@ pub fn delete_all_downloaded_files(storage: &dyn Storage, json: &Location) -> De
         }
     };
     if data.is_device_backed() {
-        // Pessimistic until the device phase: nothing claimed as deleted.
+        // Device playlists go through archive::device, which can reach the
+        // phone; here nothing is claimed as deleted.
         result.left_over = data.entries.values().filter(|e| has_real_file(storage, &data, e)).count();
         return result;
     }
