@@ -37,7 +37,7 @@ pub fn save(storage: &dyn Storage, file: &Location, settings: &UserSettings) -> 
 }
 
 pub const LANGUAGES: [&str; 3] = ["es", "en", "ca"];
-pub const APPEARANCES: [&str; 7] = ["dark", "light", "dark-red", "dark-blue", "amoled", "light-red", "light-blue"];
+pub const APPEARANCES: [&str; 9] = ["dark", "light", "dark-neutral", "light-neutral", "dark-red", "dark-blue", "amoled", "light-red", "light-blue"];
 pub const PLAYER_PLACEMENTS: [&str; 3] = ["side", "bottom", "both"];
 
 /// The part Ajustes shows. The look is `appearance` only while it still agrees
@@ -57,7 +57,6 @@ pub fn preferences(settings: &UserSettings) -> Preferences {
         language: language.to_string(),
         ui_scale: settings.ui_scale,
         player_placement: placement.to_string(),
-        download_thumbnails: settings.download_thumbnails,
         include_id_in_title_name: settings.include_id_in_title_name,
         app_update_check_enabled: settings.app_update_check_enabled,
         auto_updates: settings.auto_updates,
@@ -82,9 +81,6 @@ pub fn apply(settings: &mut UserSettings, patch: &PreferencesPatch) {
     }
     if let Some(placement) = patch.player_placement.as_deref().filter(|p| PLAYER_PLACEMENTS.contains(p)) {
         settings.player_placement = placement.to_string();
-    }
-    if let Some(value) = patch.download_thumbnails {
-        settings.download_thumbnails = value;
     }
     if let Some(value) = patch.include_id_in_title_name {
         settings.include_id_in_title_name = value;

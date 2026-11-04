@@ -8,6 +8,7 @@ import * as player from '../player';
 import { navigate } from '../router';
 import { subscribeWhile, ui } from '../state';
 import { cover } from './cover';
+import { pipButton } from './pip';
 import { buildTransport, buildVolume, control } from './transport';
 
 export function buildPlayerBar(): HTMLElement {
@@ -26,6 +27,7 @@ export function buildPlayerBar(): HTMLElement {
     buildTransport(),
     h('div', { class: 'player-right' },
       buildVolume(),
+      pipButton(),
       control('close', 'player.close', player.close)));
 
   let shownKey = '';

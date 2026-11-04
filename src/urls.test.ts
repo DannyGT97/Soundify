@@ -19,8 +19,8 @@ describe('isPlaylistUrl', () => {
     expect(isPlaylistUrl('https://www.youtube.com/playlist?list=PL123')).toBe(true);
   });
 
-  it('rejects a video opened from inside a playlist: it is a single video', () => {
-    expect(isPlaylistUrl('https://www.youtube.com/watch?v=abc&list=PL123')).toBe(false);
+  it('accepts a video opened from inside a playlist: the URL still names a list', () => {
+    expect(isPlaylistUrl('https://www.youtube.com/watch?v=abc&list=PL123')).toBe(true);
   });
 
   it('rejects a plain video', () => {

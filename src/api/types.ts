@@ -153,8 +153,8 @@ export type TaskOrigin = 'url' | 'manager';
 
 /** What the user asked to download, from the screen that asked for it. */
 export type DownloadRequest =
-  | { kind: 'single'; url: string; format: string; folder: string }
-  | { kind: 'single-to-device'; url: string; format: string; target: DeviceTarget }
+  | { kind: 'single'; url: string; format: string; folder: string; cover?: string | null }
+  | { kind: 'single-to-device'; url: string; format: string; target: DeviceTarget; cover?: string | null }
   | { kind: 'update'; blockKey: string };
 
 /** A playlist «Crear Playlist» just registered (`blockKey` is what an update goes by). */
@@ -219,6 +219,17 @@ export interface PlayerBackend {
 }
 
 /** What the player keeps between runs (the Java `UserSettings.playerVolume` and `lastPlayed*`). */
+/** The buttons and state of the window's own title bar (desktop only). */
+export interface WindowControls {
+  minimize(): void;
+  toggleMaximize(): void;
+  /** Goes through the normal closing: `onClosing` still runs. */
+  close(): void;
+  isMaximized(): Promise<boolean>;
+  onResized(listener: () => void): void;
+  showSystemMenu(): void;
+}
+
 export interface PlayerMemory { volume: number; last: LastPlayed | null }
 /** What Ajustes shows and changes, from settings.json. `appearance` is the theme id. */
 export interface Preferences {
@@ -226,10 +237,9 @@ export interface Preferences {
   language: string;
   uiScale: number;
   playerPlacement: string;
-  downloadThumbnails: boolean;
   includeIdInTitleName: boolean;
   appUpdateCheckEnabled: boolean;
-  /** Ajustes → Herramientas: bring yt-dlp up to date at startup. */
+  /** Ajustes → Actualizaciones: bring the tools already there up to date at startup, when there is a newer version. */
   autoUpdates: boolean;
   cookiesFile: string;
   lastAppUpdateCheck: string;

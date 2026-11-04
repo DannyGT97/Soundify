@@ -26,6 +26,11 @@ const downloads = new Map<ToolId, ToolDownload>();
 let watcher: (downloads: ToolDownload[]) => void = () => {};
 let denoFailures = mode === 'failing' ? 1 : 0;
 
+/** The back's `status::can_download`: the mock refuses too, whatever the interface lets through. */
+export function mockCanDownload(): boolean {
+  return tools.every(tool => tool.installed || !tool.required);
+}
+
 export const mockTools = {
   toolsReport: async (): Promise<ToolsReport> => ({ managed: true, folder: 'data\systemtools', tools: tools.map(tool => ({ ...tool })) }),
   installTool,

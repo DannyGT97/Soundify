@@ -5,6 +5,7 @@
 //! Events: `tasks` (the whole [`TasksView`]), `activity` (one line) and
 //! `notice` (how it went, worth a toast).
 
+use std::path::PathBuf;
 use std::sync::Mutex;
 
 use serde::{Deserialize, Serialize};
@@ -28,9 +29,9 @@ use crate::process::YtDlpProcess;
 #[derive(Debug, Deserialize)]
 #[serde(tag = "kind", rename_all = "kebab-case")]
 pub enum DownloadRequest {
-    Single { url: String, format: String, folder: String },
+    Single { url: String, format: String, folder: String, #[serde(default)] cover: Option<String> },
     /// «Descarga por URL» with a phone as the destination.
-    SingleToDevice { url: String, format: String, target: DeviceTarget },
+    SingleToDevice { url: String, format: String, target: DeviceTarget, #[serde(default)] cover: Option<String> },
     #[serde(rename_all = "camelCase")]
     Update { block_key: String },
 }
@@ -40,6 +41,11 @@ enum AnyJob {
     Local(Job),
     Device(DeviceJob),
 }
+
+/// The refusal when yt-dlp or ffmpeg are not there.
+pub const TOOLS_MISSING: &str = "tools.error.missing";
+/// The refusal when a loose download is given a list: that is «Crear Playlist».
+const IS_PLAYLIST: &str = "download.error.isPlaylist";
 
 #[derive(Clone, Serialize)]
 struct Notice<'a> {
@@ -95,12 +101,15 @@ impl Downloads {
     /// this only guards against a double click.
     pub fn start(&self, app: &AppHandle, request: DownloadRequest) {
         let state = app.state::<AppState>();
-        // Without ffmpeg yt-dlp still downloads, but cannot convert: the
-        // video was left as .mp4 and then cleaned away as a leftover, so the
-        // task ended with nothing (reported on a first start, while ffmpeg
-        // was still downloading). Refused up front instead.
-        if !ffmpeg_ready(&state.tools) {
-            let _ = app.emit("notice", Notice { status: task_history::FAILED, key: "activity.error.ffmpegMissing", args: &[] });
+        // Refused here whatever the interface let through.
+        if !soundify_core::tools::status::can_download(&state.tools) {
+            let _ = app.emit("notice", Notice { status: task_history::FAILED, key: TOOLS_MISSING, args: &[] });
+            return;
+        }
+        if let DownloadRequest::Single { url, .. } | DownloadRequest::SingleToDevice { url, .. } = &request
+            && soundify_core::paths::is_playlist_url(url)
+        {
+            let _ = app.emit("notice", Notice { status: task_history::FAILED, key: IS_PLAYLIST, args: &[] });
             return;
         }
         {
@@ -184,12 +193,6 @@ pub fn with_engine<R>(
     work(&engine)
 }
 
-/// On Windows the app brings its own ffmpeg; elsewhere it is the system's,
-/// found on the PATH by yt-dlp itself.
-fn ffmpeg_ready(tools: &ToolPaths) -> bool {
-    !tools.is_managed() || (tools.ffmpeg().exists() && tools.ffprobe().exists())
-}
-
 /// The provisional title (the real one arrives once yt-dlp says it) and the
 /// i18n key of where it was launched from.
 fn describe(archives: &ArchiveStore, request: &DownloadRequest) -> (String, &'static str) {
@@ -212,8 +215,12 @@ fn describe(archives: &ArchiveStore, request: &DownloadRequest) -> (String, &'st
 
 fn to_job(archives: &ArchiveStore, request: DownloadRequest) -> Option<AnyJob> {
     Some(match request {
-        DownloadRequest::Single { url, format, folder } => AnyJob::Local(Job::Single { url, format, base: Location::parse(&folder) }),
-        DownloadRequest::SingleToDevice { url, format, target } => AnyJob::Device(DeviceJob::Single { url, format, target }),
+        DownloadRequest::Single { url, format, folder, cover } => {
+            AnyJob::Local(Job::Single { url, format, base: Location::parse(&folder), cover: cover.map(PathBuf::from) })
+        }
+        DownloadRequest::SingleToDevice { url, format, target, cover } => {
+            AnyJob::Device(DeviceJob::Single { url, format, target, cover: cover.map(PathBuf::from) })
+        }
         DownloadRequest::Update { block_key } => {
             let json = Location::parse(&block_key);
             // A device playlist has no local folder for the local engine to

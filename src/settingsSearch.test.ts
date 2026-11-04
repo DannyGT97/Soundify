@@ -8,8 +8,8 @@ import { normalizeForSearch } from './search';
 /** A fake dictionary with the SAME key patterns as the real one. */
 const dictionary: Record<string, string> = {
   // real settings (title + .desc)
-  'settings.general.thumbnails': 'Descargar miniaturas',
-  'settings.general.thumbnails.desc': 'Guarda las miniaturas junto al archivo.',
+  'settings.general.includeIds': 'Incluir IDs en el nombre',
+  'settings.general.includeIds.desc': 'Añade el identificador al final.',
   'settings.interface.language': 'Idioma',
   'settings.interface.language.desc': 'Idioma de la aplicación.',
   'settings.updates.auto': 'Actualizaciones automáticas',
@@ -63,8 +63,8 @@ describe('settings search index', () => {
   });
 
   it('a title match ranks above one that only mentions it', () => {
-    const all = buildIndex({ ...dictionary, 'settings.general.other': 'Otro', 'settings.general.other.desc': 'Habla de miniaturas.' });
-    expect(keys(searchIndex(all, 'miniaturas'))).toEqual(['settings.general.thumbnails', 'settings.general.other']);
+    const all = buildIndex({ ...dictionary, 'settings.general.other': 'Otro', 'settings.general.other.desc': 'Habla de incluir algo.' });
+    expect(keys(searchIndex(all, 'incluir'))).toEqual(['settings.general.includeIds', 'settings.general.other']);
   });
 
   it('an empty search returns nothing', () => {

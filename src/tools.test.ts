@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { ToolStatus, ToolsReport } from './api/types';
-import { downloadSize, missingRequired, missingTools, toolChip } from './tools';
+import { canDownload, downloadSize, missingRequired, missingTools, toolChip } from './tools';
 
 const tool = (id: ToolStatus['id'], installed: boolean, extra: Partial<ToolStatus> = {}): ToolStatus =>
   ({ id, name: id, installed, version: installed ? '1.0' : null, bundled: false, required: id !== 'deno', ...extra });
@@ -17,6 +17,19 @@ describe('missing tools', () => {
   it('nothing is missing when the system provides the tools, or before the report arrives', () => {
     expect(missingTools(report(false, [tool('ytdlp', false)]))).toEqual([]);
     expect(missingRequired(null)).toEqual([]);
+  });
+
+  it('downloading needs yt-dlp and ffmpeg, and Deno does not stop it', () => {
+    const all = (ytdlp: boolean, ffmpeg: boolean, deno: boolean) => report(true, [tool('ytdlp', ytdlp), tool('ffmpeg', ffmpeg), tool('deno', deno)]);
+    expect(canDownload(all(true, true, true))).toBe(true);
+    expect(canDownload(all(true, true, false))).toBe(true);
+    expect(canDownload(all(false, true, true))).toBe(false);
+    expect(canDownload(all(true, false, true))).toBe(false);
+  });
+
+  it('it says yes when the system provides the tools, or before the report arrives', () => {
+    expect(canDownload(report(false, [tool('ytdlp', false)]))).toBe(true);
+    expect(canDownload(null)).toBe(true);
   });
 
   it('a copy travelling with the app adds nothing to the download size', () => {

@@ -1,9 +1,12 @@
 import './styles/theme.css';
 import './styles/app.css';
+import './styles/screens.css';
 import { h } from './dom';
 import { currentRoute, navigate, startRouter } from './router';
 import { loadPreferences } from './preferences';
 import { buildPlayerBar } from './components/playerBar';
+import { mountPip } from './components/pip';
+import { buildTitleBar } from './components/titleBar';
 import { buildSidebar, markActive } from './components/sidebar';
 import { downloadView } from './views/download';
 import { homeView } from './views/home';
@@ -38,6 +41,7 @@ if (app) {
 
   let sidebar = buildSidebar();
   let playerBar = buildPlayerBar();
+  if (api.windowControls) app.append(buildTitleBar(api.windowControls));
   app.append(
     h('div', { class: 'workspace' }, sidebar, h('main', { attrs: { id: 'page' } })),
     playerBar,
@@ -54,6 +58,7 @@ if (app) {
     const { route, params } = currentRoute();
     navigate(route, params);
   });
+  mountPip(app);
   mountToasts(app);
   installSpaceToPlay();
   watchToolHealth();

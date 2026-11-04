@@ -123,4 +123,19 @@ impl Engine<'_> {
         let (_, lines) = self.query(query::first_video_id_args(&url, cookies.as_deref()))?;
         query::first_video_id(&lines.join("\n"))
     }
+
+    /// The address of the thumbnail of what the URL names: the playlist's own,
+    /// or one video's on any site yt-dlp can read.
+    pub fn url_thumbnail(&self, raw_url: &str, playlist: bool) -> Option<String> {
+        let settings = settings::load(self.archives.storage(), self.settings_file);
+        let cookies = Some(settings.cookies_file).filter(|c| !c.trim().is_empty());
+        if playlist {
+            let url = paths::normalize_playlist_url(raw_url.trim());
+            let (_, lines) = self.query(query::playlist_thumbnail_args(&url, cookies.as_deref()))?;
+            query::playlist_thumbnail(&lines.join("\n"))
+        } else {
+            let (_, lines) = self.query(query::video_thumbnail_args(raw_url.trim(), cookies.as_deref()))?;
+            query::video_thumbnail(&lines.join("\n"))
+        }
+    }
 }

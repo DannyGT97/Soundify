@@ -2,128 +2,380 @@ import { h, titleRow } from '../dom';
 import { icon } from '../icons';
 import { t } from '../i18n';
 import type { FormatBlock, Playlist, Track } from '../api';
-import { findBlock, library, onDisk } from '../library';
+import { countBy, filesText, findBlock, library, onDisk } from '../library';
 import * as player from '../player';
-import { isPlayable } from '../player';
+import { formatTime, isPlayable } from '../player';
 import { filterByTitle } from '../search';
 import { ago } from '../relativeTime';
 import { navigate, onLeave, type Params } from '../router';
 import { subscribe, ui } from '../state';
 import { cover } from '../components/cover';
-import { playlistPicture } from '../covers';
+import { openMenu } from '../components/floating';
+import { canPlayTrack, trackRow } from '../components/trackRow';
+import { hueOf, playlistPicture } from '../covers';
+import { changeCover, openFolder } from './manager';
 
 /**
- * Reproductor: the local playlists on the left (one row per playlist+format)
- * and the chosen one on the right. Clicking a file plays it and goes to
- * Reproduciendo; playback goes on when leaving, the controls live in the bar.
+ * Reproductor: the playlists as cards, or one of them (`?b=<block>`) with its
+ * files. Pressing a file plays it and stays on the list; Reproduciendo opens
+ * from the bar.
  */
 export function playerView(params: Params): HTMLElement {
   ui.lastPlayerPage = 'player';
-  if (params.b) ui.selectedBlock = params.b;
-
-  const left = h('div', { class: 'stack-4 scroll' });
-  const right = h('section', { class: 'card player-detail' });
-  const render = () => {
-    left.replaceChildren(...library.playlists.flatMap(p => p.formats.map(b => playlistRow(p, b))));
-    right.replaceChildren(...detail());
-  };
-  render();
-  onLeave(subscribe('player', () => markPlaying(right)));
-
-  return h('div', { class: 'screen' },
-    h('div', { class: 'screen-head' },
-      titleRow('player', t('player.title')),
-      h('p', { class: 'subtitle', text: t('player.description') })),
-    h('div', { class: 'player-columns' },
-      h('aside', { class: 'panel player-list' }, h('div', { class: 'summary-title', text: t('player.playlists') }), left),
-      right));
-}
-
-function playlistRow(playlist: Playlist, block: FormatBlock): HTMLElement {
-  const playable = isPlayable(block.format);
-  const row = h('button', { class: `player-playlist${ui.selectedBlock === block.key ? ' selected' : ''}${playable ? '' : ' off'}`,
-    title: playable ? '' : t('player.unplayable', block.format),
-    onclick: () => navigate('player', { b: block.key }) },
-    cover(playlist.title, block.video, 40, playlistPicture(playlist)),
-    h('div', { class: 'min0' },
-      h('div', { class: 'row-title ellipsis', text: playlist.title }),
-      h('div', { class: 'subtitle', text: t('player.meta', block.format, onDisk(block.tracks).length) })));
-  return row;
-}
-
-function detail(): Node[] {
-  const found = findBlock(ui.selectedBlock);
-  if (!found) return [h('p', { class: 'help', text: t('player.pick') })];
-  const { playlist, block } = found;
-  const playable = isPlayable(block.format);
-  const tracks = onDisk(block.tracks);
-
-  const list = h('div', { class: 'track-list' });
-  const noMatch = h('p', { class: 'help' });
-  const fill = (query: string) => {
-    const shown = filterByTitle(tracks, query);
-    list.replaceChildren(...shown.map((tr, i) => trackRow(block, tr, i + 1, playable)));
-    noMatch.hidden = shown.length > 0;
-    noMatch.textContent = t('player.search.none', query);
-  };
-
-  const search = h('input', { class: 'input search-field', attrs: { placeholder: t('player.search.prompt') } });
-  search.hidden = true;
-  search.addEventListener('input', () => fill(search.value));
-  const searchButton = h('button', { class: 'search-button', title: t('player.search'), onclick: () => {
-    search.hidden = !search.hidden;
-    if (!search.hidden) search.focus();
-    else { search.value = ''; fill(''); }
-  } });
-  searchButton.append(icon('search'));
-  const playAll = h('button', { class: 'play-big', title: t('player.play'), onclick: () => {
-    player.playAll(block.key);
-    navigate('now-playing');
-  } }, icon('play', 20, true));
-  playAll.disabled = !playable;
-
-  fill('');
-  return [
-    h('div', { class: 'row center gap-18' },
-      cover(playlist.title, block.video, 96, playlistPicture(playlist)),
-      h('div', { class: 'grow min0' },
-        h('h2', { class: 'page-title ellipsis', text: playlist.title }),
-        h('div', { class: 'subtitle', text: t('player.meta', block.format, tracks.length) }),
-        playable ? null : h('div', { class: 'warn-text', text: t('player.unplayable', block.format) })),
-      search, searchButton, playAll),
-    h('div', { class: 'track-columns' },
-      h('span', { class: 'col-num', text: '#' }), h('span', { class: 'col-cover' }),
-      h('span', { class: 'grow', text: t('player.column.title') }),
-      h('span', { class: 'col-added', text: t('player.column.added') })),
-    noMatch,
-    list,
-  ];
-}
-
-function trackRow(block: FormatBlock, track: Track, index: number, playable: boolean): HTMLElement {
-  const playing = ui.nowPlaying?.track.id === track.id;
-  return h('button', { class: `track-row${playing ? ' playing' : ''}${playable ? '' : ' off'}`, attrs: { 'data-id': track.id },
-    onclick: () => {
-      if (!playable) return;
-      // The one already loaded is not started again from 0:00: it only goes to Reproduciendo.
-      const loaded = ui.nowPlaying?.blockKey === block.key && ui.nowPlaying.track.id === track.id;
-      if (!loaded) player.play(block.key, track);
-      navigate('now-playing');
-    } },
-    h('span', { class: 'col-num', text: String(index) }),
-    cover(track.title, block.video, 40, { kind: 'thumbnail', id: track.id }),
-    h('span', { class: 'grow ellipsis row-title', text: track.title }),
-    h('span', { class: 'col-added subtitle', text: relative(track.addedDaysAgo) }));
-}
-
-/** Keeps the green "now playing" mark on the right row without rebuilding the list. */
-function markPlaying(root: HTMLElement): void {
-  root.querySelectorAll<HTMLElement>('.track-row').forEach(row => {
-    row.classList.toggle('playing', row.dataset.id === ui.nowPlaying?.track.id);
-  });
+  return params.b && findBlock(params.b) ? detailView(params.b) : libraryView();
 }
 
 function relative(days: number): string {
   const { key, amount } = ago(days);
   return t(key, amount);
+}
+
+const canPlayBlock = (block: FormatBlock) => block.tracks.some(track => canPlayTrack(block, track));
+const firstPlayable = (playlist: Playlist) => playlist.formats.find(canPlayBlock) ?? null;
+const newest = (playlist: Playlist) => Math.min(Infinity, ...playlist.formats.flatMap(block => onDisk(block.tracks).map(track => track.addedDaysAgo)));
+const size = (playlist: Playlist) => playlist.formats.reduce((n, block) => n + onDisk(block.tracks).length, 0);
+const isOffline = (playlist: Playlist) => playlist.formats.every(block => block.accessible === false);
+
+// === THE LIBRARY ===
+
+type Chip = 'all' | 'audio' | 'video' | 'device';
+type Sort = 'recent' | 'az' | 'size';
+
+const IN_CHIP: Record<Chip, (playlist: Playlist) => boolean> = {
+  all: () => true,
+  audio: playlist => playlist.formats.some(block => !block.video),
+  video: playlist => playlist.formats.some(block => block.video),
+  device: playlist => playlist.formats.some(block => block.device != null),
+};
+
+const SORTS: Record<Sort, (a: Playlist, b: Playlist) => number> = {
+  recent: (a, b) => newest(a) - newest(b),
+  az: (a, b) => a.title.localeCompare(b.title, undefined, { sensitivity: 'base' }),
+  size: (a, b) => size(b) - size(a),
+};
+
+// Going into a playlist and back finds the list as it was left.
+let query = '';
+let chip: Chip = 'all';
+let sort: Sort = 'recent';
+
+function libraryView(): HTMLElement {
+  const search = h('input', { class: 'input', attrs: { placeholder: t('player.library.search') } });
+  search.value = query;
+  const chipButtons = (['all', 'audio', 'video', 'device'] as Chip[]).map(key => {
+    const button = h('button', { class: 'fchip', text: t(`player.library.chip.${key}`), onclick: () => {
+      chip = key;
+      fill();
+    } });
+    button.dataset.chip = key;
+    return button;
+  });
+  const sortSelect = h('select', { class: 'sort', title: t('player.library.sort') },
+    ...(['recent', 'az', 'size'] as Sort[]).map(key => h('option', { text: t(`player.library.sort.${key}`), attrs: { value: key } })));
+  sortSelect.value = sort;
+  sortSelect.addEventListener('change', () => {
+    sort = sortSelect.value as Sort;
+    fill();
+  });
+  search.addEventListener('input', () => {
+    query = search.value;
+    fill();
+  });
+
+  const resumeSlot = h('div');
+  const count = h('span', { class: 'muted' });
+  const grid = h('div', { class: 'pgrid' });
+  const none = h('p', { class: 'none' });
+
+  function fill(): void {
+    chipButtons.forEach(button => button.classList.toggle('on', button.dataset.chip === chip));
+    const all = library.playlists;
+    const shown = filterByTitle(all, query).filter(IN_CHIP[chip]).sort(SORTS[sort]);
+    grid.replaceChildren(...shown.map(libraryCard));
+    count.textContent = t('player.library.count', shown.length, all.length);
+    none.hidden = shown.length > 0;
+    none.textContent = query.trim() ? t('player.library.none', query.trim()) : t('player.library.noneFilter');
+    refreshResume();
+  }
+
+  // The card only asks for what is on it: the position moves it several times
+  // a second, and rebuilding every thumbnail with it would be pointless.
+  let meter: HTMLElement | null = null;
+  let time: HTMLElement | null = null;
+  function refreshResume(): void {
+    meter = null;
+    time = null;
+    const now = ui.nowPlaying;
+    const found = now ? findBlock(now.blockKey) : null;
+    if (!now || !found || query.trim() || chip !== 'all') {
+      resumeSlot.replaceChildren();
+      return;
+    }
+    time = h('span');
+    meter = h('div', { class: 'meter' }, h('i'));
+    const card = h('div', { class: 'resume', attrs: { role: 'button', tabindex: '0' }, onclick: () => navigate('player', { b: now.blockKey }) },
+      cover(now.track.title, found.block.video, 64, { kind: 'thumbnail', id: now.track.id }),
+      h('div', { class: 'grow min0' },
+        h('div', { class: 'eyebrow', text: t(ui.playing ? 'home.resume.playing' : 'home.resume.last') }),
+        h('b', { class: 'ellipsis', text: now.track.title }),
+        h('div', { class: 'muted ellipsis' }, `${found.playlist.title} · ${found.block.format.toUpperCase()} · `, time),
+        meter),
+      h('button', { class: 'round-play', title: t(ui.playing ? 'player.pause' : 'player.play'), onclick: event => {
+        event.stopPropagation();
+        player.togglePlay();
+      } }, icon(ui.playing ? 'pause' : 'play', 20, true)));
+    card.style.setProperty('--h', String(hueOf(found.playlist.title)));
+    card.addEventListener('keydown', event => {
+      if (event.key === 'Enter' && event.target === card) navigate('player', { b: now.blockKey });
+    });
+    resumeSlot.replaceChildren(card);
+    patchResume();
+  }
+  function patchResume(): void {
+    if (!time || !meter) return;
+    time.textContent = t('player.library.position', formatTime(ui.position), formatTime(ui.duration));
+    meter.style.setProperty('--p', String(ui.duration > 0 ? Math.min(1, ui.position / ui.duration) : 0));
+  }
+
+  let shownKey = '';
+  const playingKey = () => `${ui.nowPlaying?.blockKey}|${ui.nowPlaying?.track.id}|${ui.playing}`;
+  onLeave(subscribe('player', () => {
+    if (playingKey() === shownKey) { patchResume(); return; }
+    shownKey = playingKey();
+    fill();
+  }));
+  onLeave(subscribe('library', fill));
+  shownKey = playingKey();
+  fill();
+
+  return h('div', { class: 'screen' },
+    h('div', { class: 'screen-head' }, titleRow('player', t('player.title'))),
+    h('div', { class: 'toolbar' },
+      h('div', { class: 'search-box' }, icon('search', 15), search),
+      ...chipButtons,
+      sortSelect),
+    resumeSlot,
+    h('div', { class: 'section-head' },
+      h('b', { text: t('player.playlists') }),
+      count),
+    grid,
+    none);
+}
+
+/** One card per playlist, whatever its formats: which one to open is on the card. */
+function libraryCard(playlist: Playlist): HTMLElement {
+  const first = playlist.formats[0] as FormatBlock;
+  const playable = firstPlayable(playlist);
+  const device = playlist.formats.find(block => block.device)?.device;
+  const offline = isOffline(playlist);
+  const sounding = ui.playing && playlist.formats.some(block => block.key === ui.nowPlaying?.blockKey);
+  const onlyVideo = playlist.formats.every(block => block.video);
+
+  const open = (block: FormatBlock) => navigate('player', { b: block.key });
+  const sub = offline && device ? t('player.library.offline', device.deviceName)
+    : offline ? t('manager.status.offline')
+    : !playlist.formats.some(block => isPlayable(block.format)) ? t('player.unplayable', first.format.toUpperCase())
+    : playlist.formats.length === 1 ? `${first.format.toUpperCase()} · ${filesText(onDisk(first.tracks).length)}`
+    : t('player.library.formats', playlist.formats.length);
+  const added = newest(playlist);
+
+  const card = h('div', {
+    class: `pl-card${playable ? '' : ' off'}${sounding ? ' sounding' : ''}`,
+    title: playlist.title,
+    attrs: { role: 'button', tabindex: '0' },
+    onclick: () => open(first),
+  },
+    h('div', { class: 'pl-art' },
+      cover(playlist.title, onlyVideo, 160, playlistPicture(playlist)),
+      device ? h('span', { class: 'badge' }, icon('device', 11), h('span', { text: device.deviceName }))
+        : onlyVideo ? h('span', { class: 'badge' }, icon('video', 11), h('span', { text: t('player.library.video') })) : null,
+      playable ? h('button', { class: 'round-play card-play', title: t(sounding ? 'player.pause' : 'player.play'), onclick: event => {
+        event.stopPropagation();
+        if (playlist.formats.some(block => block.key === ui.nowPlaying?.blockKey)) player.togglePlay();
+        else player.playAll(playable.key);
+      } }, icon(sounding ? 'pause' : 'play', 20, true)) : null),
+    h('div', { class: 'pl-title ellipsis', text: playlist.title }),
+    h('div', { class: `pl-sub ellipsis${offline ? ' warn-text' : ''}`, text: sub }),
+    playlist.formats.length > 1 ? h('div', { class: 'fmts' }, ...playlist.formats.map(block => h('button', {
+      class: 'fmt',
+      text: `${block.format.toUpperCase()} · ${onDisk(block.tracks).length}`,
+      onclick: event => {
+        event.stopPropagation();
+        open(block);
+      },
+    }))) : null,
+    Number.isFinite(added) ? h('div', { class: 'pl-sub ellipsis', text: t('player.library.added', relative(added)) }) : null);
+  card.addEventListener('keydown', event => {
+    if (event.key === 'Enter' && event.target === card) open(first);
+  });
+  return card;
+}
+
+// === ONE PLAYLIST ===
+
+function detailView(key: string): HTMLElement {
+  const opened = findBlock(key);
+  if (!opened) return libraryView();
+  let { playlist, block } = opened;
+  let filter = '';
+
+  const back = () => navigate('player');
+  const backButton = (extra = '') => h('button', { class: `icon-button${extra}`, title: t('player.back'), onclick: back }, icon('back', 18));
+  const playButton = (big: boolean) => h('button', { class: `round-play${big ? ' big' : ''}`, onclick: () => {
+    if (ui.nowPlaying?.blockKey === block.key) player.togglePlay();
+    else player.playAll(block.key);
+  } });
+  const heroPlay = playButton(true);
+  const miniPlay = playButton(false);
+  const shuffle = h('button', { class: 'icon-button', title: t('player.shuffle'), onclick: () => player.toggleShuffle() }, icon('shuffle', 20));
+
+  const sub = h('div', { class: 'pl-sub' });
+  const switcher = h('div', { class: 'segmented' });
+  const search = h('input', { class: 'input track-search', attrs: { placeholder: t('songs.searchPlaceholder'), 'aria-label': t('player.search') } });
+  search.addEventListener('input', () => {
+    filter = search.value;
+    fillTracks();
+  });
+  const closeSearch = () => {
+    search.classList.remove('open');
+    search.value = '';
+    filter = '';
+    fillTracks();
+  };
+  const searchToggle = h('button', { class: 'icon-button', title: t('player.search'), onclick: () => {
+    if (search.classList.contains('open')) closeSearch();
+    else {
+      search.classList.add('open');
+      search.focus();
+    }
+  } }, icon('search', 18));
+  const more = h('button', { class: 'icon-button', title: t('manager.menu.more') }, icon('more', 18));
+  more.addEventListener('click', () => openMenu(more, [
+    { icon: 'folder-open', label: t('manager.openFolder'), run: () => openFolder(playlist, block) },
+    { icon: 'image', label: t('manager.menu.cover'), run: () => void changeCover(playlist) },
+    { icon: 'manager', label: t('player.seeInManager'), run: seeInManager },
+  ]));
+  function seeInManager(): void {
+    navigate('manager', { open: playlist.id, focus: block.key });
+  }
+
+  const notice = h('div', { class: 'notice' });
+  const tracks = h('div', { class: 'tracks' });
+  const none = h('p', { class: 'none' });
+  const footNote = h('div', { class: 'foot-note' });
+  const cols = h('div', { class: `cols${block.video ? ' wide' : ''}` },
+    h('span', { class: 'n', text: '#' }),
+    h('span', { class: 'thumb-col' }),
+    h('span', { text: t('player.column.title') }),
+    h('span', { class: 'added', text: t('player.column.added') }));
+
+  const refreshPlay = () => {
+    const sounding = ui.nowPlaying?.blockKey === block.key && ui.playing;
+    const can = canPlayBlock(block);
+    for (const [button, iconSize] of [[heroPlay, 24], [miniPlay, 16]] as const) {
+      button.replaceChildren(icon(sounding ? 'pause' : 'play', iconSize, true));
+      button.title = t(sounding ? 'player.pause' : 'player.play');
+      button.setAttribute('aria-label', button.title);
+      button.disabled = !can;
+    }
+    shuffle.disabled = !can;
+    shuffle.classList.toggle('on', ui.shuffle);
+  };
+
+  function fillTracks(): void {
+    const shown: Track[] = filterByTitle(onDisk(block.tracks), filter);
+    tracks.replaceChildren(...shown.map(track =>
+      trackRow(block, track, h('span', { class: 'd', text: relative(track.addedDaysAgo) }), { thumbWidth: 68, thumbHeight: 40 })));
+    none.hidden = shown.length > 0;
+    none.textContent = filter.trim() ? t('player.search.none', filter.trim()) : t('player.detail.none');
+  }
+
+  function refreshInfo(): void {
+    const newestHere = Math.min(Infinity, ...onDisk(block.tracks).map(track => track.addedDaysAgo));
+    sub.textContent = [
+      block.format.toUpperCase(),
+      filesText(onDisk(block.tracks).length),
+      Number.isFinite(newestHere) ? t('player.library.added', relative(newestHere)) : '',
+      block.device ? t('player.detail.on', block.device.deviceName) : '',
+    ].filter(Boolean).join(' · ');
+    switcher.hidden = playlist.formats.length < 2;
+    switcher.replaceChildren(...playlist.formats.map(other => h('button', {
+      class: other.key === block.key ? 'on' : '',
+      text: other.format.toUpperCase(),
+      onclick: () => navigate('player', { b: other.key }),
+    })));
+    if (block.accessible === false) {
+      notice.replaceChildren(icon('warning', 16), h('span', { text: t('files.offline', block.device ? block.device.deviceName : playlist.folder) }));
+      notice.hidden = false;
+    } else if (!isPlayable(block.format)) {
+      notice.replaceChildren(icon('warning', 16), h('span', { text: t('files.unplayable', block.format.toUpperCase()) }));
+      notice.hidden = false;
+    } else {
+      notice.hidden = true;
+    }
+    const missing = countBy(block.tracks, 'pending') + countBy(block.tracks, 'failed');
+    footNote.hidden = missing === 0;
+    footNote.replaceChildren(
+      missing === 1 ? t('files.missing.one') : t('files.missing.many', missing), ' ',
+      h('button', { text: t('player.seeInManager'), onclick: seeInManager }));
+  }
+
+  let shownKey = '';
+  const playingKey = () => `${ui.nowPlaying?.blockKey}|${ui.nowPlaying?.track.id}|${ui.playing}|${ui.shuffle}`;
+  onLeave(subscribe('player', () => {
+    if (playingKey() === shownKey) return;
+    shownKey = playingKey();
+    refreshPlay();
+    fillTracks();
+  }));
+  onLeave(subscribe('library', () => {
+    const found = findBlock(key);
+    if (!found) {
+      back();
+      return;
+    }
+    ({ playlist, block } = found);
+    refreshInfo();
+    refreshPlay();
+    fillTracks();
+  }));
+  shownKey = playingKey();
+  refreshInfo();
+  refreshPlay();
+  fillTracks();
+
+  const onKey = (event: KeyboardEvent) => {
+    if (event.key !== 'Escape' || document.querySelector('#overlay-root')?.childElementCount) return;
+    if (search.classList.contains('open')) closeSearch();
+    else back();
+  };
+  window.addEventListener('keydown', onKey);
+  onLeave(() => window.removeEventListener('keydown', onKey));
+
+  const hero = h('div', { class: 'ambient' },
+    backButton(' back'),
+    h('div', { class: 'hero' },
+      cover(playlist.title, block.video, 168, playlistPicture(playlist)),
+      h('div', { class: 'grow min0' },
+        h('div', { class: 'eyebrow', text: t(block.video ? 'player.kind.video' : 'player.kind.audio') }),
+        h('h1', { text: playlist.title, title: playlist.title }),
+        sub)),
+    h('div', { class: 'actions' },
+      heroPlay, shuffle, switcher,
+      h('div', { class: 'spacer' }),
+      search, searchToggle, more));
+
+  const scroller = h('div', { class: 'scroller' }, hero, notice, cols, tracks, none, footNote);
+  const detail = h('div', { class: 'detail' },
+    h('div', { class: 'mini' },
+      backButton(),
+      miniPlay,
+      cover(playlist.title, block.video, 36, playlistPicture(playlist)),
+      h('b', { class: 'ellipsis grow', text: playlist.title }),
+      h('span', { class: 'fmt', text: block.format.toUpperCase() })),
+    scroller);
+  detail.style.setProperty('--h', String(hueOf(playlist.title)));
+  scroller.addEventListener('scroll', () => detail.classList.toggle('stuck', scroller.scrollTop > hero.offsetHeight - 56));
+
+  return h('div', { class: 'screen detail-screen' }, detail);
 }

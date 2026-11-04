@@ -199,7 +199,7 @@ fn base() -> Location {
 }
 
 fn single(url: &str) -> Job {
-    Job::Single { url: url.into(), format: "MP3".into(), base: base() }
+    Job::Single { url: url.into(), format: "MP3".into(), base: base(), cover: None }
 }
 
 /// The real download of a playlist: every id asked for comes down, except

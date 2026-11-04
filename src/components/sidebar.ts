@@ -12,6 +12,8 @@ import { cover } from './cover';
 import { homeLogo } from './logo';
 import { findBlock } from '../library';
 import * as player from '../player';
+import { pipButton } from './pip';
+import { seekSlider } from './transport';
 
 interface Entry { route: Route; label: string; icon: IconName; }
 const groups: { label?: string; entries: Entry[] }[] = [
@@ -95,8 +97,9 @@ function buildMiniPlayer(): HTMLElement {
     if (ui.nowPlaying) navigate('player', { b: ui.nowPlaying.blockKey });
   } });
   const toggle = h('button', { class: 'mini-play', title: t('player.play'), onclick: player.togglePlay });
-  const progress = h('div', { class: 'mini-progress' });
-  const mini = h('div', { class: 'mini-player' }, art, h('div', { class: 'mini-text' }, title, meta), toggle, progress);
+  const progress = seekSlider();
+  progress.classList.add('mini-progress');
+  const mini = h('div', { class: 'mini-player' }, art, h('div', { class: 'mini-text' }, title, meta), pipButton(), toggle, progress);
   let shownKey = '';
   const refresh = () => {
     const np = ui.nowPlaying; mini.hidden = !np || !['side', 'both'].includes(ui.playerPlacement); if (!np) return;

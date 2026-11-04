@@ -25,7 +25,9 @@ Repositorio: https://github.com/DannyGT97/Soundify (GitHub, rama `main`, GPL-3.0
   como en Java), `library` (archives → tipos del front), `settings`, `task_history` y `clock`
   (la hora se inyecta: los tests usan `clock::fixed`). Compatibilidad con Java en `core/tests/java_compat.rs`.
   Fase 2: `transfer` (= `PlaylistTransfer`: manifiesto `soundify-playlist.json`, copiar con espacio
-  libre vía `fs4`, importar, `find_importable`); sus errores dan clave de i18n + argumentos.
+  libre vía `fs4`, importar, `find_importable`); sus errores dan clave de i18n + argumentos. Una carpeta es de
+  Soundify si su manifiesto es válido (`parse_manifest`: JSON, `schema`, `title` y `format`; uno de una versión más
+  nueva cuenta, para avisar de actualizar). En el teléfono, buscar solo mira el nombre y se valida al importar
   Fase 3: `ytdlp/` (comando, progreso, limpieza, motivos de no disponible como clave de i18n, prueba de
   `player_client`, consultas que no descargan), `version` y `log_format`. **Nada ahí ejecuta yt-dlp**:
   dan argumentos (sin el ejecutable) y leen la salida; ejecutarlo es cosa del `Downloader`
@@ -50,6 +52,10 @@ Repositorio: https://github.com/DannyGT97/Soundify (GitHub, rama `main`, GPL-3.0
   `transfer/device` (copiar al/del teléfono, importar desde él), `engine/download/device` (=
   `DeviceSyncService`, un vídeo cada vez, preparado en local y empujado después) y `archive/device`
   («Eliminar todo» en el teléfono)
+  `cover_embed` (crate `lofty`): la imagen elegida en «Descarga por URL» se escribe DENTRO del archivo, porque
+  una descarga suelta no se registra en ningún sitio. En WAV, MKV, WEBM, AVI y FLV no se guarda; los reintentos
+  de segunda pasada no la llevan. `engine/download/create.rs`: `url_thumbnail` (miniatura de una URL: la de
+  la playlist con `--playlist-items 0`, si no la del primer vídeo. **Sin probar contra YouTube real**)
 - `src-tauri/` — la app: comandos finos que llaman a `core/`, sin lógica propia (`commands.rs`).
   Un error de comando llega al front como `{key, args}` (`ApiError`; `errorText()` lo traduce).
   Plugins: `dialog` (elegir carpeta) y `opener` (abrir carpeta), con sus permisos en `capabilities/`.
@@ -62,8 +68,8 @@ Repositorio: https://github.com/DannyGT97/Soundify (GitHub, rama `main`, GPL-3.0
   (`src-tauri/resources/ffmpeg/` → `tools/ffmpeg/` junto al exe; los `.exe` NO van en git, los pone
   `node scripts/fetch-ffmpeg.mjs`, o `--from <carpeta bin>`). El arranque lo copia a `data/systemtools/`
   (`updaters::seed_ffmpeg`). **El arranque ya NO baja nada que falte** (Java bajaba ~180 MB sin
-  preguntar): solo copia el ffmpeg incluido y, con `autoUpdates` (Ajustes → Herramientas), actualiza un
-  yt-dlp que YA esté. Instalar es cosa del usuario, por `tools.rs`: `tools_report` (estado y versión de
+  preguntar): solo copia el ffmpeg incluido y, con `autoUpdates` (Ajustes → Actualizaciones, independiente del
+  de la app), actualiza yt-dlp, ffmpeg y Deno si YA están y hay versión nueva (`update_heavy_tools`). Instalar es cosa del usuario, por `tools.rs`: `tools_report` (estado y versión de
   cada una), `install_tool(id, reinstall)` (una a la vez por herramienta: `AppState.installing`, error
   `tools.error.busy`; reinstalar baja aparte y solo sustituye si sale bien), `check_ytdlp_update` y
   `open_tools_folder`. En el front, `tools.ts` es el estado único (informe, en cola/instalando/fallidas,
@@ -82,7 +88,9 @@ Repositorio: https://github.com/DannyGT97/Soundify (GitHub, rama `main`, GPL-3.0
   la biblioteca; mientras corre, cada archivo registrado emite `file-downloaded` (`api.onFileDownloaded`)
   y el front la relee con `loadLibrarySoon()` (400 ms, junta las ráfagas): «Ver archivos» y el Gestor
   enseñan cada archivo en cuanto está en disco. La tarea en curso lleva `blockKey` (el archive del
-  bloque que se descarga; null en una suelta). Sin ffmpeg (aún sin instalar) no arranca: aviso `activity.error.ffmpegMissing`.
+  bloque que se descarga; null en una suelta). Sin yt-dlp o ffmpeg no arranca nada, ni aunque la interfaz falle: `can_download` (`core/src/tools/status.rs`) lo rechaza en
+  `Downloads::start`, `create_playlist` y `create_device_playlist` con `tools.error.missing`; en el front, `canDownload` (`tools.ts`).
+  Las tres pantallas enseñan el mismo aviso (`components/toolsNotice.ts`).
   «Crear Playlist» es su propio comando (`create_playlist` → `Engine::create_playlist`): REGISTRA antes
   de descargar nada, y «Crear y descargar» lanza después un `update` normal. Una descarga suelta va a la
   carpeta elegida tal cual (sin subcarpeta, sin numerar) y su limpieza solo toca restos de lo que bajó
@@ -97,6 +105,7 @@ Repositorio: https://github.com/DannyGT97/Soundify (GitHub, rama `main`, GPL-3.0
   emiten `copy-progress` y paran con `cancel_copy`). `mtp.rs`: MTP real con el crate `windows`
   (`Shell.Application` para listar, `IFileOperation` para copiar y borrar), cada llamada en su hilo y
   apartamento COM con tope de 15/60/90 s. **Sin probar con un teléfono real**
+  `window_menu.rs`: el menú del sistema al pulsar con el botón derecho en la barra de título propia
 - `e2e/` — tests de interfaz (Playwright) contra `npm run dev` con la API de mentira
 - `scripts/check.mjs` — el `npm run check`
 
@@ -113,12 +122,13 @@ Repositorio: https://github.com/DannyGT97/Soundify (GitHub, rama `main`, GPL-3.0
   sube un contador y `SimulatedPlayer` (un reloj, no suena nada)
 - `library.ts` — la biblioteca ya cargada (`loadLibrary()` antes de la primera pantalla y emite
   `library`), con `findBlock`, `countBy`, `onDisk` y `groupByStatus` (el orden de «Agrupar por estado»:
-  descargados primero). «Ver archivos» sale agrupado de serie y con la miniatura de cada archivo; solo
-  rehace las filas cuando cambia lo que suena, no con cada `player` del reloj (varios por segundo)
+  descargados primero). «Ver archivos» sale agrupado de serie, con icono de estado en cada fila y en su filtro (`MARK` en `overlays/files.ts`) y la miniatura de cada archivo (la fila es
+  `components/trackRow.ts`, la misma del Reproductor); solo rehace las filas cuando cambia lo que suena, no con
+  cada `player` del reloj (varios por segundo)
 - `keys.ts` — la barra espaciadora reproduce/pausa en toda la app salvo donde escribe (`spaceTypes`,
   con test). Sin esto el espacio volvía a «pulsar» el último botón con el foco: reabría «Cambiar
-  portada» o «Ver archivos». Pulsar en el Reproductor el archivo que ya suena solo abre Reproduciendo
-  (no lo reinicia). Reproduciendo lleva el volumen (`buildVolume`, el mismo de la barra) cuando la barra
+  portada» o «Ver archivos». Pulsar un archivo en el Reproductor lo pone y se queda en la lista; pulsar el
+  que ya suena lo pausa (no lo reinicia); Reproduciendo se abre desde la barra. Reproduciendo lleva el volumen (`buildVolume`, el mismo de la barra) cuando la barra
   no se enseña
 - `player.ts` — `PlayerService`: la cola es `playerQueue.ts` (aleatorio = orden fijo, «anterior» vuelve
   a lo que sonó), la duración la da el motor (`ui.duration`), el segundo guardado se aplica al abrir,
@@ -138,7 +148,8 @@ Repositorio: https://github.com/DannyGT97/Soundify (GitHub, rama `main`, GPL-3.0
   cuando cambia el bloque o el paso (`liveShape`); el resto es `patchLive` sobre `[data-live]`, y las
   animaciones conservan su fase entre rehechos (`--live-phase`). «Ir a la descarga» abre el Gestor con
   `open` + `focus` y lleva el bloque a la vista
-- `urls.ts` — `isWebUrl` / `isPlaylistUrl`
+- `urls.ts` — `isWebUrl` / `isPlaylistUrl` (cuenta también un vídeo abierto desde una lista, `watch?v=…&list=…`: Descarga por URL
+  lo rechaza y lleva a Crear Playlist; `Downloads::start` lo rechaza igualmente con `download.error.isPlaylist`)
 - `transfer.ts` — los textos y el tono con que acaban «Copiar playlist» e «Importar» (lógica pura);
   las ventanas de esos dos flujos están en `overlays/transfer.ts` (carpeta o teléfono en los dos
   sentidos; `progressWindow` = barra + Cancelar, cerrar la ventana también cancela)
@@ -146,7 +157,7 @@ Repositorio: https://github.com/DannyGT97/Soundify (GitHub, rama `main`, GPL-3.0
 - `main.ts` — el armazón: menú + página + barra del reproductor + capa de ventanas superpuestas
 - `router.ts` — rutas por hash (`#/manager`, `#/player?b=pl1:MP3`); cada visita rehace la pantalla,
   lo que tiene que sobrevivir vive en `state.ts`. `onLeave()` para timers y suscripciones
-- `state.ts` — estado de la UI (menú plegado, resumen oculto, tema, ubicación del reproductor, lo que suena, la tarea); no guarda nada: lo que dura entre arranques va por `preferences.ts`. `subscribe`/`emit` por tema (`library`, `player`, `tasks`, `theme`, `player-placement`)
+- `state.ts` — estado de la UI (menú plegado, tema, ubicación del reproductor, lo que suena, la tarea); no guarda nada: lo que dura entre arranques va por `preferences.ts`. `subscribe`/`emit` por tema (`library`, `player`, `tasks`, `theme`, `player-placement`)
 - `i18n.ts` — TODO texto visible sale de aquí con `t(clave)`; las claves son las de la app Java
   cuando existen. Español aquí; inglés y catalán en `locales/` (mismas claves, comprobado
   por test). `setLanguage` avisa a `onLanguageChange` y `main.ts` rehace menú, barra y pantalla
@@ -165,16 +176,32 @@ Repositorio: https://github.com/DannyGT97/Soundify (GitHub, rama `main`, GPL-3.0
   `settings.<categoría>.<algo>` con `.desc`, en el idioma en uso
 - `views/` — Inicio, Descarga por URL, Crear Playlist, Gestor, Reproductor, Reproduciendo, Ajustes
 - `components/` — menú lateral (UNO para toda la app), barra del reproductor, portada, ventana
-  superpuesta, piezas de formulario y el panel de resumen
-- `overlays/` — Tareas, Ver archivos (filtro, estado y reproducción simulada por archivo o playlist),
-  Ayuda de Importar, Actividad, confirmación, elegir dispositivo (`devicePicker.ts`: refresca los
-  teléfonos cada 4 s; «¿Problemas con el dispositivo?» plegado dentro, no en otra ventana)
-- `styles/theme.css` — siete bloques `[data-theme="…"]` con los tokens `--sp-*`: Oscuro (predeterminado)
-  y Claro (oficiales), más Oscuro rojo, Oscuro azul, AMOLED, Claro rojo y Claro azul. Incluye
+  superpuesta y piezas de formulario. `form.ts` lleva lo común de Descarga por URL y Crear Playlist:
+  `formatPicker` (botón + panel flotante), `urlCover` (miniatura manual, o automática al escribir una URL
+  válida; `keepsPickedCover` = en qué formatos se puede guardar), `destinations` (carpeta o teléfono) y
+  `footerSummary`. `floating.ts` = menú flotante colgado de la capa de ventanas (el «⋯»), `live.ts` = la
+  descarga en curso como chip y barra
+- `overlays/` — Tareas, Ver archivos (filtro, estado y reproducción por archivo o playlist), Ayuda de
+  Importar (tamaño fijo: desplegar «¿Qué carpeta elijo?» no cambia su tamaño), Actividad, confirmación,
+  `deletePlaylist.ts` (Eliminar, con sus opciones), explorador de dispositivos (`devicePicker.ts`: raíl de
+  teléfonos que se refresca cada 4 s, carpetas en cuadrícula o lista, filtro, nueva carpeta con
+  `create_device_folder`; «¿Problemas con el dispositivo?» se abre dentro, no en otra ventana). Del
+  prototipo quedaron fuera espacio libre, carpetas bloqueadas y recientes
+- `styles/theme.css` — nueve bloques `[data-theme="…"]` con los tokens `--sp-*`: Oscuro (oficial, el
+  predeterminado) y Claro (oficial), sus variantes neutras (`dark-neutral`, `light-neutral`: sin acento verde
+  y sin el tono propio de cada playlist, `--h`; eso se anula al final de `screens.css`), más Oscuro rojo,
+  Oscuro azul, AMOLED, Claro rojo y Claro azul. Incluye
   `--sp-success`, `--sp-cover-a` y `--sp-cover-b`; el éxito no usa el acento y el vídeo conserva su
   degradado morado. `--sp-live`/`--sp-on-live` = algo en marcha (la descarga del Gestor): el acento, salvo en
   los temas rojos, donde un contorno rojo parecía un error; `--sp-glint` = el brillo que recorre ese
-  contorno, más claro que él en los temas oscuros y más oscuro en los claros (pálido parecía un hueco). `styles/app.css` usa variables para los colores y contiene los selectores de tema y avisos.
+  contorno, más claro que él en los temas oscuros y más oscuro en los claros (pálido parecía un hueco). `styles/app.css` usa variables para los colores y contiene los selectores de tema y avisos;
+  `styles/screens.css` = las pantallas rediseñadas (Inicio, Reproductor, Gestor, formularios, explorador).
+- `components/titleBar.ts` — la barra de título propia (`decorations: false`), en los colores del tema. `api.windowControls` es
+  null donde no hay ventana que dibujar (navegador y Android; `?mockWindow` la enseña para los tests). Arrastrar, doble clic y ajustar a
+  los bordes vienen de `data-tauri-drag-region`; redimensionar, de Tauri (lo hace solo en una ventana sin marco). El rectángulo de la
+  ventana incluye 11 px invisibles de sombra a cada lado. Sin el menú de Snap Layouts al pasar por el botón de maximizar.
+- `components/pip.ts` — imagen en imagen: un panel dentro de la app (no una ventana) con el MISMO `<video>` de `htmlPlayer.ts`, para
+  vídeo. Cerrarlo pausa en el mismo segundo; `pipPanel.ts` = dónde puede estar (lógica pura)
 - `components/themePicker.ts` — rejilla reutilizada por el botón del menú y Ajustes → Interfaz.
 - `components/toasts.ts` — `notify({ tone, text })`, avisos apilados que caducan individualmente y viven
   en el armazón para sobrevivir a la navegación; los estados persistentes siguen en sus tarjetas.

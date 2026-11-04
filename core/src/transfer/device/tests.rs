@@ -391,6 +391,27 @@ fn find_importable_looks_two_levels_down_sorted_and_not_inside_a_playlist() {
 }
 
 #[test]
+fn a_device_manifest_that_is_not_valid_registers_nothing_and_says_why() {
+    let f = Fixture::new();
+    let location = f.target("Music/Rara (mp3)");
+    for text in ["{}", "{\"schema\":1,\"tit", "{\"playlist\":[\"a\"]}"] {
+        f.phone.put_file("Music/Rara (mp3)/soundify-playlist.json", text.as_bytes());
+        let error = import_from(&f.storage, &f.phone, &f.archives, &location, &f.scratch, NOW).unwrap_err();
+        assert_eq!(error, TransferError::InvalidManifest, "{text}");
+        assert!(!is_already_registered(&f.storage, &f.archives, &location), "{text}");
+    }
+}
+
+#[test]
+fn a_device_manifest_from_a_newer_version_asks_to_update() {
+    let f = Fixture::new();
+    let newer = format!("{{\"schema\":{}}}", SCHEMA + 1);
+    f.phone.put_file("Music/Rara (mp3)/soundify-playlist.json", newer.as_bytes());
+    let error = import_from(&f.storage, &f.phone, &f.archives, &f.target("Music/Rara (mp3)"), &f.scratch, NOW).unwrap_err();
+    assert_eq!(error, TransferError::NewerSchema { found: SCHEMA + 1, supported: SCHEMA });
+}
+
+#[test]
 fn import_from_registers_the_device_playlist_without_copying_anything() {
     let f = Fixture::new();
     let manifest = PlaylistManifest {

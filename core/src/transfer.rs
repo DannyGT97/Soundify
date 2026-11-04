@@ -42,6 +42,7 @@ pub enum TransferError {
     SameFolder { title: String },
     NotEnoughSpace { needed: String, free: String },
     NoManifest,
+    InvalidManifest,
     NewerSchema { found: i32, supported: i32 },
     AlreadyRegistered { title: String, format: String },
     DriveRoot,
@@ -59,6 +60,7 @@ impl TransferError {
             Self::SameFolder { .. } => "transfer.sameFolder",
             Self::NotEnoughSpace { .. } => "transfer.notEnoughSpace",
             Self::NoManifest => "transfer.noManifest",
+            Self::InvalidManifest => "transfer.invalidManifest",
             Self::NewerSchema { .. } => "transfer.newerSchema",
             Self::AlreadyRegistered { .. } => "transfer.alreadyRegistered",
             Self::DriveRoot => "transfer.driveRoot",
@@ -75,7 +77,7 @@ impl TransferError {
             Self::NoFolder | Self::DriveRoot | Self::DeviceUnreachable => vec![],
             Self::SameFolder { title } => vec![title.clone()],
             Self::NotEnoughSpace { needed, free } => vec![needed.clone(), free.clone()],
-            Self::NoManifest => vec![MANIFEST_NAME.to_string()],
+            Self::NoManifest | Self::InvalidManifest => vec![MANIFEST_NAME.to_string()],
             Self::NewerSchema { found, supported } => vec![found.to_string(), supported.to_string()],
             Self::AlreadyRegistered { title, format } => vec![title.clone(), format.clone()],
             Self::FolderMissing { folder_name } => vec![folder_name.clone()],
@@ -93,6 +95,7 @@ impl std::fmt::Display for TransferError {
             Self::SameFolder { title } => write!(f, "\"{title}\" already lives in that folder"),
             Self::NotEnoughSpace { needed, free } => write!(f, "not enough space: {needed} needed, {free} free"),
             Self::NoManifest => write!(f, "no {MANIFEST_NAME} in that folder"),
+            Self::InvalidManifest => write!(f, "that {MANIFEST_NAME} is damaged or not one of Soundify's"),
             Self::NewerSchema { found, supported } => {
                 write!(f, "manifest schema {found} is newer than {supported}")
             }
@@ -164,8 +167,39 @@ pub struct ArchiveTarget {
 // === THE MANIFEST INSIDE THE PLAYLIST FOLDER ===
 
 /// Is this folder an importable playlist, that is, does it carry a manifest?
+///
+/// A file with that name is not enough: it has to be a manifest (see
+/// [`parse_manifest`]). One from a newer version does count, so the user is told
+/// to update instead of the folder being passed over in silence, and so does one
+/// that could not be read just now: that says nothing about what it contains.
 pub fn has_manifest(storage: &dyn Storage, folder: &Location) -> bool {
-    is_dir(storage, folder) && storage.child(folder, MANIFEST_NAME).is_ok_and(|m| is_file(storage, &m))
+    if !is_dir(storage, folder) {
+        return false;
+    }
+    let Ok(file) = storage.child(folder, MANIFEST_NAME) else { return false };
+    if !is_file(storage, &file) {
+        return false;
+    }
+    storage.read(&file).map_or(true, |bytes| !matches!(parse_manifest(&bytes), Err(TransferError::InvalidManifest)))
+}
+
+/// Reads a manifest and says whether it really is one: JSON, with a schema, a
+/// title and a format. Without this, `{}` or a file of another app with the same
+/// name was imported as a playlist with no title or format. Both apps have always
+/// written those three, so no old manifest is left out; the folder name is not
+/// asked for, since Java leaves it empty for an archive with no folder.
+pub fn parse_manifest(bytes: &[u8]) -> Result<PlaylistManifest> {
+    let manifest: PlaylistManifest = serde_json::from_slice(bytes).map_err(|e| {
+        debug!("Not a manifest: {e}");
+        TransferError::InvalidManifest
+    })?;
+    if manifest.schema > SCHEMA {
+        return Err(TransferError::NewerSchema { found: manifest.schema, supported: SCHEMA });
+    }
+    if manifest.schema < 1 || manifest.title.trim().is_empty() || manifest.format.trim().is_empty() {
+        return Err(TransferError::InvalidManifest);
+    }
+    Ok(manifest)
 }
 
 pub fn write_manifest(storage: &dyn Storage, folder: &Location, manifest: &PlaylistManifest) -> Result<()> {
@@ -179,12 +213,7 @@ pub fn read_manifest(storage: &dyn Storage, folder: &Location) -> Result<Playlis
     if !storage.exists(&file)? {
         return Err(TransferError::NoManifest);
     }
-    let manifest: PlaylistManifest =
-        serde_json::from_slice(&storage.read(&file)?).map_err(|e| TransferError::Io(format!("{file}: {e}")))?;
-    if manifest.schema > SCHEMA {
-        return Err(TransferError::NewerSchema { found: manifest.schema, supported: SCHEMA });
-    }
-    Ok(manifest)
+    parse_manifest(&storage.read(&file)?)
 }
 
 /// Leaves (or refreshes) the manifest inside this local playlist's folder.

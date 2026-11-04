@@ -46,7 +46,7 @@ export function copyToDevice(playlist: Playlist, block: FormatBlock): void {
     result: await api.copyToDevice(block.key, target, onProgress),
     folder: deviceLabel(target),
     register: 'notRequested',
-  })));
+  })), { playlist, block });
 }
 
 async function runCopy(playlist: Playlist, block: FormatBlock, copy: Copy): Promise<void> {

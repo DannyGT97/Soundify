@@ -3,9 +3,7 @@
 //! lives in `soundify_core::tools`; the progress reaches the front through the
 //! same `tool-downloads` event as before.
 
-use std::collections::BTreeSet;
 use std::process::Command;
-use std::sync::{Arc, Mutex};
 
 use serde::Serialize;
 use soundify_core::http::ReqwestHttp;
@@ -19,10 +17,6 @@ use tauri_plugin_opener::OpenerExt;
 use crate::bootstrap;
 use crate::commands::{AppState, CommandError};
 use crate::process;
-
-/// The tools being installed right now: a second «Instalar» of the same one
-/// while the first runs would write over the same files.
-pub type Installing = Arc<Mutex<BTreeSet<Tool>>>;
 
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -136,7 +130,7 @@ fn http() -> std::io::Result<ReqwestHttp> {
 }
 
 /// What the tool prints when asked its version; `None` if it does not run.
-fn version_output(tools: &ToolPaths, tool: Tool) -> Option<String> {
+pub fn version_output(tools: &ToolPaths, tool: Tool) -> Option<String> {
     let path = match tool {
         Tool::Ytdlp => tools.ytdlp(),
         Tool::Ffmpeg => tools.ffmpeg(),

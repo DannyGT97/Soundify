@@ -55,6 +55,7 @@ export const tauriApi: Api = {
   deletePlaylistFormat: (blockKey, files) => invoke<DeleteResult | null>('delete_playlist_format', { blockKey, files }),
   listDevices: () => invoke<DevicesView>('list_devices'),
   listDeviceFolder: (deviceId, path) => invoke<DeviceEntry[]>('list_device_folder', { deviceId, path }),
+  createDeviceFolder: (deviceId, path) => invoke<boolean>('create_device_folder', { deviceId, path }),
   openDeviceFolder: (deviceId, path) => invoke('open_device_folder', { deviceId, path }),
   createDevicePlaylist: (url, format, target, numbered) => invoke<CreatedPlaylist>('create_device_playlist', { url, format, target, numbered }),
   copyToDevice: (blockKey, target, onProgress) =>
@@ -94,6 +95,7 @@ export const tauriApi: Api = {
   onAppUpdate: listener => void listen<AppUpdate>('app-update', event => listener(event.payload)),
   fileUrl: path => convertFileSrc(path),
   thumbnail: id => invoke<string | null>('thumbnail', { id }),
+  urlThumbnail: (url, playlist) => invoke<string | null>('url_thumbnail', { url, playlist }),
   onThumbnailReady: listener => void listen<string>('thumbnail-ready', event => listener(event.payload)),
   onFileDownloaded: listener => void listen('file-downloaded', () => listener()),
   pickCoverImage: (title, filter) => invoke<string | null>('pick_cover_image', { title, filter }),
@@ -107,6 +109,14 @@ export const tauriApi: Api = {
   pickCookiesFile: (title, filter) => invoke<string | null>('pick_cookies_file', { title, filter }),
   fileExists: path => invoke<boolean>('file_exists', { path }),
   setFullscreen: on => void getCurrentWindow().setFullscreen(on),
+  windowControls: typeof navigator !== 'undefined' && /android/i.test(navigator.userAgent) ? null : {
+    minimize: () => void getCurrentWindow().minimize(),
+    toggleMaximize: () => void getCurrentWindow().toggleMaximize(),
+    close: () => void getCurrentWindow().close(),
+    isMaximized: () => getCurrentWindow().isMaximized(),
+    onResized: listener => void getCurrentWindow().onResized(() => listener()),
+    showSystemMenu: () => void invoke('show_system_menu'),
+  },
   onClosing: task => {
     // Not prevented: the handler is awaited before the window goes away.
     void getCurrentWindow().onCloseRequested(async () => { await task(); });

@@ -7,11 +7,14 @@ use std::path::Path;
 use log::warn;
 use soundify_core::Location;
 use soundify_core::cover_art::{self, IMAGE_EXTENSIONS, Thumbnail, ThumbnailFetcher};
+use soundify_core::downloader::StopFlag;
+use soundify_core::http::ReqwestHttp;
 use soundify_core::storage::LocalStorage;
 use tauri::{AppHandle, Manager, Runtime, State, WebviewWindow};
 use tauri_plugin_dialog::DialogExt;
 
-use crate::commands::CommandError;
+use crate::commands::{AppState, CommandError};
+use crate::downloads;
 
 /// Lets the webview load files from inside `dir` (and its subfolders).
 pub fn allow_folder<R: Runtime>(app: &AppHandle<R>, dir: &Path) {
@@ -28,6 +31,29 @@ pub fn thumbnail(covers: State<'_, ThumbnailFetcher>, id: String) -> Option<Stri
         Thumbnail::Ready(file) => Some(file.display().to_string()),
         Thumbnail::Pending | Thumbnail::Unavailable => None,
     }
+}
+
+/// The picture of what a URL names, already on disk: the playlist's own, or one
+/// video's on any site yt-dlp can read. None if it has none or it cannot be had.
+#[tauri::command]
+pub async fn url_thumbnail(state: State<'_, AppState>, url: String, playlist: bool) -> Result<Option<String>, CommandError> {
+    let archives = state.archives.clone();
+    let tools = state.tools.clone();
+    let settings_file = state.paths.settings();
+    let dir = state.paths.thumbnails();
+    tauri::async_runtime::spawn_blocking(move || {
+        let address = downloads::with_engine(&archives, &tools, &settings_file, &StopFlag::new(), |engine| engine.url_thumbnail(&url, playlist))?;
+        let http = ReqwestHttp::new(env!("CARGO_PKG_VERSION")).ok()?;
+        match cover_art::fetch_remote_image(&http, &address, &dir) {
+            Ok(file) => Some(file.display().to_string()),
+            Err(e) => {
+                warn!("Could not fetch the thumbnail {address}: {e}");
+                None
+            }
+        }
+    })
+    .await
+    .map_err(CommandError::io)
 }
 
 /// The file picker for a cover. The picked file is opened to the webview, so

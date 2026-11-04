@@ -93,7 +93,6 @@ pub struct UserSettings {
     pub downloads_folder: String,
     #[serde(deserialize_with = "null_as_empty")]
     pub cookies_file: String,
-    pub download_thumbnails: bool,
     pub auto_updates: bool,
     pub include_id_in_title_name: bool,
     /// The yt-dlp `player_client` that last got past YouTube's bot check.
@@ -127,7 +126,6 @@ impl Default for UserSettings {
             language: "es".into(),
             downloads_folder: String::new(),
             cookies_file: String::new(),
-            download_thumbnails: false,
             auto_updates: true,
             include_id_in_title_name: false,
             working_player_client: None,
@@ -154,7 +152,6 @@ pub struct Preferences {
     pub language: String,
     pub ui_scale: i32,
     pub player_placement: String,
-    pub download_thumbnails: bool,
     pub include_id_in_title_name: bool,
     pub app_update_check_enabled: bool,
     pub auto_updates: bool,
@@ -170,7 +167,6 @@ pub struct PreferencesPatch {
     pub language: Option<String>,
     pub ui_scale: Option<i32>,
     pub player_placement: Option<String>,
-    pub download_thumbnails: Option<bool>,
     pub include_id_in_title_name: Option<bool>,
     pub app_update_check_enabled: Option<bool>,
     pub auto_updates: Option<bool>,

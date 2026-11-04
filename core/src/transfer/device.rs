@@ -332,6 +332,11 @@ pub fn bytes_to_pull(
 /// The importable playlist folders in sight from `root` inside a device: the
 /// folder itself if it carries a manifest, or the ones that do down to two
 /// levels below. A folder with a manifest is not followed inwards.
+///
+/// Here "carries a manifest" only looks at the file's name: checking its contents
+/// would pull one file per playlist, each a slow round trip, before the user has
+/// confirmed anything. [`import_from`] does check it, one that is not valid
+/// registers nothing and the user is told why.
 pub fn find_importable(phone: &dyn PortableDevice, device_id: &str, device_name: &str, root: &str) -> Vec<DeviceTarget> {
     if !phone.is_available() {
         return Vec::new();
@@ -472,12 +477,7 @@ fn pull_manifest(phone: &dyn PortableDevice, location: &DeviceTarget, scratch: &
     if !phone.pull(&location.device_id, &join_path(&location.path, MANIFEST_NAME), &local) || !local.is_file() {
         return Err(TransferError::NoManifest);
     }
-    let manifest: PlaylistManifest =
-        serde_json::from_slice(&std::fs::read(&local)?).map_err(|e| TransferError::Io(e.to_string()))?;
-    if manifest.schema > SCHEMA {
-        return Err(TransferError::NewerSchema { found: manifest.schema, supported: SCHEMA });
-    }
-    Ok(manifest)
+    super::parse_manifest(&std::fs::read(&local)?)
 }
 
 /// The local `to_archive_data`, writing the device fields instead of paths.
