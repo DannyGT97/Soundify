@@ -58,6 +58,10 @@ pub fn is_required(tool: Tool) -> bool {
 /// ffmpeg yt-dlp still downloads but cannot convert: the video was left as
 /// .mp4, cleaned away as a leftover, and the task ended with nothing.
 pub fn can_download(tools: &ToolPaths) -> bool {
+    // yt-dlp does not run on Android yet (phase 10 of the plan).
+    if cfg!(target_os = "android") {
+        return false;
+    }
     Tool::ALL.into_iter().filter(|tool| is_required(*tool)).all(|tool| is_installed(tools, tool))
 }
 

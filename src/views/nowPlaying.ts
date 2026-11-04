@@ -3,6 +3,7 @@ import { h } from '../dom';
 import { icon } from '../icons';
 import { t } from '../i18n';
 import { findBlock } from '../library';
+import { isPhone } from '../platform';
 import { navigate, onLeave } from '../router';
 import { hidePip, parkVideo, videoView } from '../player';
 import { subscribe, ui } from '../state';
@@ -63,7 +64,7 @@ export function nowPlayingView(): HTMLElement {
   let idleTimer = 0;
   const isVideo = () => !!ui.nowPlaying && (findBlock(ui.nowPlaying.blockKey)?.block.video ?? false);
   const refreshControls = () => {
-    controls.hidden = !ui.nowPlaying || (ui.playerPlacement !== 'side' && !fullscreen);
+    controls.hidden = !ui.nowPlaying || (ui.playerPlacement !== 'side' && !fullscreen && !isPhone());
     fullscreenButton.hidden = !isVideo();
     fullscreenButton.replaceChildren(icon(fullscreen ? 'fullscreen-exit' : 'fullscreen'));
     describe(fullscreenButton, fullscreen ? 'nowPlaying.exitFullscreen' : 'nowPlaying.fullscreen');
@@ -87,6 +88,7 @@ export function nowPlayingView(): HTMLElement {
     if (event.key === 'Escape' && fullscreen) setFullscreen(false);
   };
   screen.addEventListener('mousemove', wake);
+  screen.addEventListener('pointerdown', wake);
   art.addEventListener('dblclick', () => { if (isVideo()) setFullscreen(!fullscreen); });
   window.addEventListener('keydown', onKey);
   onLeave(() => {

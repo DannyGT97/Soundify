@@ -47,7 +47,7 @@ function emptyHome(): HTMLElement {
     h('div', { class: 'row gap-8' },
       h('button', { class: 'primary-button', onclick: () => navigate('new-playlist') }, icon('new-playlist', 16), h('span', { text: t('nav.newPlaylist') })),
       h('button', { class: 'secondary-button', onclick: () => navigate('download') }, icon('download', 16), h('span', { text: t('nav.download') })),
-      h('button', { class: 'secondary-button', onclick: openImportHelp }, icon('import', 16), h('span', { text: t('manager.import') }))));
+      h('button', { class: 'secondary-button desktop-only', onclick: openImportHelp }, icon('import', 16), h('span', { text: t('manager.import') }))));
 }
 
 /** «Sigue donde lo dejaste»: pressing it plays or pauses, without leaving Inicio. */
@@ -111,7 +111,7 @@ function healthCard(): HTMLElement {
 function quickRow(): HTMLElement {
   return h('div', { class: 'quick' },
     h('button', { onclick: () => navigate('new-playlist') }, icon('new-playlist', 18), h('span', { class: 'ellipsis', text: t('nav.newPlaylist') })),
-    h('button', { onclick: openImportHelp }, icon('import', 18), h('span', { class: 'ellipsis', text: t('manager.import') })));
+    h('button', { class: 'desktop-only', onclick: openImportHelp }, icon('import', 18), h('span', { class: 'ellipsis', text: t('manager.import') })));
 }
 
 function playlistsSection(): HTMLElement {

@@ -11,6 +11,9 @@ Repositorio: https://github.com/DannyGT97/Soundify (GitHub, rama `main`, GPL-3.0
 ## Stack
 - Tauri 2 + Vite + TypeScript sin framework (igual que `lienzo`); Rust en un workspace de Cargo
 - Dev: `npm run tauri dev` · solo el navegador: `npm run dev` (puerto 5180)
+- APK de prueba: `npx tauri android build --debug --apk --target aarch64 --target x86_64` (con `ANDROID_HOME`,
+  `NDK_HOME` y `CARGO_PROFILE_DEV_DEBUG=0`, si no pesa 420 MB; ~100 MB las dos arquitecturas. Borra antes el APK anterior: Gradle lo reescribe encima y conserva su tamaño; sale en `src-tauri/gen/android/app/build/outputs/apk/`).
+  Firmado con la clave de depuración: para publicarlo hace falta un keystore propio
 - **Comprobar: `npm run check`** (tsc + vitest + cargo test + clippy, salida corta: una línea por
   herramienta, o solo lo que falla). Interfaz aparte: `npm run test:ui` (Playwright). Build: `npm run build`
 
@@ -106,6 +109,10 @@ Repositorio: https://github.com/DannyGT97/Soundify (GitHub, rama `main`, GPL-3.0
   (`Shell.Application` para listar, `IFileOperation` para copiar y borrar), cada llamada en su hilo y
   apartamento COM con tope de 15/60/90 s. **Sin probar con un teléfono real**
   `window_menu.rs`: el menú del sistema al pulsar con el botón derecho en la barra de título propia
+- `src-tauri/gen/android/` — el proyecto Android que genera `tauri android init`, con dos cosas propias: `MainActivity.kt`
+  (aparta el webview de las barras del sistema y del teclado, por eso el CSS no usa `safe-area`) y los iconos de
+  `tauri icon`. `tauri.android.conf.json` quita de Android el ffmpeg incluido. `app_paths.rs` en Android: la carpeta
+  privada, sacada de `/proc/self` porque la necesita el logger antes de que arranque Tauri
 - `e2e/` — tests de interfaz (Playwright) contra `npm run dev` con la API de mentira
 - `scripts/check.mjs` — el `npm run check`
 
@@ -155,6 +162,13 @@ Repositorio: https://github.com/DannyGT97/Soundify (GitHub, rama `main`, GPL-3.0
   sentidos; `progressWindow` = barra + Cancelar, cerrar la ventana también cancela)
 - `*.test.ts` — Vitest, solo lógica pura del front; `i18n.test.ts` comprueba que toda clave usada existe
 - `main.ts` — el armazón: menú + página + barra del reproductor + capa de ventanas superpuestas
+- `platform.ts` — `onAndroid` (el aparato: lo que el back aún no puede, `?mockAndroid` lo imita) e `isPhone()` (el
+  sitio en pantalla, misma media query que `styles/phone.css`). **Móvil = el mismo DOM recolocado**: `phone.css`
+  convierte el menú lateral en barra de pestañas (`display: contents`, 5 pestañas; Crear Playlist comparte la de
+  Descargar, con `formSwitch` arriba), reduce la barra del reproductor a portada, título, play, siguiente y cerrar con
+  la línea de progreso arriba, y deja la píldora de tareas flotando. Reproduciendo lleva allí los controles (sin volumen:
+  son los botones del teléfono). En Android además `canDownload` es false (y `can_download` en el back), se ocultan
+  Importar, el destino MTP (`.desktop-only`) y las pestañas Actualizaciones y Herramientas
 - `router.ts` — rutas por hash (`#/manager`, `#/player?b=pl1:MP3`); cada visita rehace la pantalla,
   lo que tiene que sobrevivir vive en `state.ts`. `onLeave()` para timers y suscripciones
 - `state.ts` — estado de la UI (menú plegado, tema, ubicación del reproductor, lo que suena, la tarea); no guarda nada: lo que dura entre arranques va por `preferences.ts`. `subscribe`/`emit` por tema (`library`, `player`, `tasks`, `theme`, `player-placement`)
@@ -212,6 +226,6 @@ Repositorio: https://github.com/DannyGT97/Soundify (GitHub, rama `main`, GPL-3.0
 ## Pendiente
 - **La migración de la lógica sigue [MIGRATION-PLAN.md](MIGRATION-PLAN.md)** (fases 1–10), y cada
   test portado se apunta en [TEST-MAP.md](TEST-MAP.md)
-- Adaptar el diseño a pantalla de móvil
+- Android de verdad (fase 10): descargar, almacenamiento SAF, importar y sonido en segundo plano. Hoy el APK enseña la interfaz con la biblioteca vacía; solo probado en emulador
 - Herramientas: «Cancelar» una descarga de herramienta a medias y la comprobación de yt-dlp «una vez al
   día» del prototipo (`design/tools-setup-prototype.html`, fuera de git) no se hicieron

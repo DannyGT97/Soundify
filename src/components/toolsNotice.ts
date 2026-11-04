@@ -1,6 +1,7 @@
 import { h } from '../dom';
 import { t } from '../i18n';
 import { openToolsSetup } from '../overlays/toolsSetup';
+import { onAndroid } from '../platform';
 import { subscribeWhile } from '../state';
 import { missingRequired, tools } from '../tools';
 
@@ -11,6 +12,8 @@ import { missingRequired, tools } from '../tools';
  * recommended and does not block).
  */
 export function toolsNotice(): HTMLElement {
+  // yt-dlp does not run there yet, and there is nothing to install.
+  if (onAndroid) return h('div', { class: 'status-strip warning', text: t('tools.android.notice') });
   const text = h('span', { class: 'grow' });
   const notice = h('div', { class: 'status-strip warning row center gap-10' }, text,
     h('button', { class: 'primary-button', text: t('tools.missing.install'), onclick: openToolsSetup }));

@@ -5,6 +5,7 @@ import { h } from '../dom';
 import { t } from '../i18n';
 import { findBlock } from '../library';
 import * as player from '../player';
+import { isPhone } from '../platform';
 import { navigate } from '../router';
 import { subscribeWhile, ui } from '../state';
 import { cover } from './cover';
@@ -33,7 +34,8 @@ export function buildPlayerBar(): HTMLElement {
   let shownKey = '';
   const refresh = () => {
     const np = ui.nowPlaying;
-    bar.hidden = !np || !['bottom', 'both'].includes(ui.playerPlacement);
+    // A phone has no side menu to hold the mini player: the bar is always the one.
+    bar.hidden = !np || (!isPhone() && !['bottom', 'both'].includes(ui.playerPlacement));
     if (!np) return;
     const found = findBlock(np.blockKey);
     title.textContent = np.track.title;

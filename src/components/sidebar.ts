@@ -15,15 +15,16 @@ import * as player from '../player';
 import { pipButton } from './pip';
 import { seekSlider } from './transport';
 
-interface Entry { route: Route; label: string; icon: IconName; }
+// `short`: the phone's tab, a fifth of the screen wide.
+interface Entry { route: Route; label: string; icon: IconName; short?: string; }
 const groups: { label?: string; entries: Entry[] }[] = [
   { entries: [{ route: 'home', label: 'nav.home', icon: 'home' }] },
   { label: 'nav.group.download', entries: [
-    { route: 'download', label: 'nav.download', icon: 'download' },
+    { route: 'download', label: 'nav.download', icon: 'download', short: 'nav.short.download' },
     { route: 'new-playlist', label: 'nav.newPlaylist', icon: 'new-playlist' },
   ] },
   { label: 'nav.group.library', entries: [
-    { route: 'manager', label: 'nav.manager', icon: 'manager' },
+    { route: 'manager', label: 'nav.manager', icon: 'manager', short: 'nav.short.manager' },
     { route: 'player', label: 'nav.player', icon: 'player' },
   ] },
 ];
@@ -42,9 +43,11 @@ export function buildSidebar(): HTMLElement {
     if (group.label) nav.append(h('div', { class: 'group-label', text: t(group.label) }));
     for (const entry of group.entries) {
       const label = t(entry.label);
-      const button = h('button', { class: 'nav-button', title: label },
+      // Crear Playlist shares the phone's Descargar tab (`formSwitch`).
+      const button = h('button', { class: entry.route === 'new-playlist' ? 'nav-button phone-hide' : 'nav-button', title: label },
         entry.route === 'home' ? homeLogo(20) : icon(entry.icon, 20),
-        h('span', { class: 'nav-label', text: label }));
+        h('span', { class: 'nav-label', text: label }),
+        h('span', { class: 'nav-label-short', text: t(entry.short ?? entry.label) }));
       button.addEventListener('click', () => navigate(entry.route === 'player' ? ui.lastPlayerPage : entry.route));
       buttons.set(entry.route, button);
       nav.append(button);
@@ -61,7 +64,7 @@ export function buildSidebar(): HTMLElement {
 }
 function navButton(route: Route, labelKey: string, iconName: IconName): HTMLButtonElement {
   const label = t(labelKey);
-  const button = h('button', { class: 'nav-button', title: label }, icon(iconName, 20), h('span', { class: 'nav-label', text: label }));
+  const button = h('button', { class: 'nav-button', title: label }, icon(iconName, 20), h('span', { class: 'nav-label', text: label }), h('span', { class: 'nav-label-short', text: label }));
   button.addEventListener('click', () => navigate(route));
   buttons.set(route, button);
   return button;
@@ -69,6 +72,8 @@ function navButton(route: Route, labelKey: string, iconName: IconName): HTMLButt
 export function markActive(route: Route): void {
   const active: Route = route === 'now-playing' ? 'player' : route;
   buttons.forEach((button, r) => button.classList.toggle('selected', r === active));
+  // The phone has one tab for both ways of downloading.
+  buttons.get('download')?.classList.toggle('phone-selected', route === 'new-playlist');
 }
 function buildTasksPill(): HTMLElement {
   const ring = h('div', { class: 'tasks-ring' });

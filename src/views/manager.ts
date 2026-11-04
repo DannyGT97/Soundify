@@ -94,7 +94,7 @@ export function managerView(params: Params): HTMLElement {
   if (focus) requestAnimationFrame(() => [...list.querySelectorAll<HTMLElement>('.pm-block')]
     .find(el => el.dataset.block === focus)?.scrollIntoView({ block: 'center', behavior: 'smooth' }));
 
-  const importButton = h('button', { class: 'secondary-button', onclick: openImportHelp },
+  const importButton = h('button', { class: 'secondary-button desktop-only', onclick: openImportHelp },
     icon('import', 16), h('span', { text: t('manager.import') }));
 
   return h('div', { class: 'screen' },
@@ -112,7 +112,7 @@ function emptyManager(): HTMLElement {
     h('p', { text: t('manager.empty.body') }),
     h('div', { class: 'row gap-8' },
       h('button', { class: 'primary-button', onclick: () => navigate('new-playlist') }, icon('new-playlist', 16), h('span', { text: t('nav.newPlaylist') })),
-      h('button', { class: 'secondary-button', onclick: openImportHelp }, icon('import', 16), h('span', { text: t('manager.import') }))));
+      h('button', { class: 'secondary-button desktop-only', onclick: openImportHelp }, icon('import', 16), h('span', { text: t('manager.import') }))));
 }
 
 // The row just unfolded by hand: only its blocks slide in. Rebuilt by a

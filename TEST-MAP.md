@@ -106,6 +106,11 @@ Estados: **portado** · **pendiente (fase N)** · **descartado** (con el motivo)
 | — | `core/src/archive/device.rs` (8) + `e2e/transfer.spec.ts` («Eliminar todo») | nuevo |
 | — | `src-tauri/src/mtp.rs` (1, `#[ignore]`: lista los dispositivos de la máquina) | MTP real: se lanza a mano; sin probar aún con un teléfono |
 
+## Móvil
+| Java | Tauri | Estado |
+|---|---|---|
+| — | `e2e/phone.spec.ts` (10: ninguna pantalla se sale de ancho a 390 px, barra de pestañas, barra del reproductor reducida, lo que Android oculta) + `src-tauri/src/app_paths.rs` (2: la carpeta privada en Android) | nuevos |
+
 ## Pendientes
 | Java | Fase |
 |---|---|

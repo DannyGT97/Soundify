@@ -1,0 +1,127 @@
+/*
+ * The phone: the same DOM, rearranged. The side menu becomes the tab bar at the
+ * bottom (so `markActive` and the tasks pill stay one), and the player bar sits
+ * on top of it, reduced to what fits under a thumb. The screens themselves
+ * already collapse by their own width (the container queries of screens.css);
+ * here is only what depends on the window. The media query must match
+ * `PHONE_QUERY` of platform.ts. Nothing on a desktop window goes through it.
+ */
+
+.nav-label-short, .form-switch { display: none; }
+
+/* What the back cannot do on Android yet (see platform.ts). */
+[data-platform="android"] .desktop-only { display: none !important; }
+
+/* Without a mouse nothing can be discovered by hovering over it. */
+@media (hover: none) {
+  .card-play, .use, .url-cover .shade, .pip-panel .pip-bar { opacity: 1; }
+  .track .hover-play { opacity: 1; }
+}
+
+@media (max-width: 700px), (max-height: 500px) {
+  .phone-hide { display: none !important; }
+
+  /* === THE SHELL === */
+  .workspace { display: contents; }
+  #page { order: 1; flex: 1; min-height: 0; }
+  .player-bar { order: 2; }
+
+  .sidebar, .sidebar.collapsed {
+    order: 3; width: 100%; flex: none; flex-direction: row; align-items: stretch; gap: 0;
+    padding: 4px; border-radius: 0; transition: none; overflow: visible;
+    border-top: 1px solid var(--sp-line);
+  }
+  .sidebar-header, .sidebar > .grow, .sidebar .group-label, .sidebar.collapsed .group-label,
+  .sidebar-separator, .sidebar-version, .sidebar.collapsed .sidebar-version, .sidebar .mini-player { display: none; }
+  .nav-list, .sidebar-bottom { display: contents; }
+
+  .sidebar .nav-button, .sidebar.collapsed .nav-button {
+    flex: 1 1 0; min-width: 0; flex-direction: column; justify-content: center; gap: 3px;
+    min-height: 50px; padding: 5px 2px; font-size: 11px; font-weight: 600; text-align: center;
+  }
+  .sidebar .nav-label { display: none; }
+  .nav-label-short { display: block; max-width: 100%; overflow: hidden; text-overflow: ellipsis; }
+  .nav-button.selected, .nav-button.phone-selected { background: transparent; color: var(--sp-text-strong); }
+  .nav-button.phone-selected .icon, .nav-button.selected .icon { color: var(--sp-accent); }
+
+  /* Out of the tab bar: a sixth tab that comes and goes would move the others. */
+  .tasks-pill, .sidebar.collapsed .tasks-pill {
+    position: fixed; top: 8px; right: 12px; z-index: 50; width: auto; max-width: 60vw;
+    padding: 5px 10px 5px 6px; border-radius: 18px; justify-content: flex-start;
+    background: var(--sp-task-bg); box-shadow: 0 2px 10px var(--sp-shadow-soft);
+  }
+  .sidebar .tasks-pill-text { display: block; }
+  .tasks-pill-sub { display: none; }
+
+  .screen { padding: 12px 12px 16px; }
+  .page-title { font-size: 22px; }
+  .title-row { flex-wrap: wrap; row-gap: 8px; }
+
+  /* The two forms share a tab: this says which one is open and goes to the other. */
+  .form-switch {
+    display: grid; grid-template-columns: 1fr 1fr; gap: 4px; padding: 4px; margin-bottom: 10px;
+    border-radius: 10px; background: var(--sp-nav-hover);
+  }
+  .form-switch button { padding: 8px 6px; border-radius: 7px; color: var(--sp-muted); font-weight: 700; font-size: 13px; }
+  .form-switch button.on { background: var(--sp-card, var(--sp-bg)); color: var(--sp-text-strong); }
+  .fmt-panel, .dests { grid-template-columns: 1fr; }
+
+  /* A block of the Gestor: what it holds on one line, what can be done with it on the next. */
+  .fl-main { flex-wrap: wrap; row-gap: 8px; }
+  .fl-main > .grow { flex-basis: 0; }
+  .fl-actions { flex: 1 0 100%; justify-content: flex-end; }
+  .fl-actions > :first-child { flex: 1; justify-content: center; }
+
+  /* === THE PLAYER BAR === */
+  #app[data-route="now-playing"] .player-bar { display: none; }
+  .player-bar { position: relative; gap: 4px; padding: 7px 6px 5px 10px; }
+  .player-now { flex: 1; width: auto; min-width: 0; gap: 10px; }
+  .player-bar .player-center { flex: none; width: auto; max-width: none; margin: 0; }
+  .player-bar .player-controls > :nth-child(1),
+  .player-bar .player-controls > :nth-child(2),
+  .player-bar .player-controls > :nth-child(5) { display: none; }
+  /* The line along its top edge shows how far it is; seeking is in Reproduciendo. */
+  .player-bar .player-progress { position: absolute; left: 0; right: 0; top: -1px; height: 3px; pointer-events: none; }
+  .player-bar .player-time { display: none; }
+  .player-bar .player-progress input { margin: 0; height: 3px; width: 100%; }
+  .player-right { width: auto; min-width: 0; flex: none; gap: 0; }
+  .player-right .player-volume, .player-right .pip-button { display: none; }
+  .player-bar .player-progress .player-slider::-webkit-slider-thumb { opacity: 0; }
+  .player-control { padding: 10px; }
+  .player-play { width: 42px; height: 42px; border-radius: 21px; }
+
+  /* === REPRODUCIENDO === */
+  .np-content { padding: 12px 16px 16px; gap: 12px; }
+  .np-title { font-size: 18px; }
+  /* The phone's own buttons are the volume. */
+  .np-controls .player-volume { display: none; }
+  .np-controls { flex-wrap: wrap; justify-content: center; }
+  .np-controls .player-center { flex: 1 1 100%; max-width: none; }
+  .np-controls .player-controls { justify-content: center; gap: 14px; }
+  .np-controls .player-play { width: 58px; height: 58px; border-radius: 29px; }
+  .np-controls .player-slider::-webkit-slider-thumb { transform: scale(1.3); }
+  .np-art .pip-button, .mini-player .pip-button { display: none; }
+  /* A phone is not a window to float a panel in. */
+  .pip-panel { display: none; }
+
+  /* === WINDOWS AND NOTICES === */
+  .overlay-scrim { padding: 8px; }
+  .overlay-window, .overlay-wide { width: 100%; max-width: 100%; max-height: 100%; }
+  .mod.import { height: auto; }
+  .mod.import .mod-body { overflow-y: auto; }
+  .mod.import .ways { flex: none; }
+  .toast-stack { left: 12px; right: 12px; bottom: 72px; width: auto; }
+
+  /* === AJUSTES === */
+  .settings-search { width: 100%; }
+  .settings-card > .row { flex-direction: column; align-items: stretch; }
+  .select-fit { width: 100%; }
+}
+
+/* A phone on its side: every line of height counts. */
+@media (max-height: 500px) {
+  .sidebar .nav-button, .sidebar.collapsed .nav-button { min-height: 40px; flex-direction: row; gap: 6px; padding: 2px; }
+  .np-head { display: none; }
+  .np-content { padding: 6px 16px; gap: 6px; }
+  .np-art .cover { width: auto !important; height: 100% !important; aspect-ratio: 1; }
+}

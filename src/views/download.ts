@@ -1,7 +1,7 @@
 import { h, titleRow } from '../dom';
 import { icon } from '../icons';
 import { t } from '../i18n';
-import { destinations, fieldLabel, footerSummary, formatPicker, keepsPickedCover, urlCover } from '../components/form';
+import { destinations, fieldLabel, footerSummary, formatPicker, formSwitch, keepsPickedCover, urlCover } from '../components/form';
 import { api } from '../api';
 import { navigate, type Params } from '../router';
 import { isPlaylistUrl, isWebUrl } from '../urls';
@@ -72,6 +72,7 @@ export function downloadView(params: Params = {}): HTMLElement {
 
   return h('div', { class: 'screen fp' },
     h('div', { class: 'fp-body' },
+      formSwitch('download'),
       h('div', { class: 'screen-head' }, titleRow('download', t('download.title'))),
       toolsNotice(),
       h('div', { class: 'url-wrap' }, picture.node,

@@ -10,6 +10,7 @@ import { cover } from './cover';
 import { library } from '../library';
 import { isPlayable } from '../player';
 import { canDownload, tools } from '../tools';
+import { navigate } from '../router';
 import { deviceLabel, openDevicePicker } from '../overlays/devicePicker';
 import { closeFloating, openFloating } from './floating';
 
@@ -63,6 +64,15 @@ export function keepsPickedCover(format: string): boolean {
   return !['WAV', 'MKV', 'WEBM', 'AVI', 'FLV'].includes(format.toUpperCase());
 }
 
+// === THE PHONE'S SWITCH ===
+
+/** The phone has one tab for Descarga por URL and Crear Playlist: this goes from one to the other. */
+export function formSwitch(current: 'download' | 'new-playlist'): HTMLElement {
+  const option = (route: 'download' | 'new-playlist', key: string) =>
+    h('button', { class: route === current ? 'on' : '', text: t(key), onclick: () => navigate(route) });
+  return h('div', { class: 'form-switch' }, option('download', 'nav.download'), option('new-playlist', 'nav.newPlaylist'));
+}
+
 // === DESTINATION ===
 
 export interface Destinations {
@@ -99,6 +109,8 @@ export function destinations(changed: () => void): Destinations {
   const phone = card('device', 'form.dest.device', 'form.dest.device.empty', () => {
     openDevicePicker('destination', target => set(deviceLabel(target), target));
   });
+  // Nothing to plug a phone into from a phone.
+  phone.node.classList.add('desktop-only');
   function paint(): void {
     folder.paint(!!text && !device);
     phone.paint(!!text && !!device);

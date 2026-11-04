@@ -106,6 +106,8 @@ pub fn run() {
         }
         Err(e) => log::warn!("No HTTP client for the thumbnails: {e}"),
       }
+      // On Android the store or the APK updates the app, never itself.
+      #[cfg(not(target_os = "android"))]
       app_update::check_at_startup(app.handle());
       Ok(())
     })
