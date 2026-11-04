@@ -11,6 +11,7 @@ import type {
   ActivityLine, AppUpdate, AppUpdateProgress, CopyOutcome, CopyProgress, CreatedPlaylist, DeleteResult, DeviceEntry, DeviceImportScan, DevicesView, DownloadNotice, ExportResult,
   FormatCatalog, ImportOutcome, ImportScan, PlayerMemory, Playlist, Preferences, TasksViewWire, ToolDownload, ToolsReport, YtdlpCheck,
 } from './types';
+import { onAndroid } from '../platform';
 import { emit, ui } from '../state';
 import { applyTasksView } from '../tasks';
 
@@ -108,8 +109,9 @@ export const tauriApi: Api = {
   resetPreferences: () => invoke<Preferences>('reset_preferences'),
   pickCookiesFile: (title, filter) => invoke<string | null>('pick_cookies_file', { title, filter }),
   fileExists: path => invoke<boolean>('file_exists', { path }),
-  setFullscreen: on => void getCurrentWindow().setFullscreen(on),
-  windowControls: typeof navigator !== 'undefined' && /android/i.test(navigator.userAgent) ? null : {
+  // Android may refuse: the screen still covers the app, under the system's bars.
+  setFullscreen: on => void getCurrentWindow().setFullscreen(on).catch(() => {}),
+  windowControls: onAndroid ? null : {
     minimize: () => void getCurrentWindow().minimize(),
     toggleMaximize: () => void getCurrentWindow().toggleMaximize(),
     close: () => void getCurrentWindow().close(),

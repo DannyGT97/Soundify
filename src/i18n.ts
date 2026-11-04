@@ -19,6 +19,8 @@ export const es: Record<string, string> = {
   'nav.manager': 'Gestor de Playlists',
   'nav.player': 'Reproductor',
   'nav.settings': 'Ajustes',
+  'nav.short.download': 'Descargar',
+  'nav.short.manager': 'Gestor',
 
   'home.title': 'Inicio',
   'home.seeAll': 'Ver todas',
@@ -309,6 +311,7 @@ export const es: Record<string, string> = {
   'tools.error.busy': 'Esa herramienta ya se está instalando.',
   'tools.error.failed': 'No se pudo instalar {0}: {1}',
   'tools.error.missing': '❌ Faltan herramientas para descargar (yt-dlp y ffmpeg). Instálalas en Ajustes → Herramientas; si ya se están instalando, espera a que terminen y vuelve a intentarlo.',
+  'tools.android.notice': 'En Android todavía no se puede descargar ni importar: llegará en una próxima versión.',
   'tools.missing.notice': '⚠ Faltan herramientas para descargar ({0}). Instálalas una vez y listo.',
   'tools.missing.install': 'Instalar ahora',
   'toolHealth.willFail': 'las descargas van a fallar',

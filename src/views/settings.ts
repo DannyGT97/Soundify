@@ -10,6 +10,7 @@ import { SCALE_STEPS, currentScale, onScaleChange, setScale } from '../scale';
 import { themePicker } from '../components/themePicker';
 import { notify } from '../components/toasts';
 import { chooseLanguage, choosePlayerPlacement, preferences, resetPreferences, save } from '../preferences';
+import { onAndroid } from '../platform';
 import { buildIndex, searchIndex } from '../settingsSearch';
 import { checkForUpdate, onUpdateChange, updateState } from '../appUpdate';
 import { checkYtdlp, installTools, isBusy, loadTools, missingTools, toolChip, tools, TOOL_SIZES_MB } from '../tools';
@@ -21,14 +22,16 @@ interface Tab {
   build: () => HTMLElement[];
 }
 
-const TABS: Tab[] = [
+/** What Android has no use for: nothing updates itself there, and there are no tools to install yet. */
+const DESKTOP_TABS = ['updates', 'tools'];
+const TABS: Tab[] = ([
   { id: 'general', icon: 'general', build: general },
   { id: 'interface', icon: 'interface', build: interfaceTab },
   { id: 'updates', icon: 'updates', build: updates },
   { id: 'tools', icon: 'tools', build: toolsTab },
   { id: 'advanced', icon: 'advanced', build: advanced },
   { id: 'about', icon: 'about', build: about },
-];
+] as Tab[]).filter(tab => !onAndroid || !DESKTOP_TABS.includes(tab.id));
 
 let highlight: string | null = null;
 
@@ -71,7 +74,7 @@ export function settingsView(): HTMLElement {
     }
     // While there are results, no tab shows as selected.
     tabs.querySelectorAll('button').forEach(b => b.classList.remove('active'));
-    const hits = searchIndex(index, search.value);
+    const hits = searchIndex(index, search.value).filter(hit => !onAndroid || !DESKTOP_TABS.includes(hit.category));
     content.replaceChildren(...(hits.length ? hits.map(hit => h('button', { class: 'card search-hit', onclick: () => {
       search.value = '';
       highlight = hit.key;
@@ -124,15 +127,21 @@ function general(): HTMLElement[] {
   ];
 }
 
+/** A phone has one place for the player and pinches instead of a scale. */
+function phoneHidden(row: HTMLElement): HTMLElement {
+  row.classList.add('phone-hide');
+  return row;
+}
+
 function interfaceTab(): HTMLElement[] {
   return [
     setting('settings.interface.theme', null, themePicker()),
-    setting('settings.interface.playerPlacement', select([
+    phoneHidden(setting('settings.interface.playerPlacement', select([
       ['side', t('player.placement.side')], ['bottom', t('player.placement.bottom')], ['both', t('player.placement.both')],
-    ], ui.playerPlacement, value => choosePlayerPlacement(value as PlayerPlacement))),
+    ], ui.playerPlacement, value => choosePlayerPlacement(value as PlayerPlacement)))),
     // The whole app is drawn again in the new language, this screen included.
     setting('settings.interface.language', select(LANGUAGES, language(), chooseLanguage)),
-    setting('settings.interface.scale', scaleSelect()),
+    phoneHidden(setting('settings.interface.scale', scaleSelect())),
   ];
 }
 

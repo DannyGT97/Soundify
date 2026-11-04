@@ -1,7 +1,7 @@
 import { h, titleRow } from '../dom';
 import { icon } from '../icons';
 import { t } from '../i18n';
-import { destinations, fieldLabel, footerSummary, formatPicker, urlCover } from '../components/form';
+import { destinations, fieldLabel, footerSummary, formatPicker, formSwitch, urlCover } from '../components/form';
 import { api } from '../api';
 import { navigate, type Params } from '../router';
 import { isWebUrl } from '../urls';
@@ -121,6 +121,7 @@ export function newPlaylistView(params: Params = {}): HTMLElement {
 
   return h('div', { class: 'screen fp' },
     h('div', { class: 'fp-body' },
+      formSwitch('new-playlist'),
       h('div', { class: 'screen-head' }, titleRow('new-playlist', t('newPlaylist.title'))),
       toolsNotice(),
       h('div', { class: 'url-wrap' }, picture.node,

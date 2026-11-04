@@ -62,10 +62,13 @@ pub async fn url_thumbnail(state: State<'_, AppState>, url: String, playlist: bo
 /// and pressing «Cambiar portada» again with it open stacked a second one.
 #[tauri::command]
 pub async fn pick_cover_image(app: AppHandle, window: WebviewWindow, title: String, filter: String) -> Option<String> {
-    let picked = app
-        .dialog()
-        .file()
-        .set_parent(&window)
+    let dialog = app.dialog().file();
+    // Android has no windows to hang a dialog from.
+    #[cfg(desktop)]
+    let dialog = dialog.set_parent(&window);
+    #[cfg(mobile)]
+    let _ = window;
+    let picked = dialog
         .set_title(title)
         .add_filter(filter, &IMAGE_EXTENSIONS)
         .blocking_pick_file()?;

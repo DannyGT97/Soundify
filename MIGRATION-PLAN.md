@@ -398,7 +398,8 @@ Decisiones tomadas al hacerla:
 - `Storage` sobre SAF: el usuario elige la carpeta de música una vez y se guarda el permiso.
 - `PlayerBackend` nativo con Media3 (sonido en segundo plano, controles en la pantalla de bloqueo).
 - Fuera en Android: MTP (el teléfono ES el dispositivo), autoactualización (va por tienda o APK) y deno.
-- Diseño de pantalla móvil (ya anotado en Pendiente).
+- Diseño de pantalla móvil. *Hecho (`styles/phone.css`, `platform.ts`), igual que compilar el APK y arrancarlo en el
+  emulador. Sin `Downloader`, `Storage` SAF ni motor nativo todavía: en Android la biblioteca está vacía y descargar se niega.*
 
 ### Pendiente antes de las siguientes fases (anotado 03/11/2026; hecho el 04/11/2026)
 

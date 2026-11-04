@@ -10,6 +10,7 @@ import { t } from './i18n';
 import { navigate } from './router';
 import { emit, subscribe, ui } from './state';
 import { liveNotice, notify } from './components/toasts';
+import { onAndroid } from './platform';
 import { messageText } from './tasks';
 import { toolDownloadsText } from './toolDownloads';
 
@@ -58,6 +59,7 @@ export function missingRequired(report: ToolsReport | null): ToolStatus[] {
  * Before the report arrives it says yes: the back still refuses if it must.
  */
 export function canDownload(report: ToolsReport | null): boolean {
+  if (onAndroid) return false;
   return missingRequired(report).length === 0;
 }
 

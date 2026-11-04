@@ -1,6 +1,7 @@
 import './styles/theme.css';
 import './styles/app.css';
 import './styles/screens.css';
+import './styles/phone.css';
 import { h } from './dom';
 import { currentRoute, navigate, startRouter } from './router';
 import { loadPreferences } from './preferences';
@@ -27,6 +28,7 @@ import { loadTools, missingRequired, tools, watchTools } from './tools';
 import { openToolsSetup } from './overlays/toolsSetup';
 import { installSpaceToPlay } from './keys';
 import { subscribe, ui } from './state';
+import { installPlatform, onAndroid } from './platform';
 
 // The shell: menu and page side by side, the player bar under both, and the
 // layer where the windows that open on top live.
@@ -34,6 +36,7 @@ const app = document.getElementById('app');
 if (app) {
   // Before the first screen: every view reads the library synchronously, and
   // nothing is drawn in the wrong look or language.
+  installPlatform();
   await Promise.all([loadLibrary(), loadAppInfo(), loadPreferences()]);
   // The last file, paused at its second (it needs the library to find it).
   await restoreLast();
@@ -84,11 +87,15 @@ if (app) {
     'player': playerView,
     'now-playing': nowPlayingView,
     'settings': settingsView,
-  }, markActive);
+  }, route => {
+    app.dataset.route = route;
+    markActive(route);
+  });
   // The first start (or tools deleted by hand): the assistant, only when a
   // REQUIRED one is missing. Asked after the first screen, so it is not waited for.
+  // Android has nothing to install them with yet: Inicio and Descarga say so.
   void loadTools().then(() => {
-    if (missingRequired(tools.report).length) openToolsSetup();
+    if (!onAndroid && missingRequired(tools.report).length) openToolsSetup();
   }).catch(() => {});
 }
 
