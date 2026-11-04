@@ -16,6 +16,12 @@ Repositorio: https://github.com/DannyGT97/Soundify (GitHub, rama `main`, GPL-3.0
   Firmado con la clave de depuración: para publicarlo hace falta un keystore propio
 - **Comprobar: `npm run check`** (tsc + vitest + cargo test + clippy, salida corta: una línea por
   herramienta, o solo lo que falla). Interfaz aparte: `npm run test:ui` (Playwright). Build: `npm run build`
+- **Publicar una release: cuando el usuario lo pida, lo hace Claude entero, SIEMPRE QUE NO MIRE LA CLAVE PRIVADA.**
+  `D:\Project keys\soundify\soundify-signing-key.pem` no se abre, ni se lee, ni se muestra, ni se copia: solo se pasa su
+  ruta al script. Pasos: `npm run tauri build -- --no-bundle` desde el commit de la versión →
+  `node scripts/package-portable.mjs --key "<ruta>"` (se niega si la clave no es la que acepta la app) →
+  `gh release create vX.Y.Z -R DannyGT97/Soundify --target <hash COMPLETO> --title "Soundify X.Y.Z" --notes "..."` con solo
+  los tres archivos de `release/` (`-tauri.zip`, `.sha256`, `.sig`) y notas `## Novedades` en español. Comprobar después lo subido
 
 ## Estructura (raíz)
 - `core/` — crate `soundify-core`: la lógica, **sin Tauri y sin plataforma** (se prueba con `cargo test`
@@ -63,8 +69,12 @@ Repositorio: https://github.com/DannyGT97/Soundify (GitHub, rama `main`, GPL-3.0
   Un error de comando llega al front como `{key, args}` (`ApiError`; `errorText()` lo traduce).
   Plugins: `dialog` (elegir carpeta) y `opener` (abrir carpeta), con sus permisos en `capabilities/`.
   `app_paths.rs`: `data/` junto al ejecutable, o `SOUNDIFY_DATA_DIR`. El arranque corre
-  `reconcile_all` en un hilo, y **escribe** en esa carpeta. `bootstrap.rs` arranca eso, los updaters
-  (solo con herramientas gestionadas) y la caché de formatos; `process.rs` = `YtDlpProcess`, el
+  `reconcile_all` en un hilo (lo lanza `lib.rs` y emite `file-downloaded` al acabar, para que el front relea la
+  biblioteca), y **escribe** en esa carpeta. `reconcile_entries` enlaza también por el manifiesto de la carpeta:
+  `data/` es de cada copia (dev y build tienen la suya sobre la misma carpeta de música), y lo que una bajó sin
+  que la otra lo supiera (`NNN - Título.mp3`, sin id) se reconoce por el id del manifiesto. La ventana arranca
+  maximizada (`"maximized": true` en `tauri.conf.json`, dev y build). `bootstrap.rs` arranca los updaters
+  (solo con herramientas gestionadas), los archives de dispositivo y la caché de formatos; `process.rs` = `YtDlpProcess`, el
   `Downloader` real (UTF-8, Deno en el PATH, stdout/stderr en hilos aparte, parar mata el árbol). Los
   problemas de herramientas salen como evento `tool-health` → toast persistente (`main.ts`).
   **ffmpeg viaja con la app** (como en Java, que lo llevaba en el JAR): recurso de Tauri

@@ -7,7 +7,7 @@ use std::collections::HashSet;
 use indexmap::IndexMap;
 use log::{info, warn};
 
-use super::io::{blank, has_real_file, parse_int_safe};
+use super::io::{MANIFEST_NAME, blank, has_real_file, parse_int_safe};
 use crate::Location;
 use crate::model::{ArchiveData, ArchiveEntry};
 use crate::paths::{self, NumberTitle};
@@ -148,16 +148,43 @@ pub fn reconcile_entries(storage: &dyn Storage, data: &mut ArchiveData, folder: 
         .collect();
     let by_number_on_disk = if data.number_files { by_number(&files) } else { IndexMap::new() };
     let numbered = data.number_files;
+    // The folder's own manifest knows which file each id got. Another copy of
+    // the app (or an earlier import) may have downloaded more into this same
+    // folder: those files are named `NNN - Title`, with no id, and this archive
+    // has no number for them, so only the manifest can say whose they are.
+    let manifest_items: IndexMap<String, (Option<String>, String)> = storage
+        .child(folder, MANIFEST_NAME)
+        .ok()
+        .and_then(|file| storage.read(&file).ok())
+        .and_then(|bytes| crate::transfer::parse_manifest(&bytes).ok())
+        .map(|m| {
+            m.items
+                .into_iter()
+                .filter_map(|i| Some((i.id, (i.number, i.file_name.filter(|n| !n.trim().is_empty())?))))
+                .collect()
+        })
+        .unwrap_or_default();
+    let by_name: IndexMap<&str, &(Location, String)> = files.iter().map(|f| (f.1.as_str(), f)).collect();
 
     for (id, entry) in data.entries.iter_mut() {
         let had_file_path = !blank(entry.file_path.as_deref());
         let mut exists =
             had_file_path && storage.exists(&Location::parse(entry.file_path.as_deref().unwrap_or_default())).unwrap_or(false);
         if !exists {
+            let from_manifest = manifest_items.get(id).and_then(|(number, name)| {
+                by_name.get(name.as_str()).map(|found| {
+                    if entry.number.is_none() {
+                        entry.number = number.clone();
+                    }
+                    (*found).clone()
+                })
+            });
             let matched = legacy_on_disk
                 .get(id)
-                .or_else(|| entry.number.as_ref().and_then(|n| by_number_on_disk.get(n)));
-            if let Some((location, name)) = matched {
+                .cloned()
+                .or_else(|| entry.number.as_ref().and_then(|n| by_number_on_disk.get(n)).cloned())
+                .or(from_manifest);
+            if let Some((location, name)) = matched.as_ref() {
                 exists = true;
                 entry.file_path = Some(stored(location));
                 if let Some(parsed) = parse_file_name(numbered, name, Some(id))

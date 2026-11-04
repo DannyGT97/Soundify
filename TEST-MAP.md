@@ -20,7 +20,7 @@ Estados: **portado** · **pendiente (fase N)** · **descartado** (con el motivo)
 ## Fase 1
 | Java | Tauri | Estado |
 |---|---|---|
-| `ArchiveStoreTest` | `core/src/archive/tests.rs` (pendientes, numeración, `commit`, archive.txt, estados, alta de nuevos, enlazar con lo que ya hay en disco) y `maintenance.rs` («Eliminar todo», olvidar un formato) | portado; los de dispositivo (MTP) en la 9 |
+| `ArchiveStoreTest` | `core/src/archive/tests.rs` (pendientes, numeración, `commit`, archive.txt, estados, alta de nuevos, enlazar con lo que ya hay en disco, también lo que otra copia de la app bajó a la misma carpeta, por el manifiesto) y `maintenance.rs` («Eliminar todo», olvidar un formato) | portado; los de dispositivo (MTP) en la 9 |
 | `ArchiveIOTest` | `core/src/archive/io.rs` | portado |
 | `ArchiveSyncTest` | `core/src/archive/sync.rs` (choques de título, número de orden) | portado |
 | `ArchiveQueryTest` | `core/src/archive/query.rs` (orden, portada, estados) | portado |

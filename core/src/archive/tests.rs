@@ -444,6 +444,34 @@ fn what_is_already_on_disk_is_linked_instead_of_counted_as_pending() {
     assert_eq!(status_of(&store, &json, "id1"), EntryStatus::Ok, "the manifest knew where it was");
 }
 
+#[test]
+fn the_startup_reconciliation_links_what_another_copy_downloaded_into_the_same_folder() {
+    // The portable app had imported the playlist; the one from the IDE then
+    // downloaded more into the same folder and rewrote the manifest. Those files
+    // are `NNN - Title`, with no id, and the portable's archive has no number
+    // for them: only the manifest says whose they are.
+    let (store, storage) = store();
+    let json = path(JSON);
+
+    // The other copy's archive: both downloaded, and it leaves its manifest.
+    let mut other = new_data(true);
+    other.entries.insert("id1".into(), entry(Some("001"), Some("Uno"), Some(real_file(&storage, "001 - Uno.mp3"))));
+    other.entries.insert("id2".into(), entry(Some("002"), Some("Dos"), Some(real_file(&storage, "002 - Dos.mp3"))));
+    store.save(&json, &other).unwrap();
+    crate::transfer::write_manifest_quietly(storage.as_ref(), &json, "2026-11-02 10:00");
+
+    // This copy only knew the first one, and the second as pending without number.
+    let mut mine = new_data(true);
+    mine.entries.insert("id1".into(), entry(Some("001"), Some("Uno"), Some(file("001 - Uno.mp3"))));
+    mine.entries.insert("id2".into(), entry(None, Some("Dos"), None));
+    store.save(&json, &mine).unwrap();
+
+    store.reconcile_all();
+
+    assert_eq!(status_of(&store, &json, "id2"), EntryStatus::Ok);
+    assert_eq!(store.saved_number(&json, "id2").as_deref(), Some("002"));
+}
+
 // === DEVICE PLAYLISTS ===
 
 fn device_target() -> crate::device::DeviceTarget {
