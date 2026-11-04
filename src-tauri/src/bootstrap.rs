@@ -52,11 +52,8 @@ pub fn start(app_paths: &AppPaths, archives: &ArchiveStore, phone: &Arc<dyn Port
         installing: Installing::default(),
     };
 
-    // Startup reconciliation: which ids still have a file. Never fatal: the
-    // library is "last known state".
-    let reconciling = archives.clone();
-    std::thread::spawn(move || reconciling.reconcile_all());
-    // The device archives on a thread of their own: a phone that does not
+    // The local archives' reconciliation is started by `lib.rs` (it tells the
+    // front when it is done). The device archives on a thread of their own: a phone that does not
     // answer must never hold up the local ones.
     let (reconciling, phone, scratch) = (archives.clone(), phone.clone(), app_paths.device_scratch());
     std::thread::spawn(move || {

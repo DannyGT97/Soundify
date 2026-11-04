@@ -106,6 +106,15 @@ pub fn run() {
         }
         Err(e) => log::warn!("No HTTP client for the thumbnails: {e}"),
       }
+      // Startup reconciliation: which ids still have a file (and which files
+      // another copy of the app added to the same folder). The front may have
+      // read the library before it ends, so it is told to read it again.
+      let reconciling = app.state::<AppState>().archives.clone();
+      let handle = app.handle().clone();
+      std::thread::spawn(move || {
+        reconciling.reconcile_all();
+        let _ = handle.emit("file-downloaded", ());
+      });
       // On Android the store or the APK updates the app, never itself.
       #[cfg(not(target_os = "android"))]
       app_update::check_at_startup(app.handle());
