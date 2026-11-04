@@ -5,7 +5,10 @@ export function isWebUrl(text: string): boolean {
   return /^https?:\/\/\S+\.\S+/i.test(text.trim());
 }
 
-/** A playlist and nothing else: with `v=` too, it is a video opened from inside a playlist. */
+/**
+ * A URL that names a list, as `paths::is_playlist_url` in the back. A video opened
+ * from inside a list counts: «Descarga por URL» refuses it, «Crear Playlist» takes it.
+ */
 export function isPlaylistUrl(text: string): boolean {
-  return isWebUrl(text) && /[?&]list=/.test(text) && !/[?&]v=/.test(text);
+  return isWebUrl(text) && /list=|\/playlist/.test(text);
 }

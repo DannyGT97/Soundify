@@ -32,7 +32,7 @@ use crate::archive::{ArchiveStore, device as archive_device, io as archive_io};
 use crate::device::{DeviceTarget, PortableDevice};
 use crate::downloader::{OutputLine, RunEnd, YtDlpRequest};
 use crate::engine::activity::ActivityLine;
-use crate::engine::download::{CreateError, Created, DownloadEvents, Engine};
+use crate::engine::download::{CreateError, Created, DownloadEvents, Engine, embed_picked_cover};
 use crate::engine::tasks::Step;
 use crate::library::AUDIO_FORMATS;
 use crate::location::Location;
@@ -57,7 +57,13 @@ pub enum DeviceJob {
     Playlist { json: Location },
     /// «Descarga por URL» sent to a phone: no title, membership or entries
     /// query, just this one video ("son archivos sueltos").
-    Single { url: String, format: String, target: DeviceTarget },
+    Single {
+        url: String,
+        format: String,
+        target: DeviceTarget,
+        /// The picture picked for it: replaces the video's thumbnail in the file.
+        cover: Option<PathBuf>,
+    },
 }
 
 /// Everything a device run needs besides the [`Engine`].
@@ -91,6 +97,8 @@ struct Run<'a> {
     /// Gates what only makes sense for a PLAYLIST: the manifest (a loose
     /// download has no folder of its own to put one in).
     single: bool,
+    /// The picture to write into each file before it is pushed.
+    cover: Option<&'a Path>,
 }
 
 /// What one item's download left behind.
@@ -106,7 +114,7 @@ impl Engine<'_> {
     pub fn run_device(&self, side: &DeviceSide, job: &DeviceJob, events: &mut dyn DownloadEvents) {
         let result = match job {
             DeviceJob::Playlist { json } => self.sync_device_playlist(side, json, events),
-            DeviceJob::Single { url, format, target } => self.download_to_device(side, url, format, target, events),
+            DeviceJob::Single { url, format, target, cover } => self.download_to_device(side, url, format, target, cover.as_deref(), events),
         };
         if let Err(e) = result {
             log::error!("Device sync failed: {e}");
@@ -187,6 +195,7 @@ impl Engine<'_> {
             staging,
             numbered: data.number_files,
             single: false,
+            cover: None,
         };
 
         // Checked once, up front, before touching YouTube at all: no point
@@ -258,6 +267,7 @@ impl Engine<'_> {
         url: &str,
         format: &str,
         target: &DeviceTarget,
+        cover: Option<&Path>,
         events: &mut dyn DownloadEvents,
     ) -> io::Result<()> {
         let storage = self.archives.storage();
@@ -274,6 +284,7 @@ impl Engine<'_> {
             staging,
             numbered: false,
             single: true,
+            cover,
         };
 
         if !side.phone.is_reachable(&target.device_id) {
@@ -373,6 +384,9 @@ impl Engine<'_> {
             {
                 log::warn!("Could not rename {} before pushing: {e}", staged.display());
                 continue;
+            }
+            if let Some(image) = run.cover {
+                embed_picked_cover(&id_named, image, run.format, events);
             }
             // yt-dlp's own title over the queued one: --flat-playlist reads the
             // LISTING page, which can carry a translated title the video's own

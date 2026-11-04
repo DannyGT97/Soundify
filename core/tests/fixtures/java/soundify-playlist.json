@@ -1,0 +1,29 @@
+{
+  "schema": 1,
+  "exportedAt": "2026-08-25T10:00:00.123456",
+  "title": "Canciones",
+  "url": "https://www.youtube.com/playlist?list=PLejemplo",
+  "format": "mp3",
+  "numberFiles": true,
+  "folderName": "Canciones (mp3)",
+  "items": [
+    {
+      "id": "dQw4w9WgXcQ",
+      "number": "001",
+      "title": "Tema bajado",
+      "fileName": "001 - Tema bajado.mp3",
+      "unavailableAt": null,
+      "unavailableReason": null,
+      "removedFromPlaylistAt": null
+    },
+    {
+      "id": "aBcDeFgHiJk",
+      "number": null,
+      "title": null,
+      "fileName": null,
+      "unavailableAt": null,
+      "unavailableReason": null,
+      "removedFromPlaylistAt": null
+    }
+  ]
+}

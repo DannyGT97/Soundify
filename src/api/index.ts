@@ -8,7 +8,7 @@ import type {
   AppUpdate, AppUpdateProgress, CopyOutcome, CopyProgress, CreatedPlaylist, DeleteResult, DeviceEntry, DeviceImportScan, DevicesView, DeviceTarget, DownloadNotice, DownloadRequest,
   ExportResult, FormatCatalog, ImportOutcome, ImportScan, PlayerBackend, PlayerMemory, Playlist,
   Preferences, PreferencesPatch,
-  ToolDownload, ToolId, ToolsReport, YtdlpCheck,
+  ToolDownload, ToolId, ToolsReport, WindowControls, YtdlpCheck,
 } from './types';
 import { mockApi } from './mock';
 import { insideTauri, tauriApi } from './tauri';
@@ -58,6 +58,8 @@ export interface Api {
   listDevices(): Promise<DevicesView>;
   /** One folder of a phone (`path` "/"-joined, "" = its root). */
   listDeviceFolder(deviceId: string, path: string): Promise<DeviceEntry[]>;
+  /** «Nueva carpeta» of the picker; `path` includes the new name. False if the phone refused. */
+  createDeviceFolder(deviceId: string, path: string): Promise<boolean>;
   /** A phone folder in the system's explorer. Rejects with an `ApiError`. */
   openDeviceFolder(deviceId: string, path: string): Promise<void>;
   /** `createPlaylist` with a phone as the destination. Rejects with an `ApiError`. */
@@ -109,6 +111,8 @@ export interface Api {
    * is fetched in the background and `onThumbnailReady` gets its id.
    */
   thumbnail(id: string): Promise<string | null>;
+  /** The file with the picture of what a URL names (a playlist's own, or one video's); null if there is none. */
+  urlThumbnail(url: string, playlist: boolean): Promise<string | null>;
   onThumbnailReady(listener: (id: string) => void): void;
   /** A file of the running download is on disk and in the archive: «Ver archivos» and the Gestor can show it already. */
   onFileDownloaded(listener: () => void): void;
@@ -132,6 +136,8 @@ export interface Api {
   fileExists(path: string): Promise<boolean>;
   /** The window in full screen or back (a video in Reproduciendo). */
   setFullscreen(on: boolean): void;
+  /** Null where the window has no title bar to draw: the browser and Android. */
+  windowControls: WindowControls | null;
   /** Runs `task` (and waits for it) before the window closes. */
   onClosing(task: () => Promise<void>): void;
 }

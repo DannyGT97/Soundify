@@ -6,7 +6,7 @@ import type { ActivityLine, TaskOrigin, Track } from './api/types';
 import type { Repeat } from './playerQueue';
 
 export type { Repeat } from './playerQueue';
-export type Theme = 'dark' | 'light' | 'dark-red' | 'dark-blue' | 'amoled' | 'light-red' | 'light-blue';
+export type Theme = 'dark' | 'light' | 'dark-neutral' | 'light-neutral' | 'dark-red' | 'dark-blue' | 'amoled' | 'light-red' | 'light-blue';
 export type PlayerPlacement = 'side' | 'bottom' | 'both';
 
 export interface NowPlaying { blockKey: string; track: Track; }
@@ -19,11 +19,9 @@ export interface FinishedTask { title: string; origin: TaskOrigin; status: TaskS
 
 export const ui = {
   sidebarCollapsed: false,
-  summaryHidden: true,
   theme: 'dark' as Theme,
   playerPlacement: 'both' as PlayerPlacement,
   lastPlayerPage: 'player' as 'player' | 'now-playing',
-  selectedBlock: null as string | null,
   expandedPlaylists: new Set<string>(['pl1']),
   settingsTab: 'general',
   nowPlaying: null as NowPlaying | null,
@@ -31,6 +29,8 @@ export const ui = {
   position: 0,
   /** Of the file loaded, once the engine has opened it (the archive does not store it). */
   duration: 0,
+  /** The video is in the floating panel (`components/pip.ts`), not on any screen. */
+  pip: false,
   shuffle: false,
   repeat: 'off' as Repeat,
   volume: 0.7,
@@ -65,7 +65,7 @@ export function subscribeWhile(node: Node, topic: Topic, listener: () => void): 
     }
   });
 }
-export const THEMES: readonly Theme[] = ['dark', 'light', 'dark-red', 'dark-blue', 'amoled', 'light-red', 'light-blue'];
+export const THEMES: readonly Theme[] = ['dark', 'light', 'dark-neutral', 'light-neutral', 'dark-red', 'dark-blue', 'amoled', 'light-red', 'light-blue'];
 export const PLAYER_PLACEMENTS: readonly PlayerPlacement[] = ['side', 'bottom', 'both'];
 /** Applies it on screen; saving it is `preferences.ts`'s. */
 export function setTheme(theme: Theme): void {

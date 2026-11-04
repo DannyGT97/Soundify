@@ -1,84 +1,70 @@
-import { card, h, stepHeading, titleRow } from '../dom';
+import { h, titleRow } from '../dom';
+import { icon } from '../icons';
 import { t } from '../i18n';
-import { destinationCard, formatSelect, summaryArt, summaryPanel, summaryRow } from '../components/form';
+import { destinations, fieldLabel, footerSummary, formatPicker, urlCover } from '../components/form';
 import { api } from '../api';
-import { navigate } from '../router';
-import { isPlaylistUrl } from '../urls';
+import { navigate, type Params } from '../router';
+import { isWebUrl } from '../urls';
 import { notify } from '../components/toasts';
 import { canCreateFrom, createdNotice } from '../createPlaylist';
-import { loadLibrary } from '../library';
+import { findBlock, loadLibrary } from '../library';
 import { errorText } from '../transfer';
-import { showPicture } from '../covers';
+import { subscribeWhile } from '../state';
+import { canDownload, tools } from '../tools';
+import { toolsNotice } from '../components/toolsNotice';
 
 /** Crear Playlist: registers a YouTube playlist in the Gestor (and optionally downloads it). */
-export function newPlaylistView(): HTMLElement {
-  const summaryUrl = h('div', { class: 'row-title break' });
-  const summaryDestination = h('div', { class: 'row-title break', text: t('newPlaylist.summary.noFolder') });
-  const summaryFormat = h('div', { class: 'row-title' });
-  const summaryNumbering = h('div', { class: 'row-title', text: t('newPlaylist.notNumbered') });
-  // The cover: the one picked here, else the URL's first video. The picked
-  // one is only copied in once the playlist exists (there is no folder yet).
-  const art = summaryArt();
-  let pendingCover: string | null = null;
-  let urlVideoId: string | null = null;
-  const showCover = () => showPicture(art, pendingCover ? { kind: 'file', path: pendingCover }
-      : urlVideoId ? { kind: 'thumbnail', id: urlVideoId } : null);
-  const changeCover = h('button', { class: 'secondary-button full', text: t('newPlaylist.cover.change'), onclick: async () => {
-    const image = await api.pickCoverImage(t('newPlaylist.cover.title'), t('cover.choose.filter'));
-    if (!image) return;
-    pendingCover = image;
-    showCover();
-  } });
-  const summary = summaryPanel('newPlaylist.summary.title', art, [
-    changeCover,
-    ...summaryRow('download.summary.url', summaryUrl, true),
-    ...summaryRow('download.summary.destination', summaryDestination),
-    ...summaryRow('download.summary.format', summaryFormat),
-    ...summaryRow('newPlaylist.summary.numbering', summaryNumbering),
-  ], 'newPlaylist.summary.notice');
+export function newPlaylistView(params: Params = {}): HTMLElement {
+  const url = h('input', { class: 'input url-input', attrs: { id: 'url', placeholder: 'https://www.youtube.com/playlist?list=…' } });
+  url.value = params.url ?? '';
+  const hint = h('div', { class: 'hint' });
+  let busy = false;
 
+  const numbered = h('input', { class: 'switch', attrs: { type: 'checkbox' } });
+  const sample = h('span', { class: 'sample' });
 
-  const url = h('input', { class: 'input', attrs: { placeholder: 'https://www.youtube.com/playlist?list=…' } });
-  let wasUsable = false;
-  let coverTimer: number | undefined;
-  url.addEventListener('input', () => {
-    summaryUrl.textContent = url.value.trim();
-    const usable = isPlaylistUrl(url.value);
-    if (usable && !wasUsable) summary.open();
-    wasUsable = usable;
-    // Asked once typing stops (the query may go to YouTube), and an answer
-    // for a URL that is no longer in the field is dropped.
-    window.clearTimeout(coverTimer);
-    urlVideoId = null;
-    showCover();
-    if (!usable) return;
-    const asked = url.value.trim();
-    coverTimer = window.setTimeout(() => {
-      void api.firstVideoId(asked).catch(() => null).then(id => {
-        if (url.value.trim() !== asked) return;
-        urlVideoId = id;
-        showCover();
-      });
-    }, 700);
-  });
+  const sync = () => {
+    const text = url.value.trim();
+    const web = isWebUrl(text);
+    const listed = web && canCreateFrom(text);
+    picture.look(listed ? text : null);
 
-  const destination = destinationCard('02', 'download.folder.choose', path => { summaryDestination.textContent = path; });
-  const format = formatSelect();
-  const syncFormat = () => { summaryFormat.textContent = format.value; };
-  format.addEventListener('change', syncFormat);
-  syncFormat();
+    if (text && !web) hint.replaceChildren(h('span', { class: 'error-text', text: t('form.hint.notUrl') }));
+    else if (web && !listed) {
+      hint.replaceChildren(h('span', { class: 'error-text', text: t('newPlaylist.hint.notPlaylist') }),
+        h('button', { class: 'link-button', text: t('newPlaylist.hint.toDownload'), onclick: () => navigate('download', { url: text }) }));
+    } else if (listed) {
+      hint.replaceChildren(h('span', { text: t(picture.loading() ? 'newPlaylist.hint.querying'
+        : picture.picked() ? 'newPlaylist.hint.picked' : 'newPlaylist.hint.auto') }));
+    } else hint.replaceChildren(h('span', { text: t('newPlaylist.hint.empty') }));
 
-  const numbered = h('input', { attrs: { type: 'checkbox' } });
-  numbered.addEventListener('change', () => {
-    summaryNumbering.textContent = t(numbered.checked ? 'newPlaylist.numbered' : 'newPlaylist.notNumbered');
-  });
+    sample.textContent = `${numbered.checked ? '001 - ' : ''}Neon Rain.${format.value().toLowerCase()}`;
+
+    const where = destination.value();
+    const blocked = !canDownload(tools.report);
+    const off = blocked || busy || !listed || !where;
+    create.disabled = off;
+    createAndDownload.disabled = off;
+    summary.show(where ? `${format.value()} · ${where}` : format.value(),
+      busy ? t('newPlaylist.querying')
+        : blocked ? t('form.foot.tools')
+        : !text ? t('form.foot.noUrl')
+        : !where ? t('form.foot.noDest')
+        : t('newPlaylist.foot.ready'));
+  };
+
+  const picture = urlCover(true, 'form.cover.cover', () => sync());
+  const format = formatPicker(() => sync());
+  const destination = destinations(() => sync());
+  const summary = footerSummary();
 
   // Registered first, ALWAYS (the Java order): the playlist is in the Gestor
   // the moment the screen gets there, and «Crear y descargar» then runs the
   // same update as the Gestor's «Actualizar».
   const submit = async (download: boolean) => {
+    if (!canDownload(tools.report)) return;
     const link = url.value.trim();
-    if (!link || !destination.field.value) {
+    if (!link || !destination.value()) {
       notify({ tone: 'error', text: t('newPlaylist.missingFields') });
       return;
     }
@@ -86,16 +72,18 @@ export function newPlaylistView(): HTMLElement {
       notify({ tone: 'error', text: t('newPlaylist.notAPlaylist') });
       return;
     }
-    setBusy(true);
+    busy = true;
+    sync();
     try {
       const target = destination.device();
       const created = target
-        ? await api.createDevicePlaylist(link, format.value, target, numbered.checked)
-        : await api.createPlaylist(link, format.value, destination.field.value, numbered.checked);
+        ? await api.createDevicePlaylist(link, format.value(), target, numbered.checked)
+        : await api.createPlaylist(link, format.value(), destination.value(), numbered.checked);
       const notice = createdNotice(created);
-      if (pendingCover) {
+      const pickedCover = picture.picked();
+      if (pickedCover) {
         try {
-          await api.setCover(created.blockKey, pendingCover);
+          await api.setCover(created.blockKey, pickedCover);
         } catch {
           // The playlist is there all the same: said, not undone.
           notice.tone = 'warning';
@@ -104,38 +92,43 @@ export function newPlaylistView(): HTMLElement {
       }
       notify(notice);
       await loadLibrary();
+      // The playlist's own picture, unless it already has one (another format
+      // of it, whose cover was chosen by hand). Without it, its first video
+      // shows anyway, so a failure here is nothing to bother anyone with.
+      const foundCover = picture.found();
+      if (!pickedCover && foundCover && !findBlock(created.blockKey)?.playlist.cover) {
+        await api.setCover(created.blockKey, foundCover).then(loadLibrary).catch(() => {});
+      }
       if (download) api.startDownload({ kind: 'update', blockKey: created.blockKey });
       navigate('manager');
     } catch (error) {
       notify({ tone: 'error', text: errorText(error) });
     } finally {
-      setBusy(false);
+      busy = false;
+      sync();
     }
   };
 
-  const createAndDownload = h('button', { class: 'primary-button', text: t('newPlaylist.createAndDownload'), onclick: () => void submit(true) });
   const create = h('button', { class: 'secondary-button', text: t('newPlaylist.create'), onclick: () => void submit(false) });
-  // Asking YouTube takes a few seconds: said, and not asked twice meanwhile.
-  const querying = h('p', { class: 'help', text: t('newPlaylist.querying') });
-  querying.hidden = true;
-  function setBusy(busy: boolean): void {
-    createAndDownload.disabled = busy;
-    create.disabled = busy;
-    querying.hidden = !busy;
-  }
+  const createAndDownload = h('button', { class: 'primary-button', onclick: () => void submit(true) },
+    icon('arrow-down', 16), h('span', { text: t('newPlaylist.createAndDownload') }));
 
-  return h('div', { class: 'screen-with-summary' },
-    h('div', { class: 'screen' },
-      h('div', { class: 'screen-head' },
-        titleRow('new-playlist', t('newPlaylist.title'), h('div', { class: 'grow' }), summary.showButton),
-        h('p', { class: 'subtitle', text: t('newPlaylist.description') })),
-      card(stepHeading('01', t('newPlaylist.url')), url),
-      destination.card,
-      card(stepHeading('03', t('download.format')), format),
-      card(stepHeading('04', t('newPlaylist.numberFiles')),
-        h('label', { class: 'check' }, numbered, h('span', { text: t('newPlaylist.numberFiles') })),
-        h('p', { class: 'help', text: t('newPlaylist.numberFiles.desc') })),
-      h('div', { class: 'row center gap-12' }, createAndDownload, create),
-      querying),
-    summary.panel);
+  url.addEventListener('input', sync);
+  numbered.addEventListener('change', sync);
+  // Without yt-dlp or ffmpeg nothing is created either: a playlist is registered by asking yt-dlp.
+  subscribeWhile(create, 'tools', sync);
+  sync();
+
+  return h('div', { class: 'screen fp' },
+    h('div', { class: 'fp-body' },
+      h('div', { class: 'screen-head' }, titleRow('new-playlist', t('newPlaylist.title'))),
+      toolsNotice(),
+      h('div', { class: 'url-wrap' }, picture.node,
+        h('div', { class: 'grow min0' }, h('label', { class: 'field-label', text: t('newPlaylist.url'), attrs: { for: 'url' } }), url, hint)),
+      h('div', {}, fieldLabel('download.format'), format.node),
+      h('div', {}, fieldLabel('download.saveIn'), destination.node),
+      h('label', { class: 'switch-row' }, numbered,
+        h('div', { class: 'min0' }, h('b', { text: t('newPlaylist.numberFiles') }), h('small', { text: t('newPlaylist.numberFiles.short') })),
+        sample)),
+    h('div', { class: 'fp-foot' }, summary.node, create, createAndDownload));
 }

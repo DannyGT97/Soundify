@@ -9,6 +9,7 @@ mod covers;
 mod devices;
 mod downloads;
 mod mtp;
+mod window_menu;
 mod process;
 mod tools;
 
@@ -70,7 +71,7 @@ pub fn run() {
       progress: tools.progress,
       formats: tools.formats,
       tools: tools.paths,
-      installing: Default::default(),
+      installing: tools.installing,
       downloads: downloads::Downloads::new(BackgroundTasks::new(clock::system(), history)),
     })
     .setup(|app| {
@@ -109,6 +110,7 @@ pub fn run() {
       Ok(())
     })
     .invoke_handler(tauri::generate_handler![
+      window_menu::show_system_menu,
       commands::list_playlists,
       commands::formats,
       commands::tool_health,
@@ -141,6 +143,7 @@ pub fn run() {
       commands::delete_playlist_format,
       devices::list_devices,
       devices::list_device_folder,
+      devices::create_device_folder,
       devices::open_device_folder,
       devices::create_device_playlist,
       devices::copy_to_device,
@@ -150,6 +153,7 @@ pub fn run() {
       app_update::check_app_update,
       app_update::install_app_update,
       covers::thumbnail,
+      covers::url_thumbnail,
       covers::pick_cover_image,
       covers::set_cover,
     ])

@@ -8,13 +8,14 @@
 
 use std::collections::{HashMap, HashSet};
 use std::io;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::LazyLock;
 
 use indexmap::IndexMap;
 use regex::Regex;
 
 use crate::archive::{ArchiveStore, io as archive_io};
+use crate::cover_embed;
 use crate::downloader::{Downloader, OutputLine, RunEnd, StopFlag, YtDlpRequest};
 use crate::engine::activity::ActivityLine;
 use crate::engine::safety_net::{Patience, RetryEvents, RetryItem, RetryProgress, SafetyNet};
@@ -47,7 +48,13 @@ const UNAVAILABLE_MARKERS: [&str; 3] = ["Video unavailable", "Private video", "T
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Job {
     /// «Descarga por URL»: one loose video.
-    Single { url: String, format: String, base: Location },
+    Single {
+        url: String,
+        format: String,
+        base: Location,
+        /// The picture picked for it: replaces the video's thumbnail in the file.
+        cover: Option<PathBuf>,
+    },
     /// A playlist already registered (see `Engine::create_playlist`), updated
     /// from the Gestor (`known_title`).
     Playlist {
@@ -78,7 +85,7 @@ impl Job {
 
     fn parts(&self) -> (&str, &str, &Location) {
         match self {
-            Job::Single { url, format, base } | Job::Playlist { url, format, base, .. } => (url, format, base),
+            Job::Single { url, format, base, .. } | Job::Playlist { url, format, base, .. } => (url, format, base),
         }
     }
 
@@ -121,6 +128,18 @@ struct PlaylistState {
     entries: IndexMap<String, PlaylistEntry>,
     /// The ids this run asks for: every entry not downloaded yet.
     pending: Vec<String>,
+}
+
+/// The picked picture into a downloaded file. A failure only costs the picture:
+/// the file is there, with the thumbnail yt-dlp gave it.
+fn embed_picked_cover(file: &Path, image: &Path, format: &str, events: &mut dyn DownloadEvents) {
+    if !cover_embed::can_embed(format) {
+        return;
+    }
+    if let Err(e) = cover_embed::embed_cover(file, image) {
+        log::warn!("Could not put {} into {}: {e}", image.display(), file.display());
+        events.line(ActivityLine::message("activity.cover.notEmbedded", &[]));
+    }
 }
 
 /// What the lines of the real download leave behind.
@@ -323,6 +342,13 @@ impl Engine<'_> {
         }
 
         self.commit(&json, &folder, format, &captures, events);
+        if let Job::Single { cover: Some(image), .. } = job {
+            for (_, file) in &captures.captured {
+                if let Some(path) = file.as_path() {
+                    embed_picked_cover(path, image, format, events);
+                }
+            }
+        }
         let items = self.retry_items(&json, format, playlist.as_ref(), &captures);
         clean_up(storage, &folder, format, single, &captures);
         if !items.is_empty() {

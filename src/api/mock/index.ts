@@ -5,13 +5,28 @@
 
 import type { Api } from '..';
 import type {
-  CopyOutcome, CopyProgress, CreatedPlaylist, DeleteResult, DeviceEntry, DeviceTarget, DownloadNotice, DownloadRequest, ExportResult, PlayerMemory, Preferences, TaskOrigin,
+  CopyOutcome, CopyProgress, CreatedPlaylist, DeleteResult, DeviceEntry, DeviceTarget, DownloadNotice, DownloadRequest, ExportResult, PlayerMemory, Preferences, TaskOrigin, WindowControls,
 } from '../types';
 import { emit, ui, type TaskStatus } from '../../state';
 import { activityLog, AUDIO_FORMATS, importedPlaylist, playlists, VIDEO_FORMATS } from './data';
-import { mockTools } from './tools';
+import { mockCanDownload, mockTools } from './tools';
 
 let timer: number | undefined;
+
+/** The browser has no window to drive: `?mockWindow` draws the title bar anyway, for its tests. */
+function mockWindowControls(): WindowControls | null {
+  if (typeof location === 'undefined' || !new URLSearchParams(location.search).has('mockWindow')) return null;
+  let maximized = false;
+  let resized = () => {};
+  return {
+    minimize: () => {},
+    toggleMaximize: () => { maximized = !maximized; resized(); },
+    close: () => {},
+    isMaximized: async () => maximized,
+    onResized: listener => { resized = listener; },
+    showSystemMenu: () => {},
+  };
+}
 
 export const mockApi: Api = {
   listPlaylists: async () => playlists,
@@ -56,7 +71,14 @@ export const mockApi: Api = {
   listDevices: async () => ({ available: true, devices: [{ id: MOCK_PHONE.deviceId, name: MOCK_PHONE.deviceName }] }),
   listDeviceFolder: async (_deviceId, path) => {
     await new Promise(resolve => window.setTimeout(resolve, 200));
-    return (PHONE_FOLDERS[path] ?? []).map((name): DeviceEntry => ({ name, isFolder: true, sizeBytes: 0 }));
+    const folders = (PHONE_FOLDERS[path] ?? []).map((name): DeviceEntry => ({ name, isFolder: true, sizeBytes: 0 }));
+    return [...folders, ...(PHONE_FILES[path] ?? [])];
+  },
+  createDeviceFolder: async (_deviceId, path) => {
+    const cut = path.lastIndexOf('/');
+    const [parent, name] = cut < 0 ? ['', path] : [path.slice(0, cut), path.slice(cut + 1)];
+    PHONE_FOLDERS[parent] = [...(PHONE_FOLDERS[parent] ?? []), name];
+    return true;
   },
   openDeviceFolder: async () => {},
   createDevicePlaylist: (url, format, target, numbered) =>
@@ -97,6 +119,11 @@ export const mockApi: Api = {
   // No pictures in a plain browser: every cover stays its gradient tile.
   fileUrl: path => path,
   thumbnail: async () => null,
+  // A drawn square stands in for the picture, so the form's states can be seen.
+  urlThumbnail: async url => {
+    await new Promise(resolve => window.setTimeout(resolve, 500));
+    return /^https?:\/\//.test(url) ? MOCK_THUMBNAIL : null;
+  },
   onThumbnailReady: () => {},
   onFileDownloaded: listener => { onFileDownloaded = listener; },
   pickCoverImage: async () => null,
@@ -120,6 +147,7 @@ export const mockApi: Api = {
     if (on && !document.fullscreenElement) void document.documentElement.requestFullscreen().catch(() => {});
     if (!on && document.fullscreenElement) void document.exitFullscreen().catch(() => {});
   },
+  windowControls: mockWindowControls(),
   onClosing: () => {},
 };
 
@@ -131,7 +159,7 @@ const MOCK_UPDATE = {
 let playerMemory: PlayerMemory = { volume: 0.7, last: null };
 
 const FACTORY_PREFERENCES: Preferences = {
-  appearance: 'dark', language: 'es', uiScale: 100, playerPlacement: 'both', downloadThumbnails: false,
+  appearance: 'dark', language: 'es', uiScale: 100, playerPlacement: 'both',
   includeIdInTitleName: false, appUpdateCheckEnabled: true, autoUpdates: true, cookiesFile: '', lastAppUpdateCheck: '',
 };
 const PREFERENCES_KEY = 'soundify.mock.preferences';
@@ -156,6 +184,16 @@ const PHONE_FOLDERS: Record<string, string[]> = {
   Music: ['Soundify', 'WhatsApp Audio'],
   'Music/Soundify': ['Para el coche (mp3)'],
 };
+/** What else is in the phone's folders: the playlist on it, so its banner shows. */
+const PHONE_FILES: Record<string, DeviceEntry[]> = {
+  'Music/Soundify/Para el coche (mp3)': [
+    { name: 'soundify-playlist.json', isFolder: false, sizeBytes: 812 },
+    { name: 'Carretera vacía.mp3', isFolder: false, sizeBytes: 4_120_000 },
+    { name: 'Luces de la autopista.mp3', isFolder: false, sizeBytes: 3_870_000 },
+  ],
+};
+const MOCK_THUMBNAIL = `data:image/svg+xml,${encodeURIComponent(
+  '<svg xmlns="http://www.w3.org/2000/svg" width="480" height="480"><rect width="480" height="480" fill="#3b5b8c"/><circle cx="240" cy="240" r="120" fill="#e8c26a"/></svg>')}`;
 
 let copyCancelled = false;
 let onNotice: (notice: DownloadNotice) => void = () => {};
@@ -203,6 +241,7 @@ async function deletePlaylistFormat(blockKey: string, files: boolean): Promise<D
 
 /** Registers an empty playlist with a made-up title, as if YouTube had listed 12 videos. */
 async function createPlaylist(_url: string, format: string, folder: string, numbered: boolean, device?: DeviceTarget): Promise<CreatedPlaylist> {
+  if (!mockCanDownload()) throw { key: 'tools.error.missing', args: [] };
   await new Promise(resolve => window.setTimeout(resolve, 600));
   const id = `created-${playlists.length}`;
   const blockKey = `${id}/${format.toLowerCase()}`;
@@ -214,6 +253,10 @@ async function createPlaylist(_url: string, format: string, folder: string, numb
 }
 
 function startDownload(request: DownloadRequest): void {
+  if (!mockCanDownload()) {
+    onNotice({ status: 'FAILED', key: 'tools.error.missing', args: [] });
+    return;
+  }
   if (ui.task) return;
   const { title, origin, total, blockKey } = describe(request);
   ui.task = { title, origin, step: 'prepare', fraction: null, total, blockKey };

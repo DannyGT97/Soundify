@@ -41,12 +41,12 @@ test('«Ver archivos» shows each file as it lands', async ({ page }) => {
   const mp3 = page.locator('.pm-block').nth(0);
   await mp3.getByRole('button', { name: 'Sincronizar' }).click();
   await mp3.getByRole('button', { name: 'Ver archivos' }).click();
-  const pending = page.locator('.files-table .status-pill.status-pending');
+  const pending = page.locator('.fa-list .pill.warn');
   await expect(pending).toHaveCount(2);
 
   await page.clock.runFor(2_800 + 400);
   await expect(pending).toHaveCount(1);
-  await expect(page.locator('.files-table tr.just-landed')).toHaveCount(1);
+  await expect(page.locator('.fa-list .track.landed')).toHaveCount(1);
 
   await page.clock.runFor(700);
   await expect(pending).toHaveCount(0);
@@ -57,7 +57,7 @@ test('«Ir a la descarga» opens the Gestor on the block being downloaded', asyn
   await page.locator('.pm-block').filter({ hasText: 'OPUS' }).getByRole('button', { name: 'Sincronizar' }).click();
   await page.goto('/#/home');
   await page.locator('.tasks-pill').click();
-  await page.getByRole('button', { name: 'Ir a la descarga' }).click();
+  await page.locator('#overlay-root').getByRole('button', { name: 'Ir a la descarga' }).click();
   await expect(page).toHaveURL(/#\/manager\?open=pl4/);
   // The scroll waits for the next frame and glides over several: all of them come from the paused clock.
   await page.clock.runFor(1_000);

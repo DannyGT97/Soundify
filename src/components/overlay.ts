@@ -21,13 +21,31 @@ export function openOverlay(title: string | Node, body: Node[], options: Overlay
       heading,
       h('button', { class: 'icon-button', title: t('common.close'), onclick: () => closeOverlay() }, icon('close'))),
     ...body);
+  show(panel, options.onClose);
+  return closeOverlay;
+}
+
+/** The same veil, closing and Escape for a window that draws all of itself. */
+export function openPanel(panel: HTMLElement, onClose?: () => void): void {
+  closeOverlay();
+  panel.setAttribute('role', 'dialog');
+  show(panel, onClose);
+}
+
+function show(panel: HTMLElement, onClose?: () => void): void {
   const scrim = h('div', { class: 'overlay-scrim' }, panel);
   scrim.addEventListener('mousedown', e => {
     if (e.target === scrim) closeOverlay();
   });
   document.getElementById('overlay-root')?.append(scrim);
-  current = { scrim, onClose: options.onClose };
-  return closeOverlay;
+  current = { scrim, onClose };
+}
+
+/**
+ * A header's ✕: every window with its own header closes the same way.
+ */
+export function closeButton(): HTMLElement {
+  return h('button', { class: 'icon-button', title: t('common.close'), onclick: () => closeOverlay() }, icon('close'));
 }
 
 export function closeOverlay(): void {

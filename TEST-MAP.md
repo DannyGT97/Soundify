@@ -31,7 +31,7 @@ Estados: **portado** · **pendiente (fase N)** · **descartado** (con el motivo)
 ## Fase 2
 | Java | Tauri | Estado |
 |---|---|---|
-| `PlaylistTransferTest` | `core/src/transfer/tests.rs` (43: manifiesto, copiar, reintentar, cancelar, espacio libre, importar, `findImportable`, `relinkFromManifest`, `keepWhatWasKnown`) | portado; los casos de `null` en argumentos no aplican (Rust no los admite) |
+| `PlaylistTransferTest` | `core/src/transfer/tests.rs` (49: manifiesto, copiar, reintentar, cancelar, espacio libre, importar, `findImportable`, `relinkFromManifest`, `keepWhatWasKnown`) | portado; los casos de `null` en argumentos no aplican (Rust no los admite) |
 | — (estaba en `PlaylistManagerController`) | `src/transfer.test.ts` (textos y tono del resultado de copiar e importar, lista de la confirmación con su tope) | nuevo |
 | — | `e2e/transfer.spec.ts` (copiar con confirmación y progreso, cancelar, importar desde la ayuda, regresión: importar con el Gestor vacío enseña la playlist sin salir de la pantalla — `?mockLibrary=empty` arranca el mock sin playlists) | nuevo |
 
@@ -101,7 +101,7 @@ Estados: **portado** · **pendiente (fase N)** · **descartado** (con el motivo)
 | `AppUpdaterTest` | `core/src/updater/mod.rs` (19: versión, sufijo `-tauri`, qué release se propone, nunca borradores ni pre-releases) + `download.rs` (6) + `src/appUpdate.test.ts` (5) + `e2e/settings.spec.ts` (ventana con notas, fallo al instalar) | portado |
 | `ReleaseNotesTest` | `core/src/updater/release_notes.rs` (7) | portado; las notas salen como texto |
 | `AppLauncherTest` | — | descartado: el lanzador por Smart App Control no se porta (pendiente: firma de código) |
-| `DevicePlaylistTransferTest` | `core/src/transfer/device/tests.rs` (32) + `core/src/device/mod.rs` (7) contra `FakeDevice` + `e2e/transfer.spec.ts` (copiar al teléfono, importar desde él) | portado |
+| `DevicePlaylistTransferTest` | `core/src/transfer/device/tests.rs` (34) + `core/src/device/mod.rs` (7) contra `FakeDevice` + `e2e/transfer.spec.ts` (copiar al teléfono, importar desde él) | portado |
 | — | `core/src/engine/download/device/tests.rs` (15: sincronizar con el teléfono, lo que sobrevive a una desconexión) | nuevo (en Java, `DeviceSyncService` no tenía test) |
 | — | `core/src/archive/device.rs` (8) + `e2e/transfer.spec.ts` («Eliminar todo») | nuevo |
 | — | `src-tauri/src/mtp.rs` (1, `#[ignore]`: lista los dispositivos de la máquina) | MTP real: se lanza a mano; sin probar aún con un teléfono |

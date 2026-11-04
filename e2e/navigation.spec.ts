@@ -51,3 +51,20 @@ test('an unknown address falls back to Inicio', async ({ page }) => {
   await page.goto('/#/nowhere');
   await expect(page.locator('#page .page-title').first()).toHaveText('Inicio');
 });
+
+test('the title bar: only where there is a window, with labelled buttons reachable by keyboard', async ({ page }) => {
+  await page.goto('/#/home');
+  await expect(page.locator('.titlebar')).toHaveCount(0);
+
+  await page.goto('/?mockWindow#/home');
+  const bar = page.locator('.titlebar');
+  await expect(bar.getByRole('button')).toHaveCount(3);
+  await bar.getByRole('button', { name: 'Minimizar' }).focus();
+  await page.keyboard.press('Tab');
+  await expect(bar.getByRole('button', { name: 'Maximizar' })).toBeFocused();
+  await page.keyboard.press('Enter');
+  await expect(bar.getByRole('button', { name: 'Restaurar' })).toBeVisible();
+  await bar.getByRole('button', { name: 'Restaurar' }).click();
+  await expect(bar.getByRole('button', { name: 'Maximizar' })).toBeVisible();
+  await expect(bar.getByRole('button', { name: 'Cerrar' })).toBeVisible();
+});

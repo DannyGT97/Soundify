@@ -13,7 +13,7 @@ use soundify_core::archive::{ArchiveStore, EntryStatus};
 use soundify_core::clock;
 use soundify_core::model::Theme;
 use soundify_core::storage::LocalStorage;
-use soundify_core::{settings, task_history};
+use soundify_core::{settings, task_history, transfer};
 
 const FIXTURES: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fixtures/java");
 
@@ -99,6 +99,22 @@ fn reads_java_settings_including_nulls_and_withdrawn_fields() {
     assert!(!settings.task_history_visible);
     assert_eq!(settings.player_volume, 0.25);
     assert_eq!(settings.last_played_position, 133.5);
+}
+
+#[test]
+fn a_java_manifest_is_still_recognised_and_imported() {
+    let dir = tempfile::tempdir().unwrap();
+    let music = dir.path().join("Canciones (mp3)");
+    fs::create_dir_all(&music).unwrap();
+    fs::write(music.join("soundify-playlist.json"), fixture("soundify-playlist.json")).unwrap();
+    fs::write(music.join("001 - Tema bajado.mp3"), "audio").unwrap();
+    let folder = Location::Path(music);
+
+    assert_eq!(transfer::find_importable(&LocalStorage, &Location::Path(dir.path().to_path_buf())), std::slice::from_ref(&folder));
+    let archives = Location::Path(dir.path().join("archives"));
+    let result = transfer::import_from(&LocalStorage, &archives, &folder, "2026-08-25 10:00").unwrap();
+    assert_eq!((result.title.as_str(), result.format.as_str()), ("Canciones", "mp3"));
+    assert_eq!((result.total, result.downloaded, result.pending), (2, 1, 1));
 }
 
 #[test]

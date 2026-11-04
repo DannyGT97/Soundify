@@ -1,80 +1,82 @@
-import { card, h, stepHeading, titleRow } from '../dom';
+import { h, titleRow } from '../dom';
+import { icon } from '../icons';
 import { t } from '../i18n';
-import { destinationCard, formatSelect, summaryArt, summaryPanel, summaryRow } from '../components/form';
+import { destinations, fieldLabel, footerSummary, formatPicker, keepsPickedCover, urlCover } from '../components/form';
 import { api } from '../api';
+import { navigate, type Params } from '../router';
 import { isPlaylistUrl, isWebUrl } from '../urls';
 import { subscribeWhile } from '../state';
-import { missingRequired, tools } from '../tools';
-import { openToolsSetup } from '../overlays/toolsSetup';
+import { canDownload, tools } from '../tools';
+import { toolsNotice } from '../components/toolsNotice';
 
-/** Descarga por URL: one video at a time. A playlist URL is pointed to the Gestor. */
-export function downloadView(): HTMLElement {
-  const summaryUrl = h('div', { class: 'row-title break', text: t('download.summary.empty') });
-  const summaryFormat = h('div', { class: 'row-title' });
-  const summaryDestination = h('div', { class: 'row-title break', text: t('download.folder.default') });
-  const summary = summaryPanel('download.summary.title', summaryArt(), [
-    ...summaryRow('download.summary.url', summaryUrl, true),
-    ...summaryRow('download.summary.format', summaryFormat),
-    ...summaryRow('download.summary.destination', summaryDestination),
-  ], 'download.summary.notice');
+/** Descarga por URL: one video at a time. A URL that names a list is refused and pointed to Crear Playlist. */
+export function downloadView(params: Params = {}): HTMLElement {
+  const url = h('input', { class: 'input url-input', attrs: { id: 'url', placeholder: t('download.url.placeholder') } });
+  url.value = params.url ?? '';
+  const hint = h('div', { class: 'hint' });
+  const formatWarning = h('div', { class: 'hint warn-text' });
 
-  const url = h('input', { class: 'input', attrs: { placeholder: 'https://www.youtube.com/watch?v=…' } });
-  const playlistHint = h('p', { class: 'help error-text', text: t('download.isPlaylist') });
-  playlistHint.hidden = true;
-  let wasUsable = false;
-  url.addEventListener('input', () => {
+  const sync = () => {
     const text = url.value.trim();
+    const web = isWebUrl(text);
     const playlist = isPlaylistUrl(text);
+    const single = web && !playlist;
+    picture.look(single ? text : null);
     url.classList.toggle('input-error', playlist);
-    playlistHint.hidden = !playlist;
-    summaryUrl.textContent = text || t('download.summary.empty');
-    // Opens by itself only when the field BECOMES usable: hiding it by hand is respected.
-    const usable = isWebUrl(text) && !playlist;
-    if (usable && !wasUsable) summary.open();
-    wasUsable = usable;
-  });
 
-  const destination = destinationCard('02', 'download.folder.default', path => { summaryDestination.textContent = path; });
-  const format = formatSelect();
-  const syncFormat = () => { summaryFormat.textContent = format.value; };
-  format.addEventListener('change', syncFormat);
-  syncFormat();
+    if (text && !web) hint.replaceChildren(h('span', { class: 'error-text', text: t('form.hint.notUrl') }));
+    else if (playlist) {
+      hint.replaceChildren(h('span', { class: 'warn-text', text: t('download.hint.isPlaylist') }),
+        h('button', { class: 'link-button', text: t('download.hint.toPlaylist'), onclick: () => navigate('new-playlist', { url: text }) }));
+    } else if (single) hint.replaceChildren(h('span', { text: t(picture.loading() ? 'download.hint.querying' : 'download.hint.single') }));
+    else hint.replaceChildren(h('span', { text: t('download.hint.empty') }));
 
-  const start = h('button', { class: 'primary-button', text: t('download.start'), onclick: () => {
+    const lostPicture = !!picture.picked() && !keepsPickedCover(format.value());
+    formatWarning.hidden = !lostPicture;
+    formatWarning.textContent = lostPicture ? t('download.cover.notKept', format.value()) : '';
+
+    const where = destination.value();
+    const blocked = !canDownload(tools.report);
+    start.disabled = blocked || !single || !where;
+    summary.show(where ? `${format.value()} · ${where}` : format.value(),
+      blocked ? t('form.foot.tools')
+        : !web ? t('form.foot.noUrl')
+        : playlist ? t('download.foot.isPlaylist')
+        : !where ? t('form.foot.noDest')
+        : t('download.foot.ready'));
+  };
+
+  const picture = urlCover(false, 'form.cover.thumbnail', () => sync());
+  const format = formatPicker(() => sync());
+  const destination = destinations(() => sync());
+  const summary = footerSummary();
+
+  const start = h('button', { class: 'primary-button', onclick: () => {
+    if (!canDownload(tools.report)) return;
     if (!isWebUrl(url.value) || isPlaylistUrl(url.value)) {
       url.focus();
       url.classList.add('input-error');
       return;
     }
     const target = destination.device();
+    const cover = picture.picked();
     api.startDownload(target
-      ? { kind: 'single-to-device', url: url.value.trim(), format: format.value, target }
-      : { kind: 'single', url: url.value.trim(), format: format.value, folder: destination.field.value });
-  } });
+      ? { kind: 'single-to-device', url: url.value.trim(), format: format.value(), target, cover }
+      : { kind: 'single', url: url.value.trim(), format: format.value(), folder: destination.value(), cover });
+  } }, icon('arrow-down', 16), h('span', { text: t('download.start') }));
 
-  // Without yt-dlp or ffmpeg nothing downloads: said here, before the click,
-  // and the button waits. Deno is only recommended and does not block.
-  const missingText = h('span', { class: 'grow' });
-  const missingNotice = h('div', { class: 'status-strip warning row center gap-10' }, missingText,
-    h('button', { class: 'primary-button', text: t('download.toolsMissing.install'), onclick: openToolsSetup }));
-  const showMissing = () => {
-    const missing = missingRequired(tools.report);
-    missingNotice.hidden = missing.length === 0;
-    missingText.textContent = t('download.toolsMissing', missing.map(tool => tool.name).join(', '));
-    start.disabled = missing.length > 0;
-  };
-  subscribeWhile(missingNotice, 'tools', showMissing);
-  showMissing();
+  url.addEventListener('input', sync);
+  // Without yt-dlp or ffmpeg the button waits, and the notice says why.
+  subscribeWhile(start, 'tools', sync);
+  sync();
 
-  return h('div', { class: 'screen-with-summary' },
-    h('div', { class: 'screen' },
-      h('div', { class: 'screen-head' },
-        titleRow('download', t('download.title'), h('div', { class: 'grow' }), summary.showButton),
-        h('p', { class: 'subtitle', text: t('download.description') })),
-      missingNotice,
-      card(stepHeading('01', t('download.url')), url, playlistHint, h('p', { class: 'help', text: t('download.source.hint') })),
-      destination.card,
-      card(stepHeading('03', t('download.format')), format, h('p', { class: 'help', text: t('download.format.hint') })),
-      h('div', { class: 'row center gap-14' }, start, h('p', { class: 'help', text: t('download.caption') }))),
-    summary.panel);
+  return h('div', { class: 'screen fp' },
+    h('div', { class: 'fp-body' },
+      h('div', { class: 'screen-head' }, titleRow('download', t('download.title'))),
+      toolsNotice(),
+      h('div', { class: 'url-wrap' }, picture.node,
+        h('div', { class: 'grow min0' }, h('label', { class: 'field-label', text: t('download.url'), attrs: { for: 'url' } }), url, hint)),
+      h('div', {}, fieldLabel('download.format'), format.node, formatWarning),
+      h('div', {}, fieldLabel('download.saveIn'), destination.node)),
+    h('div', { class: 'fp-foot' }, summary.node, start));
 }

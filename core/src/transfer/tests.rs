@@ -567,6 +567,88 @@ fn the_same_folder_is_the_same_even_if_the_path_takes_a_detour() {
     assert!(!is_same_folder(&direct, &Location::uri("content://x/Canciones (mp3)")));
 }
 
+// === WHAT COUNTS AS A MANIFEST ===
+
+const NOT_MANIFESTS: [&str; 7] = [
+    "{}",
+    "{\"schema\":1,\"tit",
+    "",
+    "{\"playlist\":[\"a\",\"b\"]}",
+    "{\"schema\":0,\"title\":\"Rara\",\"format\":\"mp3\"}",
+    "{\"schema\":1,\"title\":\"  \",\"format\":\"mp3\"}",
+    "{\"schema\":1,\"title\":\"Rara\",\"format\":null}",
+];
+
+#[test]
+fn a_file_with_the_right_name_that_is_not_a_manifest_does_not_make_a_playlist() {
+    let f = Fixture::new();
+    let root = f.temp.join("Musica");
+    let folder = root.join("Rara");
+    fs::create_dir_all(&folder).unwrap();
+
+    for text in NOT_MANIFESTS {
+        fs::write(folder.join(MANIFEST_NAME), text).unwrap();
+        assert!(!has_manifest(&f.storage, &Fixture::loc(&folder)), "{text}");
+        assert!(find_importable(&f.storage, &Fixture::loc(&root)).is_empty(), "{text}");
+        assert!(find_importable(&f.storage, &Fixture::loc(&folder)).is_empty(), "{text}");
+    }
+}
+
+#[test]
+fn importing_a_folder_whose_manifest_is_not_valid_says_so_and_registers_nothing() {
+    let f = Fixture::new();
+    let archives = f.temp.join("archivos importados");
+
+    for text in NOT_MANIFESTS {
+        fs::write(f.music.join(MANIFEST_NAME), text).unwrap();
+        let error = import_from(&f.storage, &Fixture::loc(&archives), &Fixture::loc(&f.music), NOW).unwrap_err();
+        assert_eq!(error, TransferError::InvalidManifest, "{text}");
+        assert_eq!(error.key(), "transfer.invalidManifest");
+        assert_eq!(error.args(), [MANIFEST_NAME]);
+        assert!(!archives.exists(), "{text}");
+    }
+}
+
+#[test]
+fn a_manifest_from_a_newer_version_is_still_found_so_the_user_is_told_to_update() {
+    let f = Fixture::new();
+    let mut future = manifest_for("Canciones", "mp3");
+    future.schema = SCHEMA + 1;
+    f.write_manifest_at(&f.destination, &future);
+
+    assert_eq!(find_importable(&f.storage, &Fixture::loc(&f.temp)), [Fixture::loc(&f.destination)]);
+}
+
+#[test]
+fn a_newer_manifest_counts_even_if_it_no_longer_looks_like_this_one() {
+    let f = Fixture::new();
+    let newer = format!("{{\"schema\":{},\"name\":\"Otra forma\"}}", SCHEMA + 1);
+    fs::write(f.destination.join(MANIFEST_NAME), newer).unwrap();
+
+    assert!(has_manifest(&f.storage, &Fixture::loc(&f.destination)));
+}
+
+#[test]
+fn an_empty_playlist_and_one_with_no_url_or_folder_name_are_still_manifests() {
+    // Java leaves folderName empty for an archive with no folder, and a playlist
+    // registered with nothing downloaded has no files named.
+    let text = "{\"schema\":1,\"title\":\"playlist\",\"url\":null,\"format\":\"mp3\",\"folderName\":\"\",\"items\":[]}";
+    let manifest = parse_manifest(text.as_bytes()).unwrap();
+    assert_eq!((manifest.title.as_str(), manifest.items.len()), ("playlist", 0));
+}
+
+#[test]
+fn an_invalid_manifest_of_a_registered_playlist_is_healed_by_writing_it_again() {
+    let f = Fixture::new();
+    f.write_archive(true);
+    fs::write(f.music.join(MANIFEST_NAME), "{}").unwrap();
+
+    write_manifest_quietly(&f.storage, &f.json, NOW);
+
+    assert_eq!(f.manifest_at(&f.music).title, "Canciones");
+    assert!(has_manifest(&f.storage, &Fixture::loc(&f.music)));
+}
+
 // === FINDING PLAYLISTS TO IMPORT ===
 
 #[test]

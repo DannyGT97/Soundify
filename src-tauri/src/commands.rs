@@ -44,7 +44,7 @@ pub struct AppState {
     pub progress: Arc<InstallProgress>,
     pub formats: Arc<RwLock<SupportedFormats>>,
     pub tools: ToolPaths,
-    pub installing: crate::tools::Installing,
+    pub installing: crate::bootstrap::Installing,
     pub downloads: Downloads,
 }
 
@@ -272,6 +272,9 @@ pub async fn create_playlist(
     folder: String,
     numbered: bool,
 ) -> Result<CreatedView, CommandError> {
+    if !soundify_core::tools::status::can_download(&state.tools) {
+        return Err(CommandError::key(downloads::TOOLS_MISSING));
+    }
     let archives = state.archives.clone();
     let tools = state.tools.clone();
     let settings_file = state.paths.settings();

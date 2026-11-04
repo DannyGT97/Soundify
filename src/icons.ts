@@ -4,10 +4,10 @@
 // Each one is imported by name, so only the ones listed here end up in the build.
 
 import {
-  Activity, AudioLines, Check, ChevronRight, ChevronsLeft, ChevronsRight, CloudDownload, Ellipsis,
-  Copy, Eye, Film, Folder, FolderInput, FolderOpen, House, Info, Library, Link, List, ListMusic, ListOrdered, ListPlus, Menu, Palette, PanelLeftClose, Trash2, TriangleAlert, CircleX,
+  Activity, AudioLines, Check, ChevronRight, Clock, ChevronsLeft, ChevronsRight, CloudDownload, Ellipsis,
+  Copy, Eye, Maximize2, Minus, PictureInPicture2, Film, Folder, FolderInput, FolderOpen, House, Info, Library, Link, List, ListMusic, ListOrdered, ListPlus, Menu, Palette, PanelLeftClose, Trash2, TriangleAlert, CircleX,
   Maximize, Minimize, Pause, Play, Wrench, RefreshCw, Repeat, Repeat1, Search, Settings, Shuffle, SkipBack, SkipForward,
-  SlidersHorizontal, Smartphone, Square, Volume2, VolumeX, X, createElement, type IconNode,
+  SlidersHorizontal, Smartphone, Square, Volume2, VolumeX, X, ImagePlus, Image, Unplug, FileJson, FileMusic, ChevronDown, ArrowDownToLine, Music, ArrowLeft, ArrowUp, FolderPlus, Usb, LayoutGrid, LoaderCircle, createElement, type IconNode,
 } from 'lucide';
 
 const ICONS = {
@@ -59,13 +59,34 @@ const ICONS = {
   'repeat-one': Repeat1,
   volume: Volume2,
   muted: VolumeX,
+  pip: PictureInPicture2,
+  'pip-expand': Maximize2,
+  'window-minimize': Minus,
+  'window-maximize': Square,
+  'window-restore': Copy,
   fullscreen: Maximize,
   'fullscreen-exit': Minimize,
   // Results and kinds
   ok: Check,
+  pending: Clock,
   stopped: Square,
   audio: AudioLines,
   video: Film,
+  // Forms, library and device explorer
+  'chevron-down': ChevronDown,
+  'image-plus': ImagePlus,
+  image: Image,
+  unplug: Unplug,
+  'file-json': FileJson,
+  'file-music': FileMusic,
+  'arrow-down': ArrowDownToLine,
+  music: Music,
+  back: ArrowLeft,
+  up: ArrowUp,
+  'folder-plus': FolderPlus,
+  usb: Usb,
+  grid: LayoutGrid,
+  loader: LoaderCircle,
 } satisfies Record<string, IconNode>;
 
 export type IconName = keyof typeof ICONS;

@@ -4,10 +4,11 @@ import { icon } from '../icons';
 import { t } from '../i18n';
 import { findBlock } from '../library';
 import { navigate, onLeave } from '../router';
-import { parkVideo, videoView } from '../player';
+import { hidePip, parkVideo, videoView } from '../player';
 import { subscribe, ui } from '../state';
 import { cover } from '../components/cover';
 import { buildTransport, buildVolume, describe } from '../components/transport';
+import { pipButton } from '../components/pip';
 
 /** How long the controls stay over a full-screen video after the mouse stops. */
 const CONTROLS_IDLE_MS = 2500;
@@ -21,15 +22,25 @@ const CONTROLS_IDLE_MS = 2500;
 export function nowPlayingView(): HTMLElement {
   ui.lastPlayerPage = 'now-playing';
   const backdrop = h('div', { class: 'np-backdrop' });
-  const art = h('div', { class: 'np-art' });
+  // What is shown, and over it the way into the floating panel.
+  const stage = h('div', { class: 'np-stage' });
+  const art = h('div', { class: 'np-art' }, stage, pipButton());
   const title = h('div', { class: 'np-title' });
   const meta = h('div', { class: 'subtitle' });
-  const empty = h('p', { class: 'help', text: t('nowPlaying.empty') });
+  const empty = h('div', { class: 'now-empty' },
+    h('div', { class: 'empty' },
+      h('div', { class: 'empty-mark' }, icon('music', 32)),
+      h('h2', { text: t('nowPlaying.empty.title') }),
+      h('p', { text: t('nowPlaying.empty.body') }),
+      h('div', { class: 'row gap-8' },
+        h('button', { class: 'secondary-button', onclick: () => navigate('player') }, icon('list', 16), h('span', { text: t('nowPlaying.goToPlayer') })))));
   const openPlaylist = h('button', { class: 'secondary-button', text: t('nowPlaying.openPlaylist'), onclick: () => {
     if (ui.nowPlaying) navigate('player', { b: ui.nowPlaying.blockKey });
   } });
   const fullscreenButton = h('button', { class: 'player-control np-fullscreen-button', onclick: () => setFullscreen(!fullscreen) });
   const controls = h('div', { class: 'np-controls' }, buildTransport(), buildVolume(), fullscreenButton);
+
+  const info = h('div', { class: 'np-info' }, title, meta);
 
   const screen = h('div', { class: 'screen np-screen' },
     backdrop,
@@ -41,7 +52,7 @@ export function nowPlayingView(): HTMLElement {
         openPlaylist),
       empty,
       art,
-      h('div', { class: 'np-info' }, title, meta),
+      info,
       controls));
 
   // === FULL SCREEN ===
@@ -65,6 +76,8 @@ export function nowPlayingView(): HTMLElement {
   const setFullscreen = (on: boolean) => {
     if (on === fullscreen) return;
     fullscreen = on;
+    // Full screen needs the picture here.
+    if (on) hidePip();
     screen.classList.toggle('np-fullscreen', on);
     api.setFullscreen(on);
     refreshControls();
@@ -86,18 +99,20 @@ export function nowPlayingView(): HTMLElement {
   const refresh = () => {
     const np = ui.nowPlaying;
     empty.hidden = !!np;
+    art.hidden = !np;
+    info.hidden = !np;
     openPlaylist.hidden = !np;
     backdrop.hidden = !np;
     if (!np) {
       setFullscreen(false);
       refreshControls();
-      art.replaceChildren();
+      stage.replaceChildren();
       title.textContent = '';
       meta.textContent = '';
       shown = '';
       return;
     }
-    const key = `${np.blockKey}/${np.track.id}`;
+    const key = `${np.blockKey}/${np.track.id}/${ui.pip}`;
     if (key === shown) return;
     shown = key;
     const found = findBlock(np.blockKey);
@@ -109,7 +124,11 @@ export function nowPlayingView(): HTMLElement {
     // playback); where the engine draws nothing (the mock), a placeholder.
     const view = video ? videoView() : null;
     if (!video) parkVideo();
-    art.replaceChildren(video
+    stage.replaceChildren(video && ui.pip
+        ? h('div', { class: 'np-video np-pip-here' },
+          h('span', { text: t('pip.here') }),
+          h('button', { class: 'secondary-button', text: t('pip.bringBack'), onclick: hidePip }))
+        : video
         ? view ?? h('div', { class: 'np-video' }, icon('play', 44, true))
         : cover(np.track.title, false, 320, { kind: 'thumbnail', id: np.track.id }));
     // The same tile, blurred, behind everything (audio only: a video fills its own space).

@@ -2,20 +2,33 @@ import { h, titleRow } from '../dom';
 import { icon } from '../icons';
 import { t } from '../i18n';
 import { api, type FormatBlock, type Playlist } from '../api';
-import { countBy, findBlock, library, loadLibrary, onDisk } from '../library';
+import { countBy, filesText, findBlock, library, loadLibrary, onDisk, pendingText } from '../library';
 import { navigate, onLeave, type Params } from '../router';
-import { subscribe, ui, type RunningTask } from '../state';
-import { liveText, percent, progressLine } from '../tasks';
+import { subscribe, ui } from '../state';
+import { filterByTitle } from '../search';
+import { progressLine } from '../tasks';
 import { cover } from '../components/cover';
+import { openMenu, type MenuItem } from '../components/floating';
+import { liveBar, liveChip, livePhase, patchLive, percentText } from '../components/live';
 import { playlistPicture } from '../covers';
-import { confirmDialog } from '../overlays/confirm';
+import { openDeleteWindow } from '../overlays/deletePlaylist';
 import { deviceLabel } from '../overlays/devicePicker';
 import { openFilesOverlay } from '../overlays/files';
 import { openImportHelp } from '../overlays/help';
 import { copyToDevice, copyToFolder } from '../overlays/transfer';
 import { notify } from '../components/toasts';
-import { closeOverlay, openOverlay } from '../components/overlay';
-import { errorText } from '../transfer';
+import { canDownload, tools } from '../tools';
+import { toolsNotice } from '../components/toolsNotice';
+
+type Filter = 'all' | 'pending' | 'device';
+
+const missing = (block: FormatBlock) => countBy(block.tracks, 'pending') + countBy(block.tracks, 'failed');
+
+const IN_FILTER: Record<Filter, (playlist: Playlist) => boolean> = {
+  all: () => true,
+  pending: playlist => playlist.formats.some(block => missing(block) > 0),
+  device: playlist => playlist.formats.some(block => block.device != null),
+};
 
 /**
  * Gestor de Playlists: one folding row per playlist+folder, with a block per
@@ -23,90 +36,156 @@ import { errorText } from '../transfer';
  * YouTube on opening.
  *
  * `open` unfolds a playlist on arrival; `focus` also scrolls to one of its
- * blocks («Ir a la descarga» of the tasks window).
+ * blocks («Ir a la descarga»); `filter=pending` arrives with that chip on.
  */
 export function managerView(params: Params): HTMLElement {
   if (params.open) ui.expandedPlaylists.add(params.open);
-  const list = h('div', { class: 'stack-14' });
-  const empty = h('section', { class: 'card stack-14' },
-    h('p', { class: 'subtitle', text: t('manager.empty') }),
-    h('p', { class: 'subtitle', text: t('manager.empty.recover') }),
-    h('div', { class: 'row center-x' }, h('button', { class: 'secondary-button', text: t('manager.findPlaylists'), onclick: openImportHelp })));
-  let shape = '';
-  // Empty or not is decided on every render, not once on arrival: importing
-  // from the empty screen filled the rows while the empty card stayed on
-  // show, until leaving and coming back.
-  const render = () => {
-    shape = liveShape();
-    if (library.playlists.length) list.replaceChildren(...library.playlists.map(playlistRow));
-    else list.replaceChildren(empty);
+  let query = '';
+  let filter: Filter = params.filter === 'pending' ? 'pending' : 'all';
+  const list = h('div', { class: 'pm-list' });
+
+  const search = h('input', { class: 'input', attrs: { placeholder: t('manager.search') } });
+  search.addEventListener('input', () => {
+    query = search.value;
+    render();
+  });
+  const setFilter = (next: Filter) => {
+    filter = next;
+    render();
   };
+  const chips: Record<Filter, HTMLButtonElement> = {
+    all: h('button', { class: 'fchip', text: t('manager.filter.all'), onclick: () => setFilter('all') }),
+    pending: h('button', { class: 'fchip', text: t('manager.filter.pending'), onclick: () => setFilter('pending') }),
+    device: h('button', { class: 'fchip', text: t('manager.filter.device'), onclick: () => setFilter('device') }),
+  };
+  const toolbar = h('div', { class: 'toolbar' },
+    h('div', { class: 'search-box' }, icon('search', 15), search),
+    chips.all, chips.pending, chips.device);
+
+  let shape = '';
+  // The list only: the search field keeps its focus while typing. Empty or not
+  // is decided on every render, because importing from the empty screen fills it.
+  function render(): void {
+    shape = liveShape();
+    const all = library.playlists;
+    toolbar.hidden = all.length === 0;
+    chips.device.hidden = !all.some(IN_FILTER.device);
+    if (filter === 'device' && chips.device.hidden) filter = 'all';
+    (Object.keys(chips) as Filter[]).forEach(key => chips[key].classList.toggle('on', key === filter));
+    if (!all.length) {
+      list.replaceChildren(emptyManager());
+      return;
+    }
+    const shown = filterByTitle(all, query).filter(IN_FILTER[filter]);
+    list.replaceChildren(...(shown.length
+      ? shown.map(playlist => playlistRow(playlist, render))
+      : [h('p', { class: 'none', text: t('manager.search.none') })]));
+  }
   // Every percent emits `tasks`: rebuilding the rows each time restarted the
   // outline's sweep and took the focus off a button under the pointer. Only a
   // change of shape (start, end, another block, another step) rebuilds; the
   // counter and the bars are written in place.
   onLeave(subscribe('tasks', () => liveShape() === shape ? patchLive(list) : render()));
   onLeave(subscribe('library', render));
+  // `tools` also fires with every percent of an install: the same rule.
+  onLeave(subscribe('tools', () => { if (liveShape() !== shape) render(); }));
   render();
   const focus = params.focus;
   if (focus) requestAnimationFrame(() => [...list.querySelectorAll<HTMLElement>('.pm-block')]
-      .find(el => el.dataset.block === focus)?.scrollIntoView({ block: 'center', behavior: 'smooth' }));
+    .find(el => el.dataset.block === focus)?.scrollIntoView({ block: 'center', behavior: 'smooth' }));
 
   const importButton = h('button', { class: 'secondary-button', onclick: openImportHelp },
     icon('import', 16), h('span', { text: t('manager.import') }));
 
-
   return h('div', { class: 'screen' },
     h('div', { class: 'screen-head' },
-      titleRow('manager', t('manager.title'), h('div', { class: 'grow' }), importButton),
-      h('p', { class: 'subtitle', text: t('manager.description') })),
+      titleRow('manager', t('manager.title'), h('div', { class: 'grow' }), importButton)),
+    toolsNotice(),
+    toolbar,
     list);
+}
+
+function emptyManager(): HTMLElement {
+  return h('div', { class: 'empty' },
+    h('div', { class: 'empty-mark' }, icon('manager', 32)),
+    h('h2', { text: t('manager.empty.title') }),
+    h('p', { text: t('manager.empty.body') }),
+    h('div', { class: 'row gap-8' },
+      h('button', { class: 'primary-button', onclick: () => navigate('new-playlist') }, icon('new-playlist', 16), h('span', { text: t('nav.newPlaylist') })),
+      h('button', { class: 'secondary-button', onclick: openImportHelp }, icon('import', 16), h('span', { text: t('manager.import') }))));
 }
 
 // The row just unfolded by hand: only its blocks slide in. Rebuilt by a
 // download's reloads, they slid in again every time and the Gestor flickered.
 let unfolding: string | null = null;
 
-function playlistRow(playlist: Playlist): HTMLElement {
+function playlistRow(playlist: Playlist, rerender: () => void): HTMLElement {
   const expanded = ui.expandedPlaylists.has(playlist.id);
   const task = ui.task;
   const live = task?.blockKey ? playlist.formats.find(b => b.key === task.blockKey) ?? null : null;
   const files = playlist.formats.reduce((n, b) => n + onDisk(b.tracks).length, 0);
-  const header = h('button', { class: 'pm-row-header', title: t(expanded ? 'manager.row.fold' : 'manager.row.unfold') },
-    cover(playlist.title, playlist.formats.every(b => b.video), 56, playlistPicture(playlist)),
-    h('div', { class: 'grow min0' },
-      h('div', { class: 'row center gap-8 min0' },
-        h('div', { class: 'card-title ellipsis', text: playlist.title }),
-        task && live ? liveChip(task, live.format) : null),
-      h('div', { class: 'subtitle ellipsis', text: playlist.folder }),
-      h('div', { class: 'subtitle', text: `${t('manager.formats', playlist.formats.map(b => b.format).join(', '))} · ${t('manager.files', files)}` })),
-    h('span', { class: `chevron${expanded ? ' open' : ''}` }, icon('chevron', 20)));
-  const coverButton = header.querySelector<HTMLElement>('.cover');
-  if (coverButton) {
-    coverButton.classList.add('pm-cover-button');
-    coverButton.setAttribute('role', 'button');
-    coverButton.setAttribute('tabindex', '0');
-    coverButton.setAttribute('aria-label', t('manager.menu.cover'));
-    coverButton.title = t('manager.menu.cover');
-    coverButton.addEventListener('click', event => {
-      event.stopPropagation();
-      void changeCover(playlist);
-    });
-    coverButton.addEventListener('keydown', event => {
-      if (event.key === 'Enter') { event.preventDefault(); coverButton.click(); }
-    });
-  }
-  header.addEventListener('click', () => {
+  const waiting = playlist.formats.reduce((n, b) => n + missing(b), 0);
+  const deviceBlock = playlist.formats.find(b => b.device);
+  const offline = playlist.formats.every(b => b.accessible === false);
+  const where = deviceBlock?.device ? deviceLabel(deviceBlock.device) : playlist.folder;
+
+  const coverButton = h('span', {
+    class: 'pm-cover',
+    title: t('manager.menu.cover'),
+    attrs: { role: 'button', tabindex: '0' },
+  },
+    cover(playlist.title, playlist.formats.every(b => b.video), 52, playlistPicture(playlist)),
+    h('span', { class: 'shade' }, icon('image', 18)));
+  coverButton.addEventListener('click', event => {
+    event.stopPropagation();
+    void changeCover(playlist);
+  });
+  coverButton.addEventListener('keydown', event => {
+    if (event.key !== 'Enter') return;
+    event.preventDefault();
+    event.stopPropagation();
+    void changeCover(playlist);
+  });
+
+  const toggle = () => {
     if (expanded) ui.expandedPlaylists.delete(playlist.id);
     else {
       ui.expandedPlaylists.add(playlist.id);
       unfolding = playlist.id;
     }
-    navigate('manager');
+    rerender();
+  };
+  const header = h('div', {
+    class: 'pm-row-header',
+    title: t(expanded ? 'manager.row.fold' : 'manager.row.unfold'),
+    attrs: { role: 'button', tabindex: '0', 'aria-expanded': String(expanded) },
+    onclick: toggle,
+  },
+    coverButton,
+    h('div', { class: 'grow min0' },
+      h('div', { class: 'row center gap-8 min0' },
+        h('div', { class: 'pm-title ellipsis', text: playlist.title }),
+        task && live ? liveChip(task, live.format) : null),
+      h('div', { class: 'pm-sub', title: where },
+        icon(deviceBlock ? 'device' : 'folder', 13),
+        h('span', { class: 'ellipsis', text: where }))),
+    h('div', { class: 'pm-chips' }, ...playlist.formats.map(b => h('span', { class: 'fmt', text: b.format.toUpperCase() }))),
+    h('div', { class: 'pm-state' },
+      h('small', { text: filesText(files) }),
+      offline ? h('span', { class: 'warn-text', text: t('manager.status.offline') })
+        : waiting ? h('span', { class: 'warn-text', text: pendingText(waiting) })
+        : h('span', { class: 'ok-text', title: t('manager.status.upToDate') }, icon('ok', 15))),
+    h('span', { class: `chevron${expanded ? ' open' : ''}` }, icon('chevron', 20)));
+  header.addEventListener('keydown', event => {
+    if (event.key === 'Enter' && event.target === header) {
+      event.preventDefault();
+      toggle();
+    }
   });
+
   const entering = unfolding === playlist.id;
   if (entering) unfolding = null;
-  return h('section', { class: `card pm-row${live ? ' active' : ''}` }, header,
+  return h('section', { class: `pm-row${live ? ' active' : ''}` }, header,
     expanded ? h('div', { class: `pm-blocks${entering ? ' entering' : ''}` }, ...playlist.formats.map(b => formatBlock(playlist, b, live)))
       : task && live ? liveBar(task, ' pm-row-bar') : null);
 }
@@ -118,47 +197,55 @@ function formatBlock(playlist: Playlist, block: FormatBlock, live: FormatBlock |
   const pending = countBy(block.tracks, 'pending');
   const failed = countBy(block.tracks, 'failed');
   const unavailable = countBy(block.tracks, 'unavailable');
-  const status = pending
-      ? h('span', { class: 'warn-text', text: t('manager.status.pending', pending) })
-      : h('span', { class: 'ok-text', text: t('manager.status.synced') });
-  const extra = [
-    failed ? t('manager.status.moreFailed', failed) : '',
-    unavailable ? t('manager.status.moreUnavailable', unavailable) : '',
-  ].filter(Boolean).join(' ');
+  const offline = block.accessible === false;
 
+  const sub: Node[] = [];
+  const add = (node: HTMLElement) => {
+    if (sub.length) sub.push(document.createTextNode(' · '));
+    sub.push(node);
+  };
+  if (offline) add(h('span', { class: 'warn-text', text: t('manager.status.offline') }));
+  else if (pending) add(h('span', { class: 'warn-text', text: pendingText(pending) }));
+  else if (!failed) add(h('span', { class: 'ok-text', text: t('manager.status.upToDate') }));
+  if (failed) add(h('span', { class: 'err-text', text: t('manager.status.failed', failed) }));
+  if (unavailable) add(h('span', { text: t('manager.status.unavailable', unavailable) }));
+  if (block.lastSync) add(h('span', { text: t('manager.lastSync', block.lastSync) }));
+
+  const worthSyncing = pending + failed > 0;
   const update = active
-      ? h('button', { class: 'secondary-button danger-text', onclick: () => api.stopDownload() },
-        icon('stopped', 16, true), h('span', { text: t('tasks.stop') }))
-      : h('button', { class: 'primary-button', onclick: () => api.startDownload({ kind: 'update', blockKey: block.key }) },
-        icon('sync', 16), h('span', { text: t('manager.sync') }));
-  if (!active) update.disabled = task !== null;
-  const files = h('button', { class: 'secondary-button', onclick: () => openFilesOverlay(playlist, block) },
-    icon('eye', 16), h('span', { text: t('manager.viewFiles') }));
-  const numbered = h('span', {
-    class: `pm-numbered-icon${block.numbered ? '' : ' off'}`,
-    title: t(block.numbered ? 'manager.numbered' : 'manager.notNumbered'),
-    attrs: { role: 'img', 'aria-label': t(block.numbered ? 'manager.numbered' : 'manager.notNumbered') },
-  }, icon(block.numbered ? 'list-ordered' : 'list', 16));
+    ? h('button', { class: 'secondary-button danger-text', onclick: () => api.stopDownload() },
+      icon('stopped', 16, true), h('span', { text: t('tasks.stop') }))
+    : h('button', {
+      class: worthSyncing ? 'primary-button' : 'secondary-button compactable',
+      title: t('manager.sync'),
+      onclick: () => { if (canDownload(tools.report)) api.startDownload({ kind: 'update', blockKey: block.key }); },
+    }, icon('sync', 16), h('span', { text: t('manager.sync') }));
+  if (!active) update.disabled = task !== null || !canDownload(tools.report) || offline;
 
   const element = h('div', { class: `pm-block${active ? ' active' : live ? ' waiting' : ''}` },
-    h('div', { class: 'row center gap-10' },
-      h('span', { class: 'chip', text: block.format }),
-      h('span', { class: 'row-title', text: t('manager.files', onDisk(block.tracks).length) }),
-      h('span', { class: 'subtitle', text: t('manager.lastSync', block.lastSync) }),
-      h('div', { class: 'grow' }),
-      active ? h('span', { class: 'pm-badge', text: t('manager.block.downloading') }) : null),
-    h('div', { class: 'row center gap-8' }, status, extra ? h('span', { class: 'subtitle', text: extra }) : null,
-      h('div', { class: 'grow' }),
-      numbered),
-    task && active ? h('div', { class: 'stack-6' },
+    h('div', { class: 'fl-main' },
+      h('span', { class: 'fmt', text: block.format.toUpperCase() }),
+      h('div', { class: 'grow min0' },
+        h('div', { class: 'fl-title' },
+          h('span', { text: filesText(onDisk(block.tracks).length) }),
+          h('span', {
+            class: 'row center',
+            title: t(block.numbered ? 'manager.numbered' : 'manager.notNumbered'),
+            attrs: { role: 'img' },
+          }, icon(block.numbered ? 'list-ordered' : 'list', 14)),
+          active ? h('span', { class: 'pm-badge', text: t('manager.block.downloading') }) : null),
+        h('div', { class: 'fl-sub ellipsis' }, ...sub)),
+      h('div', { class: 'fl-actions' },
+        update,
+        h('button', { class: 'secondary-button compactable', title: t('manager.viewFiles'), onclick: () => openFilesOverlay(playlist, block) },
+          icon('eye', 16), h('span', { text: t('manager.viewFiles') })),
+        moreButton(playlist, block))),
+    task && active ? h('div', { class: 'fl-live' },
       h('div', { class: 'row center gap-8' },
-        h('span', { class: 'row-title', text: progressLine(task), attrs: { 'data-live': 'line' } }),
+        h('span', { text: progressLine(task), attrs: { 'data-live': 'line' } }),
         h('div', { class: 'grow' }),
-        h('span', { class: 'subtitle', text: percentText(task), attrs: { 'data-live': 'pct' } })),
-      liveBar(task)) : null,
-    h('div', { class: 'row center gap-8 pm-actions' }, update, files, copyMenu(playlist, block),
-    h('button', { class: 'icon-button', title: t('manager.openFolder'), attrs: { 'aria-label': t('manager.openFolder') }, onclick: () => openFolder(playlist, block) }, icon('folder-open', 17)),
-    h('button', { class: 'icon-button pm-delete', title: t('manager.menu.delete'), attrs: { 'aria-label': t('manager.menu.delete') }, onclick: () => deleteBlock(playlist, block) }, icon('delete', 17))));
+        h('span', { text: percentText(task), attrs: { 'data-live': 'pct' } })),
+      liveBar(task)) : null);
   element.dataset.block = block.key;
   // Rebuilt, the animations would start over: the same clock for all keeps
   // the sweep and the dot where they were.
@@ -171,9 +258,26 @@ function formatBlock(playlist: Playlist, block: FormatBlock, live: FormatBlock |
   return element;
 }
 
+/** «⋯»: everything a block can do that is not an everyday thing. */
+function moreButton(playlist: Playlist, block: FormatBlock): HTMLElement {
+  const button = h('button', { class: 'icon-button pm-more', title: t('manager.menu.more') }, icon('more', 18));
+  button.addEventListener('click', () => {
+    const copies: MenuItem[] = [
+      { icon: 'copy', label: t(block.device ? 'manager.menu.copy.toComputer' : 'manager.menu.copy.local'), run: () => void copyToFolder(playlist, block) },
+    ];
+    if (!block.device) copies.push({ icon: 'device', label: t('manager.menu.copy.device'), run: () => copyToDevice(playlist, block) });
+    openMenu(button, [
+      ...copies,
+      { icon: 'folder-open', label: t('manager.openFolder'), run: () => openFolder(playlist, block) },
+      null,
+      { icon: 'delete', label: t('manager.menu.delete'), danger: true, run: () => openDeleteWindow(playlist, block) },
+    ]);
+  });
+  return button;
+}
+
 // === THE RUNNING DOWNLOAD ===
 
-const SWEEP_MS = 2600;
 // The green of a block that ended well stays a moment, then fades by itself.
 const FLASH_HOLD_MS = 1200;
 const FLASH_MS = FLASH_HOLD_MS + 3000;
@@ -199,51 +303,11 @@ subscribe('tasks', () => {
 
 function liveShape(): string {
   const task = ui.task;
-  return task ? `${task.blockKey ?? ''}|${task.step}` : '';
-}
-
-/** What changes with every percent, written over the rows already built. */
-function patchLive(root: HTMLElement): void {
-  const task = ui.task;
-  if (!task) return;
-  const pct = percent(task);
-  root.querySelectorAll<HTMLElement>('[data-live]').forEach(el => {
-    switch (el.dataset.live) {
-      case 'chip': el.textContent = liveText(task, el.dataset.format ?? ''); break;
-      case 'line': el.textContent = progressLine(task); break;
-      case 'pct': el.textContent = percentText(task); break;
-      case 'bar': if (pct !== null) el.style.width = `${pct}%`; break;
-    }
-  });
-}
-
-/** «Descargando MP3 · 3/12» next to the playlist's title, with a dot that breathes. */
-function liveChip(task: RunningTask, format: string): HTMLElement {
-  const text = h('span', { text: liveText(task, format), attrs: { 'data-live': 'chip', 'data-format': format } });
-  const chip = h('span', { class: 'pm-live' }, h('span', { class: 'pm-live-dot' }), text);
-  chip.style.setProperty('--live-phase', livePhase());
-  return chip;
-}
-
-function liveBar(task: RunningTask, extraClass = ''): HTMLElement {
-  const pct = percent(task);
-  const fill = h('div', { class: 'progress-fill', attrs: { 'data-live': 'bar' } });
-  if (pct !== null) fill.style.width = `${pct}%`;
-  return h('div', { class: `progress${pct === null ? ' indeterminate' : ''}${extraClass}` }, fill);
-}
-
-function percentText(task: RunningTask): string {
-  const pct = percent(task);
-  return pct === null ? '' : `${pct}%`;
-}
-
-/** A negative delay that puts every live animation at the same point of the same clock. */
-function livePhase(): string {
-  return `-${Date.now() % SWEEP_MS}ms`;
+  return `${canDownload(tools.report)}|${task ? `${task.blockKey ?? ''}|${task.step}` : ''}`;
 }
 
 /** One cover per playlist: every format of it shows the picked image. */
-async function changeCover(playlist: Playlist): Promise<void> {
+export async function changeCover(playlist: Playlist): Promise<void> {
   const image = await api.pickCoverImage(t('cover.choose.title', playlist.title), t('cover.choose.filter'));
   const block = playlist.formats[0];
   if (!image || !block) return;
@@ -256,7 +320,7 @@ async function changeCover(playlist: Playlist): Promise<void> {
 }
 
 /** A phone's folder opens in Windows' own explorer; a local one, in the system's. */
-function openFolder(playlist: Playlist, block: FormatBlock): void {
+export function openFolder(playlist: Playlist, block: FormatBlock): void {
   if (!block.device) {
     api.revealFolder(playlist.folder);
     return;
@@ -264,85 +328,3 @@ function openFolder(playlist: Playlist, block: FormatBlock): void {
   api.openDeviceFolder(block.device.deviceId, block.device.path)
     .catch(() => notify({ tone: 'error', text: t('manager.openFolder.deviceFailed') }));
 }
-
-/**
- * With no reachable folder, "Eliminar todo" is NOT offered: it would find not
- * one file to delete and would happily assume they are gone — with the USB
- * unplugged, that means losing the record of files that still exist.
- * Forgetting the record touches no file, so that option stays.
- */
-function deleteBlock(playlist: Playlist, block: FormatBlock): void {
-  const label = `${playlist.title} (${block.format})`;
-  const accessible = block.accessible !== false;
-  const location = block.device ? deviceLabel(block.device) : playlist.folder;
-  const onlyRecord = { label: t('manager.delete.onlyRecord'), run: () => void forget(block) };
-  confirmDialog(t('manager.delete.title'), t('manager.delete.header', label, block.tracks.length),
-    accessible ? t('manager.delete.body', location) : t('manager.delete.bodyUnreachable'),
-    accessible
-      ? [{ label: t('manager.delete.all'), kind: 'danger', run: () => void deleteAll(playlist, block, location) }, onlyRecord]
-      : [onlyRecord]);
-}
-
-async function forget(block: FormatBlock): Promise<void> {
-  await api.deletePlaylistFormat(block.key, false);
-  await loadLibrary();
-}
-
-// A local delete is fast enough to flash by unseen: the window stays at least
-// this long, so it feels the same as a phone's (asked for).
-const MIN_DELETE_WINDOW_MS = 600;
-
-/**
- * Having asked for "delete everything", everything being deleted means it
- * went well: said in green and that is that. Only what could NOT be deleted
- * is warned about in red, the only thing left for the user to do.
- */
-async function deleteAll(playlist: Playlist, block: FormatBlock, location: string): Promise<void> {
-  const onDevice = block.device != null;
-  openOverlay(t(onDevice ? 'manager.deleteDevice.windowTitle' : 'manager.deleteLocal.windowTitle'), [
-    h('div', { class: 'stack-12' },
-      h('div', { class: 'progress indeterminate' }, h('div', { class: 'progress-fill' })),
-      h('div', { class: 'row-title ellipsis',
-        text: t(onDevice ? 'manager.deleteDevice.inProgress' : 'manager.deleteLocal.inProgress', playlist.title) })),
-  ]);
-  const started = Date.now();
-  try {
-    const result = await api.deletePlaylistFormat(block.key, true);
-    const wait = MIN_DELETE_WINDOW_MS - (Date.now() - started);
-    if (wait > 0) await new Promise(resolve => window.setTimeout(resolve, wait));
-    const total = (result?.deleted ?? 0) + (result?.unregistered ?? 0);
-    notify(result && result.leftOver > 0
-      ? { tone: 'error', text: t('manager.delete.leftOver', playlist.title, total, result.leftOver, location) }
-      : { tone: 'success', text: t('manager.delete.done', playlist.title, block.format.toUpperCase(), total) });
-  } catch (error) {
-    notify({ tone: 'error', text: errorText(error) });
-  } finally {
-    closeOverlay();
-    await loadLibrary();
-  }
-}
-
-/** Copy destinations live under one compact action, with neutral icons. */
-function copyMenu(playlist: Playlist, block: FormatBlock): HTMLElement {
-  const menu = h('div', { class: 'popup-menu pm-copy-menu' },
-    h('button', { onclick: () => {
-      menu.hidden = true;
-      void copyToFolder(playlist, block);
-    } }, icon('folder-open', 16), h('span', { text: t(block.device ? 'manager.menu.copy.toComputer' : 'manager.menu.copy.local') })),
-    block.device ? null : h('button', { onclick: () => {
-      menu.hidden = true;
-      copyToDevice(playlist, block);
-    } }, icon('device', 16), h('span', { text: t('manager.menu.copy.device') })));
-  menu.hidden = true;
-  const button = h('button', { class: 'secondary-button pm-copy-button', onclick: e => {
-    e.stopPropagation();
-    const open = menu.hidden;
-    document.querySelectorAll<HTMLElement>('.pm-copy-menu').forEach(m => { m.hidden = true; });
-    menu.hidden = !open;
-  } }, icon('copy', 16), h('span', { text: t('manager.copy.button') }));
-  return h('div', { class: 'menu-anchor' }, button, menu);
-}
-
-document.addEventListener('click', () => {
-  document.querySelectorAll<HTMLElement>('.pm-copy-menu').forEach(m => { m.hidden = true; });
-});

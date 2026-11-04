@@ -165,9 +165,36 @@ export function videoView(): HTMLVideoElement | null {
   return engine.view();
 }
 
-/** Takes the video back from Now Playing without stopping it. */
+/** Takes the video back from Now Playing without stopping it. While the floating panel has it, it stays there. */
 export function parkVideo(): void {
+  if (!ui.pip) engine.park();
+}
+
+/** Is what is loaded a video? Audio has nothing to float. */
+export function currentIsVideo(): boolean {
+  return !!ui.nowPlaying && (findBlock(ui.nowPlaying.blockKey)?.block.video ?? false);
+}
+
+/** Into the floating panel, playing as it was. */
+export function showPip(): void {
+  if (ui.pip || !currentIsVideo()) return;
+  ui.pip = true;
+  emit('player');
+}
+
+/** Out of the panel, playing as it was. Parked FIRST: whoever listens may take the element next. */
+export function hidePip(): void {
+  if (!ui.pip) return;
+  ui.pip = false;
   engine.park();
+  emit('player');
+}
+
+/** The panel's ✕: nothing keeps sounding with no picture. Paused at the same second, still loaded. */
+export function closePip(): void {
+  if (ui.playing) setPlaying(false);
+  hidePip();
+  void savePosition();
 }
 
 /** "3:07", or "1:02:45" past the hour; nonsense (NaN, negative) is "0:00". */
@@ -202,6 +229,8 @@ function load(track: Track, autoplay: boolean, resumeAt = 0): void {
   ui.duration = 0;
   pendingSeek = resumeAt;
   engine.load(currentBlock, track);
+  // Another playlist, now of audio: nothing to float, and it keeps sounding.
+  if (!found?.block.video) hidePip();
   memory.last = {
     archive: currentBlock,
     trackId: track.id,
@@ -214,6 +243,7 @@ function load(track: Track, autoplay: boolean, resumeAt = 0): void {
 }
 
 function stop(): void {
+  ui.pip = false;
   engine.unload();
   queue = null;
   ui.nowPlaying = null;

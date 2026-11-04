@@ -18,7 +18,7 @@ export function buildTransport(): HTMLElement {
 
   const position = h('span', { class: 'player-time', text: '0:00' });
   const duration = h('span', { class: 'player-time', text: '0:00' });
-  const progress = slider(0, 100, value => player.seek(value));
+  const progress = seekSlider();
 
   const transport = h('div', { class: 'player-center' },
     h('div', { class: 'player-controls' }, shuffle, previous, play, next, repeat),
@@ -41,6 +41,24 @@ export function buildTransport(): HTMLElement {
   subscribeWhile(transport, 'player', refresh);
   refresh();
   return transport;
+}
+
+/**
+ * The file's position, wherever it is shown: a click jumps there, dragging
+ * moves it, the arrow keys step it. It is written only while not held, so the
+ * clock's ticks do not pull it from under the pointer.
+ */
+export function seekSlider(): HTMLInputElement {
+  const input = slider(0, 100, value => player.seek(value));
+  input.setAttribute('aria-label', t('player.seek'));
+  const refresh = () => {
+    input.max = String(ui.duration);
+    if (!input.matches(':active')) input.value = String(ui.position);
+    paintFilled(input);
+  };
+  subscribeWhile(input, 'player', refresh);
+  refresh();
+  return input;
 }
 
 /** The volume icon and slider: the bottom bar's, and Reproduciendo's when the bar is not shown. */

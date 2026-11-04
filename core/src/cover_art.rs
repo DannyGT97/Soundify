@@ -12,6 +12,8 @@ use std::path::{Path, PathBuf};
 use std::sync::mpsc::{self, Sender};
 use std::sync::{Arc, Mutex};
 
+use sha2::{Digest, Sha256};
+
 use crate::http::Http;
 use crate::location::Location;
 use crate::storage::Storage;
@@ -73,6 +75,24 @@ pub fn set_custom_cover(storage: &dyn Storage, root_dir: &Location, image: &Loca
     }
     storage.create_dir_all(root_dir)?;
     storage.write(&storage.child(root_dir, CUSTOM_COVER)?, &bytes)
+}
+
+/// Fetches the picture at `url` into `dir` (the same address is not fetched
+/// twice) and gives its file. Fails, leaving nothing behind, if what came is
+/// not a picture.
+pub fn fetch_remote_image(http: &dyn Http, url: &str, dir: &Path) -> io::Result<PathBuf> {
+    let hash: String = Sha256::digest(url.as_bytes()).iter().take(12).map(|b| format!("{b:02x}")).collect();
+    let target = dir.join(format!("url-{hash}.jpg"));
+    if target.exists() {
+        return Ok(target);
+    }
+    http.to_file(url, &target, &mut |_| {})?;
+    if std::fs::read(&target).map(|bytes| looks_like_image(&bytes)).unwrap_or(false) {
+        Ok(target)
+    } else {
+        let _ = std::fs::remove_file(&target);
+        Err(io::Error::new(io::ErrorKind::InvalidData, format!("Not an image: {url}")))
+    }
 }
 
 // === THUMBNAILS ===

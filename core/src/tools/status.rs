@@ -41,10 +41,24 @@ pub fn statuses(tools: &ToolPaths, bundled_ffmpeg: Option<&Path>, version_of: &d
                 installed,
                 version: if installed { version_of(tool).and_then(|out| parse_version(tool, &out)) } else { None },
                 bundled,
-                required: tool != Tool::Deno,
+                required: is_required(tool),
             }
         })
         .collect()
+}
+
+/// Without it nothing downloads. Deno is only recommended: without it YouTube
+/// sometimes offers the low quality alone.
+pub fn is_required(tool: Tool) -> bool {
+    tool != Tool::Deno
+}
+
+/// Can anything be downloaded at all? The app's last word, whatever the
+/// interface let through (the front asks the same as `canDownload`). Without
+/// ffmpeg yt-dlp still downloads but cannot convert: the video was left as
+/// .mp4, cleaned away as a leftover, and the task ended with nothing.
+pub fn can_download(tools: &ToolPaths) -> bool {
+    Tool::ALL.into_iter().filter(|tool| is_required(*tool)).all(|tool| is_installed(tools, tool))
 }
 
 /// Whether the tool can be run. Outside Windows the system's tools are used
@@ -143,6 +157,26 @@ mod tests {
         assert_eq!(list[0].version.as_deref(), Some("2026.10.22"));
         assert_eq!(*asked.borrow(), [Tool::Ytdlp]);
         assert_eq!(list.iter().map(|s| s.required).collect::<Vec<_>>(), [true, true, false]);
+    }
+
+    #[test]
+    fn downloading_needs_yt_dlp_and_all_of_ffmpeg_but_not_deno() {
+        let dir = tempfile::tempdir().unwrap();
+        let tools = ToolPaths::new(dir.path(), true);
+        fs::create_dir_all(tools.ytdlp_dir()).unwrap();
+        fs::create_dir_all(tools.ffmpeg_bin()).unwrap();
+        assert!(!can_download(&tools));
+        fs::write(tools.ytdlp(), "x").unwrap();
+        assert!(!can_download(&tools), "no ffmpeg");
+        fs::write(tools.ffmpeg(), "x").unwrap();
+        assert!(!can_download(&tools), "no ffprobe");
+        fs::write(tools.ffprobe(), "x").unwrap();
+        assert!(can_download(&tools), "Deno is only recommended");
+    }
+
+    #[test]
+    fn the_systems_tools_are_taken_for_granted() {
+        assert!(can_download(&ToolPaths::new("nowhere", false)));
     }
 
     #[test]

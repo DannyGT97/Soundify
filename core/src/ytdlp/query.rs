@@ -46,6 +46,16 @@ pub fn first_video_id_args(url: &str, cookies_file: Option<&str>) -> Vec<String>
     flat_first_item_args("id", url, cookies_file)
 }
 
+/// The playlist's own data, without any of its items: its thumbnails are in there.
+pub fn playlist_thumbnail_args(url: &str, cookies_file: Option<&str>) -> Vec<String> {
+    with_cookies_and_url(&["--flat-playlist", "--playlist-items", "0", "--dump-single-json", "--no-warnings"], url, cookies_file)
+}
+
+/// The thumbnail of one video, on any site yt-dlp can read.
+pub fn video_thumbnail_args(url: &str, cookies_file: Option<&str>) -> Vec<String> {
+    with_cookies_and_url(&["--skip-download", "--no-playlist", "--print", "thumbnail", "--no-warnings"], url, cookies_file)
+}
+
 /// Every id that is in the playlist RIGHT NOW, with its position and title.
 ///
 /// `--download-archive` is deliberately NOT used here, and the `SOUNDIFY_SEEN`
@@ -94,6 +104,23 @@ pub fn playlist_title(output: &str) -> Option<String> {
 /// The video id in a [`first_video_id_args`] output, if it looks like one.
 pub fn first_video_id(output: &str) -> Option<String> {
     first_non_diagnostic_line(output).filter(|id| cover_art::is_video_id(id)).map(str::to_string)
+}
+
+/// The best thumbnail in a [`playlist_thumbnail_args`] output: yt-dlp sorts them
+/// from worst to best, and a line that is not JSON is one of its messages.
+pub fn playlist_thumbnail(output: &str) -> Option<String> {
+    let data: serde_json::Value = output.lines().find_map(|line| serde_json::from_str(line.trim()).ok().filter(serde_json::Value::is_object))?;
+    let url = data.get("thumbnails")?.as_array()?.iter().rev().find_map(|t| t.get("url")?.as_str())?;
+    is_web_address(url).then(|| url.to_string())
+}
+
+/// The address in a [`video_thumbnail_args`] output ("NA" when it has none).
+pub fn video_thumbnail(output: &str) -> Option<String> {
+    first_non_diagnostic_line(output).filter(|line| is_web_address(line)).map(str::to_string)
+}
+
+fn is_web_address(text: &str) -> bool {
+    text.starts_with("https://") || text.starts_with("http://")
 }
 
 /// The entries in a [`playlist_entries_args`] output, in playlist order. The
@@ -229,6 +256,26 @@ fn first_non_diagnostic_line(output: &str) -> Option<&str> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_playlist_thumbnail_is_the_last_one_listed() {
+        let output = "[youtube:tab] Extracting URL\n{\"title\":\"x\",\"thumbnails\":[{\"url\":\"https://i/small.jpg\"},{\"url\":\"https://i/big.jpg\"}]}\n";
+        assert_eq!(playlist_thumbnail(output).as_deref(), Some("https://i/big.jpg"));
+    }
+
+    #[test]
+    fn a_playlist_without_thumbnails_has_none() {
+        assert_eq!(playlist_thumbnail("{\"title\":\"x\",\"thumbnails\":[]}"), None);
+        assert_eq!(playlist_thumbnail("{\"title\":\"x\"}"), None);
+        assert_eq!(playlist_thumbnail("ERROR: nope"), None);
+        assert_eq!(playlist_thumbnail("{\"thumbnails\":[{\"url\":\"file:///etc/passwd\"}]}"), None);
+    }
+
+    #[test]
+    fn the_video_thumbnail_skips_messages_and_says_none_for_na() {
+        assert_eq!(video_thumbnail("[vimeo] Extracting\nhttps://i/a.jpg\n").as_deref(), Some("https://i/a.jpg"));
+        assert_eq!(video_thumbnail("NA\n"), None);
+    }
 
     // The --help fixtures are real (unmodified) excerpts of `yt-dlp --help`,
     // line-wrapped exactly as the terminal left them.

@@ -223,7 +223,7 @@ Decisiones tomadas al hacerla:
   (`InstallProgress`, evento `tool-downloads`). Reanudar una descarga cortada: no se hizo.
 - **Revisado otra vez (03/11/2026)**: el arranque ya no baja ninguna herramienta que falte. Se instalan
   desde el asistente del primer arranque, Ajustes → Herramientas o el aviso de Descarga (`tools.rs` +
-  `src/tools.ts`, ver CLAUDE.md); con `autoUpdates` el arranque solo actualiza un yt-dlp existente.
+  `src/tools.ts`, ver CLAUDE.md); con `autoUpdates` el arranque actualiza yt-dlp, ffmpeg y Deno si ya están.
 - La versión de la app es la real (`getVersion()`, `src/appInfo.ts`); si no es válida, «desconocida».
 - Nuevo test de i18n: toda clave que el back entrega en un literal de Rust existe en el diccionario.
 
@@ -400,6 +400,83 @@ Decisiones tomadas al hacerla:
 - Fuera en Android: MTP (el teléfono ES el dispositivo), autoactualización (va por tienda o APK) y deno.
 - Diseño de pantalla móvil (ya anotado en Pendiente).
 
+### Pendiente antes de las siguientes fases (anotado 03/11/2026; hecho el 04/11/2026)
+
+**1. Imagen en imagen para el vídeo, solo dentro de la app.** *Hecho (`components/pip.ts`); probado con el mock, falta verlo con un vídeo real.*
+Con un archivo de **vídeo** sonando, poder sacarlo a un panel flotante pequeño que siga visible
+mientras se navega por la app.
+- **Dentro de la app, no una ventana del sistema:** un panel superpuesto sobre las pantallas, no
+  `requestPictureInPicture` ni una ventana de Tauri aparte. Si se minimiza la app, no sigue visible.
+- **Solo en formatos de vídeo.** El audio no tiene imagen que flotar.
+- **Dos accesos:** desde el reproductor de vídeo y desde el mini reproductor de «Reproduciendo»
+  (únicamente cuando lo que suena es vídeo).
+- **Cerrar el panel pausa el vídeo** (no lo deja sonando de fondo ni lo descarta de la cola): se
+  vuelve a la app con la reproducción en pausa en el mismo segundo.
+
+**2. Mejorar cómo reconoce qué carpetas de playlist son de Soundify.** *Hecho: hace falta un manifiesto válido; sigue en JSON, sin formato propio ni cifrado (decisión del usuario).*
+Hoy lo decide el manifiesto `soundify-playlist.json` (`findImportable`, 2 niveles). Antes de tocarlo
+hace falta **un prototipo** que pruebe otros criterios y vea cuál acierta mejor.
+*Prototipo en `design/playlist-detection-prototype.html` y `.mjs`, fuera de git.*
+20 escenarios y 16 carpetas reales (7 de Soundify). Exigir un manifiesto **válido** es lo único sin falsos
+positivos que no pierde playlists; hoy basta con que el archivo exista, y un `{}` se importa como playlist sin
+título ni formato (comprobado en `import_from`). Nombre «X (ext)» y numeración «NNN - » reconocen carpetas sin
+manifiesto, pero también las ajenas, y sin manifiesto no hay URL con la que sincronizar. Se decidió validar
+el manifiesto y no añadir heurísticas: `parse_manifest` exige JSON, `schema` >= 1, `title` y `format`. Java y Tauri
+siempre han escrito los tres (comprobado con las 7 playlists reales y un manifiesto de Java en `core/tests/fixtures/java`).
+Uno de una versión más nueva sí se reconoce, para decir que hay que actualizar. En el teléfono la búsqueda sigue mirando
+solo el nombre (validar traería un archivo lento por playlist) y la validez se comprueba al importar. **Sin probar con un
+teléfono real.**
+
+**3. Actualizaciones automáticas en un solo sitio.** *Hecho, con lo que pidió el usuario: los tres son yt-dlp, ffmpeg y Deno, solo si hay versión nueva, en un interruptor independiente del de la app.*
+Mover «Buscar actualizaciones de yt-dlp al arrancar» (hoy en Ajustes → Herramientas,
+`settings.tools.autoUpdates`) a Ajustes → Actualizaciones, y hacer **un único interruptor** que
+gobierne la búsqueda automática de los tres (la app, yt-dlp y ffmpeg), con «(Recomendado)» en el
+texto. Hoy son dos ajustes (`appUpdateCheckEnabled` y `autoUpdates`) y ffmpeg no se actualiza al
+arrancar: confirmar con el usuario qué tres son antes de implementarlo (¿Deno en vez de ffmpeg?).
+
+**4. Quitar «Descargar miniaturas» de Ajustes → General.** *Hecho.*
+La idea es bajarlas siempre. El ajuste (`downloadThumbnails`) ya no lo lee nadie: el comando de
+yt-dlp incrusta la miniatura siempre. Retirar campo, interruptor, claves de i18n (es/en/ca) y su
+mención en el test del buscador, como pasó con los ajustes de calidad.
+
+**5. Barra de título propia, integrada con el tema.** *Hecho y probado en Windows 11 con el ratón (botones, doble clic, arrastrar, ajustar a bordes, redimensionar y menú del sistema). No hay menú de Snap Layouts sobre el botón de maximizar.*
+Hoy la ventana usa la barra nativa de Windows (con el título «Soundify» y los tres botones sobre un
+fondo gris que no sigue el tema). Se quiere una barra propia, dibujada por la app, en el mismo color
+que el resto, como la de Spotify (referencia del usuario): la barra y el fondo de la app forman una
+sola superficie. Apuntes para cuando se haga:
+- Tauri: `decorations: false` en la ventana y pintar la barra en el frontend, con una zona de
+  arrastre (`data-tauri-drag-region`) y los botones de minimizar, maximizar/restaurar y cerrar
+  llamando a la API de la ventana (hará falta añadir esos permisos en las capabilities).
+- Hay que conservar lo que da la barra nativa: doble clic para maximizar, arrastrar a los bordes
+  para ajustar la ventana, redimensionar desde los bordes y el menú del sistema. Y que siga el
+  tema claro/oscuro en caliente, con las variables `-sp-*` / las del tema actual.
+- Probar en Windows 11 antes que nada (es lo que se distribuye); en Linux y Android no aplica igual.
+- Con esto el aviso de «Restaurar» y los botones nativos desaparecen, así que los de la app tienen
+  que ser accesibles por teclado y llevar su `aria-label` (por i18n, es/en/ca).
+
+**6. Mover la barra de progreso del mini reproductor del menú lateral.** *Hecho (`seekSlider` en `components/transport.ts`).*
+La barra verde del mini reproductor (`.mini-player` / `.mini-progress` en `src/components/sidebar.ts`)
+hoy solo muestra por dónde va: se quiere poder pulsarla y arrastrarla para avanzar o retroceder el
+archivo desde ahí, como ya se hace en la barra grande del reproductor. Apuntes: reutilizar la misma
+lógica de búsqueda de posición (no escribir una segunda), que un clic salte al punto pulsado, que
+arrastrar no compita con el refresco de posición mientras se mueve, que sea accesible por teclado
+(flechas) y que el pulsar la barra no abra «Reproduciendo» ni dispare el botón de play. Con test
+si se saca lógica pura (posición ↔ porcentaje).
+
+**7. Aviso amarillo de herramientas que faltan, también fuera de «Descarga por URL».** *Hecho: imprescindibles yt-dlp y ffmpeg, aviso en esas tres pantallas y el motor también lo rechaza.*
+Hoy solo `src/views/download.ts` avisa («⚠ Faltan herramientas para descargar (…)» con el botón
+«Instalar ahora», claves `download.toolsMissing*`). Se quiere el mismo aviso, con el mismo aspecto
+amarillo, en las demás pantallas que necesitan esas herramientas: al menos «Crear Playlist» y el
+Gestor (Sincronizar / Actualizar), que hoy fallarían sin explicar por qué. Confirmar con el usuario
+si hay alguna más. Apuntes: sacar el aviso a un componente compartido en vez de copiarlo (regla de no
+escribir el segundo helper), mover sus claves de i18n a un nombre que no diga «download» (es/en/ca),
+y probarlo con el mock `?mockTools=missing` en un test e2e por pantalla.
+Además del aviso, **hay que impedir la acción**: sin las herramientas imprescindibles para descargar,
+no se puede descargar por URL ni crear una playlist, de ninguna manera (botón desactivado, y también
+atajos como Intro en el campo o lanzarlo desde otro sitio; que el motor lo rechace aunque la interfaz
+falle). Definir cuáles son las imprescindibles (al menos yt-dlp; ffmpeg para convertir; ¿Deno?) y
+dejarlo en una sola función que decida «¿se puede descargar?», con test de lógica pura.
+
 ---
 
 ## 4. Lo que hay que decidir (no bloquea la fase 0–1)
@@ -416,6 +493,16 @@ Decisiones tomadas al hacerla:
 4. Prioridad de MTP frente a Android: ¿fase 9 antes o después de la 10?
 5. Si la app Java sigue recibiendo cambios durante la migración, cada cambio hay que portarlo:
    conviene congelarla en lo funcional.
+6. **Descarga simultánea** (propuesta 04/11/2026, sin decidir): hoy se baja una cosa cada vez
+   (`BackgroundTasks::is_running`; una segunda petición se ignora). Hay que plantear:
+   - Qué es «simultánea»: varios archivos a la vez dentro de un bloque (acaba antes), varios bloques o
+     playlists a la vez, o una cola que los lance uno detrás de otro (no acelera, pero deja encargar más).
+   - Cuántos a la vez: YouTube limita y puede bloquear por exceso de peticiones; límite en Ajustes.
+   - El motor: un proceso de yt-dlp por archivo, una sola escritura a la vez en cada archive y en la
+     lista de pendientes, y parar tiene que matarlos a todos.
+   - El front: `ui.task` y el evento `tasks` son de UNA tarea; la insignia del menú, el Gestor con su
+     bloque en marcha, Tareas y Actividad tendrían que saber enseñar varias.
+   - MTP se queda en uno cada vez: el teléfono no aguanta copias en paralelo (`DeviceSyncService`).
 
 ## 5. Reglas para quien implemente (Codex o quien sea)
 - Una fase por encargo. No empezar la siguiente sin que la anterior esté en verde y revisada.

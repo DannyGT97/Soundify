@@ -1,7 +1,8 @@
 //! Installing and updating the managed tools (the Java `YtDlpUpdater`,
 //! `FfmpegUpdater` and `DenoUpdater`). Startup only seeds the bundled ffmpeg
-//! and keeps an existing yt-dlp up to date; installing what is missing is the
-//! user's call, from the first-start assistant or Ajustes → Herramientas.
+//! and, if Ajustes → Actualizaciones allows it, brings the tools already there
+//! up to date; installing what is missing is the user's call, from the
+//! first-start assistant or Ajustes → Herramientas.
 
 use std::fs;
 use std::io;
@@ -22,6 +23,9 @@ pub const YTDLP_LATEST_RELEASE: &str = "https://api.github.com/repos/yt-dlp/yt-d
 pub const YTDLP_DOWNLOAD: &str = "https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp.exe";
 pub const FFMPEG_ZIP: &str = "https://www.gyan.dev/ffmpeg/builds/ffmpeg-release-essentials.zip";
 pub const DENO_ZIP: &str = "https://github.com/denoland/deno/releases/latest/download/deno-x86_64-pc-windows-msvc.zip";
+/// Plain text, only the number ("9.0.2"): the zip of [`FFMPEG_ZIP`] is that version.
+pub const FFMPEG_LATEST_VERSION: &str = "https://www.gyan.dev/ffmpeg/builds/release-version";
+pub const DENO_LATEST_RELEASE: &str = "https://api.github.com/repos/denoland/deno/releases/latest";
 
 /// yt-dlp itself starts warning at 90 days.
 const MAX_AGE_DAYS: i64 = 90;
@@ -240,8 +244,7 @@ pub fn seed_ffmpeg(tools: &ToolPaths, bundled: &Path) -> io::Result<bool> {
     Ok(true)
 }
 
-/// Installs ffmpeg and ffprobe if either is missing. They are not updated by
-/// themselves: an older ffmpeg converts just as well, unlike yt-dlp.
+/// Installs ffmpeg and ffprobe if either is missing.
 pub fn install_ffmpeg(tools: &ToolPaths, http: &dyn Http, health: &ToolHealth, progress: &InstallProgress) -> io::Result<()> {
     if ffmpeg_installed(tools) {
         return Ok(());
@@ -337,6 +340,71 @@ pub fn reinstall_deno(tools: &ToolPaths, http: &dyn Http, health: &ToolHealth, p
         Err(e) => log::error!("Could not install Deno: {e}"),
     }
     result
+}
+
+// === AUTOMATIC UPDATE OF FFMPEG AND DENO ===
+
+/// Is `latest` a higher version than `local`? Unlike yt-dlp, these two are
+/// heavy (~115 MB and ~45 MB): when either number cannot be read (a build from
+/// git, no answer), the copy in place stays rather than be downloaded for nothing.
+pub fn is_higher_version(local: &str, latest: &str) -> bool {
+    let (Some(mut local), Some(mut latest)) = (version_numbers(local), version_numbers(latest)) else { return false };
+    let longest = local.len().max(latest.len());
+    local.resize(longest, 0);
+    latest.resize(longest, 0);
+    latest > local
+}
+
+/// "v2.9.8" → [2, 9, 8]; `None` if it is not only numbers and dots.
+fn version_numbers(version: &str) -> Option<Vec<u64>> {
+    normalize(version).split('.').map(|part| part.parse().ok()).collect()
+}
+
+/// The ffmpeg release gyan.dev publishes, if it answers.
+pub fn latest_ffmpeg(http: &dyn Http) -> Option<String> {
+    let body = http
+        .get_string(FFMPEG_LATEST_VERSION, &[])
+        .inspect_err(|e| log::warn!("Could not query the latest ffmpeg version: {e}"))
+        .ok()?;
+    let version = body.lines().next()?.trim();
+    version_numbers(version).map(|_| version.to_string())
+}
+
+/// The latest Deno release, if GitHub answers.
+pub fn latest_deno(http: &dyn Http) -> Option<String> {
+    http.get_string(DENO_LATEST_RELEASE, &[("Accept", "application/vnd.github+json")])
+        .inspect_err(|e| log::warn!("Could not query the latest Deno version: {e}"))
+        .ok()
+        .and_then(|body| remote_version(&body))
+}
+
+/// Downloads ffmpeg again only if it is there and a higher version is out.
+/// `local` is the version it says it is. A failure leaves the working copy
+/// and goes to the log only: nothing stopped working.
+pub fn update_ffmpeg(tools: &ToolPaths, http: &dyn Http, local: Option<&str>, health: &ToolHealth, progress: &InstallProgress) {
+    if !ffmpeg_installed(tools) || !update_is_due(Tool::Ffmpeg, local, latest_ffmpeg(http).as_deref()) {
+        return;
+    }
+    // Its own failure is already in the log.
+    let _ = reinstall_ffmpeg(tools, http, health, progress);
+}
+
+/// The same for Deno.
+pub fn update_deno(tools: &ToolPaths, http: &dyn Http, local: Option<&str>, health: &ToolHealth, progress: &InstallProgress) {
+    if !tools.deno().exists() || !update_is_due(Tool::Deno, local, latest_deno(http).as_deref()) {
+        return;
+    }
+    let _ = reinstall_deno(tools, http, health, progress);
+}
+
+fn update_is_due(tool: Tool, local: Option<&str>, latest: Option<&str>) -> bool {
+    let (Some(local), Some(latest)) = (local, latest) else {
+        log::info!("{}: no update check (local {local:?}, latest {latest:?})", tool.name());
+        return false;
+    };
+    let due = is_higher_version(local, latest);
+    log::info!("{}: local {local}, latest {latest}{}", tool.name(), if due { ": updating" } else { "" });
+    due
 }
 
 /// A download the user is told about while it lasts.
@@ -693,6 +761,105 @@ mod tests {
         let (_dir, tools) = managed();
         assert!(!seed_ffmpeg(&tools, bundle_with(&["ffmpeg.exe"]).path()).unwrap());
         assert!(!tools.ffmpeg().exists());
+    }
+
+    #[test]
+    fn only_a_higher_version_counts_as_an_update() {
+        assert!(is_higher_version("7.1", "7.1.1"));
+        assert!(is_higher_version("9.0.2", "10.0"));
+        assert!(is_higher_version("2.5.4", "v2.9.8"));
+        assert!(!is_higher_version("7.1", "7.1.0"));
+        assert!(!is_higher_version("9.0.2", "9.0.2"));
+        assert!(!is_higher_version("10.0", "9.9"));
+    }
+
+    #[test]
+    fn a_version_that_cannot_be_read_downloads_nothing() {
+        assert!(!is_higher_version("2026-10-01-git-abc123-full_build", "9.0.2"));
+        assert!(!is_higher_version("9.0.2", "<html>"));
+        assert!(!is_higher_version("", "9.0.2"));
+    }
+
+    fn with_ffmpeg(tools: &ToolPaths) {
+        fs::create_dir_all(tools.ffmpeg_bin()).unwrap();
+        fs::write(tools.ffmpeg(), "old").unwrap();
+        fs::write(tools.ffprobe(), "old").unwrap();
+    }
+
+    fn ffmpeg_zip() -> Vec<u8> {
+        zip_of(&[("x/bin/ffmpeg.exe", "new"), ("x/bin/ffprobe.exe", "new")])
+    }
+
+    #[test]
+    fn a_higher_ffmpeg_replaces_the_one_in_place() {
+        let (_dir, tools) = managed();
+        with_ffmpeg(&tools);
+        let http = FakeHttp::default().with(FFMPEG_LATEST_VERSION, "9.0.2\n").with(FFMPEG_ZIP, ffmpeg_zip());
+
+        update_ffmpeg(&tools, &http, Some("8.0"), &ToolHealth::new(), &InstallProgress::new());
+
+        assert_eq!(fs::read_to_string(tools.ffmpeg()).unwrap(), "new");
+    }
+
+    #[test]
+    fn an_ffmpeg_up_to_date_is_not_downloaded_again() {
+        let (_dir, tools) = managed();
+        with_ffmpeg(&tools);
+        let http = FakeHttp::default().with(FFMPEG_LATEST_VERSION, "9.0.2").with(FFMPEG_ZIP, ffmpeg_zip());
+
+        update_ffmpeg(&tools, &http, Some("9.0.2"), &ToolHealth::new(), &InstallProgress::new());
+
+        assert_eq!(fs::read_to_string(tools.ffmpeg()).unwrap(), "old");
+        assert_eq!(http.asked(), [FFMPEG_LATEST_VERSION]);
+    }
+
+    #[test]
+    fn a_tool_that_is_not_there_is_not_installed_by_the_update() {
+        let (_dir, tools) = managed();
+        let http = FakeHttp::default().with(FFMPEG_LATEST_VERSION, "9.0.2").with(DENO_LATEST_RELEASE, release("v2.9.8"));
+
+        update_ffmpeg(&tools, &http, None, &ToolHealth::new(), &InstallProgress::new());
+        update_deno(&tools, &http, None, &ToolHealth::new(), &InstallProgress::new());
+
+        assert!(http.asked().is_empty());
+        assert!(!tools.ffmpeg().exists() && !tools.deno().exists());
+    }
+
+    #[test]
+    fn offline_the_tools_stay_and_nothing_is_reported() {
+        let (_dir, tools) = managed();
+        with_ffmpeg(&tools);
+        let health = ToolHealth::new();
+
+        update_ffmpeg(&tools, &FakeHttp::default(), Some("8.0"), &health, &InstallProgress::new());
+
+        assert_eq!(fs::read_to_string(tools.ffmpeg()).unwrap(), "old");
+        assert!(health.is_healthy());
+    }
+
+    #[test]
+    fn a_failed_update_leaves_the_working_ffmpeg() {
+        let (_dir, tools) = managed();
+        with_ffmpeg(&tools);
+        let http = FakeHttp::default().with(FFMPEG_LATEST_VERSION, "9.0.2");
+
+        update_ffmpeg(&tools, &http, Some("8.0"), &ToolHealth::new(), &InstallProgress::new());
+
+        assert_eq!(fs::read_to_string(tools.ffmpeg()).unwrap(), "old");
+    }
+
+    #[test]
+    fn a_higher_deno_replaces_the_one_in_place_and_the_same_one_does_not() {
+        let (_dir, tools) = managed();
+        fs::create_dir_all(tools.deno_dir()).unwrap();
+        fs::write(tools.deno(), "old").unwrap();
+        let http = FakeHttp::default().with(DENO_LATEST_RELEASE, release("v2.9.8")).with(DENO_ZIP, zip_of(&[("deno.exe", "new")]));
+
+        update_deno(&tools, &http, Some("2.9.8"), &ToolHealth::new(), &InstallProgress::new());
+        assert_eq!(fs::read_to_string(tools.deno()).unwrap(), "old");
+
+        update_deno(&tools, &http, Some("2.5.4"), &ToolHealth::new(), &InstallProgress::new());
+        assert_eq!(fs::read_to_string(tools.deno()).unwrap(), "new");
     }
 
     #[test]

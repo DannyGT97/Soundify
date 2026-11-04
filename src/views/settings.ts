@@ -104,7 +104,7 @@ function setting(key: string, control: HTMLElement | null, below?: HTMLElement):
 }
 
 /** A switch saved as soon as it is flipped. */
-function checkbox(field: 'downloadThumbnails' | 'includeIdInTitleName' | 'appUpdateCheckEnabled' | 'autoUpdates'): HTMLInputElement {
+function checkbox(field: 'includeIdInTitleName' | 'appUpdateCheckEnabled' | 'autoUpdates'): HTMLInputElement {
   const box = h('input', { class: 'switch', attrs: { type: 'checkbox' } });
   box.checked = preferences()[field];
   box.addEventListener('change', () => save({ [field]: box.checked }));
@@ -120,7 +120,6 @@ function select(options: [string, string][], value: string, changed?: (v: string
 
 function general(): HTMLElement[] {
   return [
-    setting('settings.general.thumbnails', checkbox('downloadThumbnails')),
     setting('settings.general.includeIds', checkbox('includeIdInTitleName')),
   ];
 }
@@ -179,6 +178,7 @@ function updates(): HTMLElement[] {
       h('p', { class: 'subtitle', text: t('settings.updates.check.desc') }),
       h('div', { class: 'stack-6' }, h('div', {}, button), status)),
     setting('settings.updates.auto', checkbox('appUpdateCheckEnabled')),
+    setting('settings.updates.tools', checkbox('autoUpdates')),
   ];
 }
 
@@ -220,7 +220,6 @@ function toolsTab(): HTMLElement[] {
   return [
     actions,
     rows,
-    setting('settings.tools.autoUpdates', checkbox('autoUpdates')),
     h('p', { class: 'help', text: t('settings.tools.note') }),
   ];
 }

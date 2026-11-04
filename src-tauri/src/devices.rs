@@ -47,6 +47,15 @@ pub async fn list_device_folder(state: State<'_, AppState>, device_id: String, p
         .map_err(CommandError::io)
 }
 
+/// «Nueva carpeta» of the picker; `path` includes the new folder's name.
+#[tauri::command]
+pub async fn create_device_folder(state: State<'_, AppState>, device_id: String, path: String) -> Result<bool, CommandError> {
+    let phone = state.phone.clone();
+    tauri::async_runtime::spawn_blocking(move || phone.mkdirs(&device_id, &path))
+        .await
+        .map_err(CommandError::io)
+}
+
 /// «Abrir carpeta» of a device playlist: Windows' own explorer on the phone.
 #[tauri::command]
 pub async fn open_device_folder(state: State<'_, AppState>, device_id: String, path: String) -> Result<(), CommandError> {
@@ -67,6 +76,9 @@ pub async fn create_device_playlist(
     target: DeviceTarget,
     numbered: bool,
 ) -> Result<CreatedView, CommandError> {
+    if !soundify_core::tools::status::can_download(&state.tools) {
+        return Err(CommandError::key(downloads::TOOLS_MISSING));
+    }
     let archives = state.archives.clone();
     let tools = state.tools.clone();
     let settings_file = state.paths.settings();

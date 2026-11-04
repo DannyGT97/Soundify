@@ -52,6 +52,15 @@ export function missingRequired(report: ToolsReport | null): ToolStatus[] {
   return missingTools(report).filter(tool => tool.required);
 }
 
+/**
+ * Can anything be downloaded or created? The one question every screen asks
+ * (`status::can_download` is the same one in the back, which has the last word).
+ * Before the report arrives it says yes: the back still refuses if it must.
+ */
+export function canDownload(report: ToolsReport | null): boolean {
+  return missingRequired(report).length === 0;
+}
+
 /** "≈ 178 MB" for what has to come from the internet; a copy that travels with the app weighs nothing. */
 export function downloadSize(missing: readonly ToolStatus[]): number {
   return missing.filter(tool => !tool.bundled).reduce((sum, tool) => sum + TOOL_SIZES_MB[tool.id], 0);

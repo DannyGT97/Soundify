@@ -69,3 +69,11 @@ export const STATUS_ORDER: readonly Status[] = ['ok', 'pending', 'failed', 'unav
 export function groupByStatus(list: readonly Track[]): Track[] {
   return [...list].sort((a, b) => STATUS_ORDER.indexOf(a.status) - STATUS_ORDER.indexOf(b.status));
 }
+
+export function filesText(n: number): string {
+  return t(n === 1 ? 'common.files.one' : 'common.files.many', n);
+}
+
+export function pendingText(n: number): string {
+  return t(n === 1 ? 'common.pending.one' : 'common.pending.many', n);
+}

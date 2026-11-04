@@ -126,3 +126,10 @@ async function thumbnailPath(id: string): Promise<string | null> {
   else waiting.delete(id);
   return path;
 }
+
+/** A playlist's own hue (0–359), the same for the same title: the colour behind its header. */
+export function hueOf(text: string): number {
+  let hash = 0;
+  for (const char of text) hash = (hash * 31 + (char.codePointAt(0) ?? 0)) % 360;
+  return hash;
+}

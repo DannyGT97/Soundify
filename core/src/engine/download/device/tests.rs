@@ -166,7 +166,7 @@ impl World {
 }
 
 fn single(url: &str) -> DeviceJob {
-    DeviceJob::Single { url: url.into(), format: "MP3".into(), target: World::target() }
+    DeviceJob::Single { url: url.into(), format: "MP3".into(), target: World::target(), cover: None }
 }
 
 // === CREATE ===
