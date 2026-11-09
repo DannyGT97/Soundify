@@ -21,11 +21,28 @@ export const PLAYABLE: ReadonlySet<string> = new Set([
   'MP3', 'OPUS', 'M4A', 'FLAC', 'AAC', 'VORBIS', 'WAV', 'MP4', 'MKV', 'MOV', 'WEBM',
 ]);
 
+/** Files in a row that may fail before it stops: with a list of hundreds, going through them all skipped dozens of songs in seconds. */
+export const MAX_SKIPS = 3;
+const RETRY_DELAY_MS = 600;
+
+/**
+ * What to do when the file that sounds fails: once more the same one (a
+ * transient error), then the next, and stop when the whole list has failed or
+ * `MAX_SKIPS` have failed one after another.
+ */
+export function afterFailure(state: { failures: number; queueSize: number; alreadyRetried: boolean }): 'retry' | 'skip' | 'stop' {
+  if (!state.alreadyRetried) return 'retry';
+  if (state.failures + 1 >= Math.min(state.queueSize, MAX_SKIPS)) return 'stop';
+  return 'skip';
+}
+
 let queue: PlayerQueue<Track> | null = null;
 let currentBlock = '';
 // Files that failed one after another: when all of them have, it stops
 // instead of going round the list for ever.
 let failures = 0;
+// The file that was already tried again after failing, so it is tried once only.
+let retriedId = '';
 // The second to jump to once the file is open; before that a seek is ignored.
 let pendingSeek = 0;
 let memory: PlayerMemory = { volume: ui.volume, last: null };
@@ -36,6 +53,7 @@ engine.onTime(seconds => {
 });
 engine.onDuration(seconds => {
   failures = 0;
+  retriedId = '';
   ui.duration = seconds;
   if (pendingSeek > 0 && pendingSeek < seconds - 1) seek(pendingSeek);
   pendingSeek = 0;
@@ -58,8 +76,20 @@ engine.onEnded(() => {
   }
 });
 engine.onError(() => {
+  if (!queue || !ui.nowPlaying) return;
+  const action = afterFailure({ failures, queueSize: queue.size, alreadyRetried: retriedId === ui.nowPlaying.track.id });
+  if (action === 'retry') {
+    // Often a hiccup (the disk busy, the asset protocol late): the same file once more, at the same second.
+    const track = ui.nowPlaying.track;
+    retriedId = track.id;
+    const at = ui.position;
+    window.setTimeout(() => {
+      if (ui.nowPlaying?.track.id === track.id) load(track, ui.playing, at);
+    }, RETRY_DELAY_MS);
+    return;
+  }
   failures++;
-  if (!queue || failures >= queue.size) stop();
+  if (action === 'stop') stop();
   else load(queue.next(), true);
 });
 

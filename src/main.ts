@@ -23,8 +23,8 @@ import { loadLibrary, loadLibrarySoon } from './library';
 import { restoreLast, savePosition } from './player';
 import { loadAppInfo } from './appInfo';
 import { watchAppUpdates } from './appUpdate';
-import { messageText, noticeTone } from './tasks';
-import { loadTools, missingRequired, tools, watchTools } from './tools';
+import { messageText, noticeTone, pointsToSettings } from './tasks';
+import { loadTools, missingRequired, openAdvancedSettings, tools, watchTools } from './tools';
 import { openToolsSetup } from './overlays/toolsSetup';
 import { installSpaceToPlay } from './keys';
 import { subscribe, ui } from './state';
@@ -67,7 +67,13 @@ if (app) {
   watchToolHealth();
   watchTools();
   watchAppUpdates();
-  api.watchDownloads(notice => notify({ tone: noticeTone(notice), text: messageText(notice.key, notice.args) }));
+  api.watchDownloads(notice => {
+    const text = messageText(notice.key, notice.args);
+    // YouTube's bot check: it stays until closed and takes the user to the cookies setting.
+    if (pointsToSettings(notice)) {
+      notify({ tone: noticeTone(notice), text, persistent: true, action: { label: t('activity.botcheck.openSettings'), run: openAdvancedSettings } });
+    } else notify({ tone: noticeTone(notice), text });
+  });
   // A download changes the library (new files, a new playlist): the Gestor and
   // the Reproductor read it again once the task ends.
   let wasRunning = ui.task !== null;

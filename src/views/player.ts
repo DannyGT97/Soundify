@@ -11,7 +11,7 @@ import { navigate, onLeave, type Params } from '../router';
 import { subscribe, ui } from '../state';
 import { cover } from '../components/cover';
 import { openMenu } from '../components/floating';
-import { canPlayTrack, trackRow } from '../components/trackRow';
+import { canPlayTrack, patchPlaying, trackRow } from '../components/trackRow';
 import { hueOf, playlistPicture } from '../covers';
 import { changeCover, openFolder } from './manager';
 
@@ -326,7 +326,7 @@ function detailView(key: string): HTMLElement {
     if (playingKey() === shownKey) return;
     shownKey = playingKey();
     refreshPlay();
-    fillTracks();
+    patchPlaying(tracks, block);
   }));
   onLeave(subscribe('library', () => {
     const found = findBlock(key);

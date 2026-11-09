@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { formatTime, isPlayable } from './player';
+import { afterFailure, formatTime, isPlayable } from './player';
 
 // The Java app's PlayerBarControllerTest (the times) and the format probe on
 // WebView2 that decided what the built-in player opens.
@@ -37,5 +37,23 @@ describe('isPlayable', () => {
     expect(isPlayable('webm')).toBe(true);
     expect(isPlayable(null)).toBe(false);
     expect(isPlayable('')).toBe(false);
+  });
+});
+
+describe('afterFailure', () => {
+  it('the same file is tried again once before anything is skipped', () => {
+    expect(afterFailure({ failures: 0, queueSize: 451, alreadyRetried: false })).toBe('retry');
+  });
+
+  it('then it skips, but never more than three files in a row (not 451 in a few seconds)', () => {
+    expect(afterFailure({ failures: 0, queueSize: 451, alreadyRetried: true })).toBe('skip');
+    expect(afterFailure({ failures: 1, queueSize: 451, alreadyRetried: true })).toBe('skip');
+    expect(afterFailure({ failures: 2, queueSize: 451, alreadyRetried: true })).toBe('stop');
+  });
+
+  it('a short list stops once all of it has failed', () => {
+    expect(afterFailure({ failures: 0, queueSize: 1, alreadyRetried: true })).toBe('stop');
+    expect(afterFailure({ failures: 1, queueSize: 2, alreadyRetried: true })).toBe('stop');
+    expect(afterFailure({ failures: 0, queueSize: 2, alreadyRetried: true })).toBe('skip');
   });
 });

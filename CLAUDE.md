@@ -234,6 +234,39 @@ Repositorio: https://github.com/DannyGT97/Soundify (GitHub, rama `main`, GPL-3.0
   si no es válida.
 
 ## Pendiente
+- **Arreglado el 09/11/2026, SIN comprobar con datos reales** (los tests lo cubren; falta verlo en la app de verdad. Si
+  alguno vuelve a pasar, reabrirlo aquí con lo que se vea):
+  - **Orden de los archivos distinto entre dev y build.** `reconcile_entries` (`core/src/archive/sync.rs`) enlaza ahora
+    por este orden: id heredado de Java → manifiesto de la carpeta → número del nombre (`NNN - Título`) SOLO si el título
+    coincide (`same_title`); el número sale del nombre del archivo, no de la posición. Antes un número bastaba y los
+    archives importados de Java acababan con otro título en cada posición. Dos tests de regresión en `archive/tests.rs`.
+    No se ha probado contra la carpeta `data/` de la build del usuario (nunca se localizó): al abrir «Canciones» en la
+    build, comprobar que el orden es el de dev. Los archives ya mal enlazados no se rehacen solos.
+  - **Miniaturas que parpadean al reproducir.** Reproducir ya no rehace la lista: `patchPlaying`
+    (`components/trackRow.ts`) toca solo el estado de cada fila (`row.dataset.state`: playing|paused|idle), lo usan el
+    Reproductor y Ver archivos; y `covers.ts` recuerda las miniaturas ya cargadas (`loaded`) para ponerlas en el acto
+    (las portadas elegidas no: siempre se llaman `cover.jpg`). Test e2e: «pressing play does not rebuild the rows».
+  - **Cortes de reproducción seguidos.** Causa probable, no reproducida: un fallo transitorio del `<video>` saltaba al
+    siguiente archivo de una cola de cientos y encadenaba saltos. Ahora `afterFailure` (`player.ts`): primero se reintenta
+    el MISMO archivo una vez (600 ms después, en el mismo segundo), luego salta, y para tras `MAX_SKIPS` (3) seguidos.
+    `htmlPlayer.ts` deja `console.warn('player: media error', código, mensaje, src)` en la consola del webview: si vuelve
+    a pasar, mirar ahí el código del error antes de teorizar más.
+  - **Progreso de la descarga que mentía, bot-check de YouTube y segunda pasada.** `ProgressParser::set_skipped`: los
+    vídeos con `ERROR: [youtube] <id>` ya no hacen avanzar el porcentaje. Cinco vídeos DISTINTOS seguidos con
+    «Sign in to confirm you're not a bot» (`BOT_STREAK_LIMIT`, un éxito reinicia la racha; el mismo id repetido por
+    cada cliente cuenta una vez) paran la tanda (`watch_bot_streak`, `engine/download.rs`) con el aviso
+    `activity.botcheck.streakNotice` y SIN segunda pasada; la segunda pasada (`safety_net.rs`) corta igual y avisa con
+    `activity.botcheck.retryNotice`. Los dos avisos tienen variante `…NoCookies` (`botcheck_key`, `download.rs`: sin cookies
+    en Ajustes → «añade cookies»; con ellas → «pueden haber caducado»). En el front `pointsToSettings` (`tasks.ts`) los
+    hace persistentes con el botón «Ir a Ajustes» (`openAdvancedSettings`, pestaña Avanzado); en el navegador,
+    `?mockBotCheck` lo dispara (`e2e/botcheck.spec.ts`). Lo que queda pendiente se reintenta en la siguiente sincronización. **Confirmado con los logs reales
+    de «Canciones» (`soundify-activity-0.log` y `-retries-0.log`, 04 y 06/11/2026, sin cookies):** 1.ª tanda 233
+    descargados y 378 fallados (366 bot-check, 11 no disponibles, 1 «Please sign in»); tras el primer bot-check (19:26)
+    hubo UN solo éxito más en 84 min. 2.ª tanda (367 = 611 − 233 − 11 no disponibles, así que la cuenta cuadra) 96
+    descargados y luego 270 bot-check seguidos. Ni 403 ni red ni ffmpeg. Las dos segundas pasadas (`retries`)
+    recuperaron 0: 217 vídeos × 3 clientes (web_safari, mweb, android) = ~1.080 peticiones inútiles. YouTube corta tras
+    ~100–230 descargas (~15 s por vídeo) y NO se recupera en horas, así que el corte rápido (5 seguidos) es lo correcto.
+    Probado solo con yt-dlp simulado, nunca contra YouTube.
 - **La migración de la lógica sigue [MIGRATION-PLAN.md](MIGRATION-PLAN.md)** (fases 1–10), y cada
   test portado se apunta en [TEST-MAP.md](TEST-MAP.md)
 - Android de verdad (fase 10): descargar, almacenamiento SAF, importar y sonido en segundo plano. Hoy el APK enseña la interfaz con la biblioteca vacía; solo probado en emulador

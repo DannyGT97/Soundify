@@ -151,6 +151,14 @@ impl World {
         Self { storage, store, settings_file, scratch: tempfile::tempdir().unwrap() }
     }
 
+    /// The user has a cookies file set in Ajustes → Avanzado.
+    fn with_cookies(self, path: &str) -> Self {
+        let mut settings = settings::load(self.storage.as_ref(), &self.settings_file);
+        settings.cookies_file = path.to_string();
+        settings::save(self.storage.as_ref(), &self.settings_file, &settings).unwrap();
+        self
+    }
+
     fn run(&self, downloader: &dyn Downloader, job: &Job) -> Recorded {
         self.run_with(downloader, job, &StopFlag::new())
     }
@@ -416,6 +424,92 @@ fn a_bot_check_mid_download_forgets_the_cached_client() {
 
     assert_eq!(world.client(), None);
     assert_eq!(events.keys.iter().filter(|k| *k == "activity.client.stoppedWorking").count(), 1);
+}
+
+/// Eleven-character ids for a long playlist: `id000000001`, `id000000002`…
+fn long_id(n: usize) -> String {
+    format!("id{n:09}")
+}
+
+fn bot_error(id: &str) -> String {
+    format!("ERROR: [youtube] {id}: {BOT_CHECK_MARKER} you're not a bot")
+}
+
+#[test]
+fn a_run_where_youtube_blocks_every_video_stops_after_a_streak_and_skips_the_second_pass() {
+    let world = World::new(Some("web"));
+    let fake = FakeYtDlp::new(
+        world.storage.clone(),
+        Box::new(|_| Some(((1..=300).map(|n| bot_error(&long_id(n))).collect(), 1))),
+    );
+    let entries: Vec<String> = (1..=300).map(|n| format!("{n}|{}|Título {n}", long_id(n))).collect();
+    fake.set_entries(&entries.iter().map(String::as_str).collect::<Vec<_>>());
+
+    let events = world.create_and_run(&fake);
+
+    assert!(events.keys.contains(&"activity.botcheck.streak".to_string()));
+    assert_eq!(events.notices, [(FAILED, "activity.botcheck.streakNoticeNoCookies".to_string())]);
+    assert_eq!(fake.downloads().len(), 1, "no second pass over videos that fail the same way");
+    assert!(!events.steps.iter().any(|(step, _)| *step == Step::Retry));
+}
+
+#[test]
+fn with_cookies_set_the_bot_check_notice_says_they_may_have_expired() {
+    let world = World::new(Some("web")).with_cookies("/cookies.txt");
+    let fake = FakeYtDlp::new(
+        world.storage.clone(),
+        Box::new(|_| Some(((1..=300).map(|n| bot_error(&long_id(n))).collect(), 1))),
+    );
+    let entries: Vec<String> = (1..=300).map(|n| format!("{n}|{}|Título {n}", long_id(n))).collect();
+    fake.set_entries(&entries.iter().map(String::as_str).collect::<Vec<_>>());
+
+    let events = world.create_and_run(&fake);
+
+    assert_eq!(events.notices, [(FAILED, "activity.botcheck.streakNotice".to_string())]);
+}
+
+#[test]
+fn a_download_in_between_resets_the_bot_check_streak() {
+    let world = World::new(Some("web"));
+    let fake = FakeYtDlp::new(
+        world.storage.clone(),
+        Box::new(|args| {
+            if args.last().is_some_and(|u| u.contains("watch?v=")) {
+                return Some((vec![], 0));
+            }
+            // Four blocked, one that works, four blocked: never five in a row.
+            let mut lines: Vec<String> = (1..=4).map(|n| bot_error(&long_id(n))).collect();
+            lines.push(seen(A, "Primero"));
+            lines.push(moved(A, "/music/Clásicos (mp3)/Primero.mp3"));
+            lines.extend((5..=8).map(|n| bot_error(&long_id(n))));
+            Some((lines, 1))
+        }),
+    );
+    fake.set_entries(&[&format!("1|{A}|Primero")]);
+
+    let events = world.create_and_run(&fake);
+
+    assert!(!events.keys.contains(&"activity.botcheck.streak".to_string()));
+}
+
+#[test]
+fn the_same_video_failing_over_and_over_counts_once() {
+    let world = World::new(Some("web"));
+    let fake = FakeYtDlp::new(
+        world.storage.clone(),
+        Box::new(|args| {
+            if args.last().is_some_and(|u| u.contains("watch?v=")) {
+                return Some((vec![], 0));
+            }
+            // yt-dlp prints the same error once per player client it tries.
+            Some(((0..10).map(|_| bot_error(A)).collect(), 1))
+        }),
+    );
+    fake.set_entries(&[&format!("1|{A}|Primero")]);
+
+    let events = world.create_and_run(&fake);
+
+    assert!(!events.keys.contains(&"activity.botcheck.streak".to_string()));
 }
 
 // === STOP AND SECOND PASS ===

@@ -43,7 +43,17 @@ pub struct Failure {
 pub struct RetryOutcome {
     pub failures: Vec<Failure>,
     pub stopped: bool,
+    /// Cut short because YouTube answered with the bot-check [`BOT_STREAK_LIMIT`]
+    /// times in a row: going on only burns requests. The items left are NOT
+    /// marked as failed; they stay pending for the next sync.
+    pub blocked: bool,
 }
+
+/// Videos in a row that may hit the bot-check before the run gives up.
+pub const BOT_STREAK_LIMIT: usize = 5;
+
+/// The reason `actionable_reason` gives to a bot-check.
+pub const BOT_CHECK_REASON: &str = "failReason.botCheck";
 
 /// Where the pass is, for the progress row.
 #[derive(Debug, Clone, PartialEq)]
@@ -105,6 +115,7 @@ impl SafetyNet<'_> {
     /// lastNumber the previous one left, so new numbers do not repeat).
     pub fn run(&self, items: &[RetryItem], events: &mut dyn RetryEvents) -> RetryOutcome {
         let mut outcome = RetryOutcome::default();
+        let mut bot_streak = 0;
         for (i, item) in items.iter().enumerate() {
             if self.stop.is_stopped() {
                 outcome.stopped = true;
@@ -112,7 +123,8 @@ impl SafetyNet<'_> {
             }
             events.line(ActivityLine::message("retry.trying", &[&item.title, &item.id]));
             match self.retry_one(item, i + 1, items.len(), events) {
-                Attempted::Done | Attempted::Skipped => {}
+                Attempted::Done => bot_streak = 0,
+                Attempted::Skipped => {}
                 Attempted::Stopped => {
                     outcome.stopped = true;
                     break;
@@ -122,11 +134,23 @@ impl SafetyNet<'_> {
                     if let Err(e) = self.archives.mark_failed(self.json, &item.id, Some(&item.title), &reason) {
                         log::warn!("Could not mark {} as failed: {e}", item.id);
                     }
+                    bot_streak = if reason == BOT_CHECK_REASON { bot_streak + 1 } else { 0 };
                     outcome.failures.push(Failure { title: item.title.clone(), reason });
+                    if bot_streak >= BOT_STREAK_LIMIT {
+                        outcome.blocked = true;
+                        break;
+                    }
                 }
             }
         }
-        events.line(ActivityLine::message(if outcome.stopped { "retry.cancelled" } else { "retry.finished" }, &[]));
+        let closing = if outcome.stopped {
+            "retry.cancelled"
+        } else if outcome.blocked {
+            "retry.blocked"
+        } else {
+            "retry.finished"
+        };
+        events.line(ActivityLine::message(closing, &[]));
         outcome
     }
 }
@@ -180,7 +204,7 @@ pub fn actionable_reason(raw: Option<&str>) -> String {
     let key = if has(&["confirm your age", "age-restricted", "inappropriate for some users"]) {
         "failReason.ageRestricted"
     } else if has(&["not a bot"]) {
-        "failReason.botCheck"
+        BOT_CHECK_REASON
     } else if has(&["members-only", "members only", "join this channel"]) {
         "failReason.membersOnly"
     } else if has(&["private video"]) {

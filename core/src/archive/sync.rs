@@ -171,26 +171,32 @@ pub fn reconcile_entries(storage: &dyn Storage, data: &mut ArchiveData, folder: 
         let mut exists =
             had_file_path && storage.exists(&Location::parse(entry.file_path.as_deref().unwrap_or_default())).unwrap_or(false);
         if !exists {
-            let from_manifest = manifest_items.get(id).and_then(|(number, name)| {
-                by_name.get(name.as_str()).map(|found| {
-                    if entry.number.is_none() {
-                        entry.number = number.clone();
-                    }
-                    (*found).clone()
-                })
-            });
-            let matched = legacy_on_disk
-                .get(id)
-                .cloned()
-                .or_else(|| entry.number.as_ref().and_then(|n| by_number_on_disk.get(n)).cloned())
-                .or(from_manifest);
+            // In this order: the id (old `[id]` files), then the manifest (which
+            // says which file each id got), and only then the number, and only
+            // if the file is the same video (same title). A number alone is not
+            // proof: another copy of the app (or an import from Java) may have
+            // numbered the same folder differently, and "002 - Dos" would then
+            // be linked to whatever this archive calls 002.
+            let from_manifest = manifest_items.get(id).and_then(|(_, name)| by_name.get(name.as_str()).map(|f| (*f).clone()));
+            let from_number = entry
+                .number
+                .as_ref()
+                .and_then(|n| by_number_on_disk.get(n))
+                .filter(|(_, name)| same_title(entry.title.as_deref(), parse_file_name(numbered, name, Some(id)).map(|p| p.title)))
+                .cloned();
+            let matched = legacy_on_disk.get(id).cloned().or(from_manifest).or(from_number);
             if let Some((location, name)) = matched.as_ref() {
                 exists = true;
                 entry.file_path = Some(stored(location));
-                if let Some(parsed) = parse_file_name(numbered, name, Some(id))
-                    && !parsed.title.trim().is_empty()
-                {
-                    entry.title = Some(parsed.title);
+                if let Some(parsed) = parse_file_name(numbered, name, Some(id)) {
+                    // The number in the file's name is the one that counts (the
+                    // list is ordered by it, and it is what the folder shows).
+                    if numbered && parsed.number.is_some() {
+                        entry.number = parsed.number;
+                    }
+                    if !parsed.title.trim().is_empty() {
+                        entry.title = Some(parsed.title);
+                    }
                 }
             }
         }
@@ -210,6 +216,17 @@ pub fn reconcile_entries(storage: &dyn Storage, data: &mut ArchiveData, folder: 
     }
     let numbered_on_disk = by_number(&files);
     recompute_last_number(storage, data, numbered_on_disk.keys());
+}
+
+/// Whether the archive's title and the one in a file's name are the same video.
+/// Only letters and digits are compared: yt-dlp rewrites `:`, `|` or `"` in a
+/// file name (to `：`, `｜`, `＂`), so the two spellings of one title differ.
+/// An entry with no title cannot say.
+fn same_title(entry_title: Option<&str>, file_title: Option<String>) -> bool {
+    let key = |s: &str| s.chars().filter(|c| c.is_alphanumeric()).flat_map(char::to_lowercase).collect::<String>();
+    let (Some(a), Some(b)) = (entry_title, file_title) else { return false };
+    let a = key(a);
+    !a.is_empty() && a == key(&b)
 }
 
 /// A device-backed playlist checked against a fresh listing of the device.

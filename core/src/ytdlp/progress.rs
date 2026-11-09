@@ -22,6 +22,8 @@ pub struct ProgressParser {
     /// Items already done before this run: they make the percentage that of the
     /// whole playlist and not that of the remaining chunk (see [`Self::lock_total_items`]).
     already_done_items: u32,
+    /// Items yt-dlp went through and gave up on (see [`Self::set_skipped`]).
+    skipped_items: u32,
 }
 
 impl ProgressParser {
@@ -50,6 +52,15 @@ impl ProgressParser {
         self.total_items = self.already_done_items + clamp_count(items_in_this_run);
         self.total_items_locked = true;
         self.current_item = 0;
+    }
+
+    /// How many of the items it has already gone through FAILED. yt-dlp's
+    /// "Downloading item N of M" counts the items it tried, not the ones that
+    /// came down, so with most of them refused the bar said 98 % over a
+    /// playlist of which a third was on disk (reported). A failed item does not
+    /// advance the bar.
+    pub fn set_skipped(&mut self, skipped: usize) {
+        self.skipped_items = u32::try_from(skipped).unwrap_or(u32::MAX);
     }
 
     /// The overall progress (0..=1) this line moves the download to, if it moves it.
@@ -94,8 +105,8 @@ impl ProgressParser {
 
     fn fraction(&self, item: u32, item_percent: f64) -> f64 {
         let total = f64::from(self.total_items);
-        let done = f64::from(self.already_done_items) + f64::from(item) - 1.0;
-        (done / total + item_percent / total).clamp(0.0, 1.0)
+        let done = f64::from(self.already_done_items) + f64::from(item) - 1.0 - f64::from(self.skipped_items);
+        (done.max(0.0) / total + item_percent / total).clamp(0.0, 1.0)
     }
 }
 
@@ -244,5 +255,24 @@ mod tests {
         for value in values.into_iter().flatten() {
             assert!((0.0..=1.0).contains(&value), "out of range: {value}");
         }
+    }
+
+    #[test]
+    fn items_that_failed_do_not_advance_the_bar() {
+        let mut p = ProgressParser::new();
+        p.lock_total_items(0, 10);
+        close(p.parse("[download] Downloading item 6 of 10"), 0.5);
+        // Five tried, two of them refused: only three are on disk.
+        p.set_skipped(2);
+        close(p.parse("[download] Downloading item 6 of 10"), 0.3);
+    }
+
+    #[test]
+    fn the_reported_run_does_not_read_98_percent() {
+        let mut p = ProgressParser::new();
+        p.lock_total_items(122, 489);
+        p.set_skipped(595 - 122);
+        // 122 before + 595 tried - 473 refused = 244 on disk, not 98 %.
+        close(p.parse("[download] Downloading item 596 of 611"), 244.0 / 611.0);
     }
 }

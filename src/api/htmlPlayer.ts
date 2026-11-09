@@ -77,7 +77,12 @@ export class HtmlPlayer implements PlayerBackend {
 
   onError(listener: () => void): void {
     // Emptying the element on unload is not a failure.
-    this.element.addEventListener('error', () => { if (this.loaded) listener(); });
+    this.element.addEventListener('error', () => {
+      if (!this.loaded) return;
+      // Left in the webview's console, to tell a bad file from a hiccup when it cuts.
+      console.warn('player: media error', this.element.error?.code, this.element.error?.message, this.element.src);
+      listener();
+    });
   }
 
   view(): HTMLVideoElement {

@@ -104,6 +104,26 @@ test('regression: clicking the file already playing pauses it, it does not start
   await expect(position).toHaveText('0:04');
 });
 
+test('regression: pressing play does not rebuild the rows (their thumbnails used to blink)', async ({ page }) => {
+  await page.clock.install();
+  await page.goto('/#/player?b=pl1:MP3');
+  const rows = page.locator('.track-row');
+  await rows.first().waitFor();
+  await rows.evaluateAll(all => all.forEach((row, i) => { (row as HTMLElement & { mark?: number }).mark = i + 1; }));
+
+  await rows.nth(1).click();
+  await page.clock.runFor(2000);
+  await expect(rows.nth(1)).toHaveClass(/playing/);
+  await page.locator('.player-bar .player-control[title="Siguiente"]').click();
+  await page.clock.runFor(1000);
+  await expect(rows.nth(2)).toHaveClass(/playing/);
+  await expect(rows.nth(1)).not.toHaveClass(/playing/);
+
+  // The same nodes as before: nothing was replaced, so no picture was dropped and loaded again.
+  const marks = await rows.evaluateAll(all => all.map(row => (row as HTMLElement & { mark?: number }).mark));
+  expect(marks).toEqual(marks.map((_, i) => i + 1));
+});
+
 test('regression: space plays and pauses instead of pressing the last button again', async ({ page }) => {
   await page.clock.install();
   await page.goto('/#/player?b=pl1:MP3');

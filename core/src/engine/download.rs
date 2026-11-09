@@ -18,7 +18,7 @@ use crate::archive::{ArchiveStore, io as archive_io};
 use crate::cover_embed;
 use crate::downloader::{Downloader, OutputLine, RunEnd, StopFlag, YtDlpRequest};
 use crate::engine::activity::ActivityLine;
-use crate::engine::safety_net::{Patience, RetryEvents, RetryItem, RetryProgress, SafetyNet};
+use crate::engine::safety_net::{BOT_STREAK_LIMIT, Patience, RetryEvents, RetryItem, RetryProgress, SafetyNet};
 use crate::engine::tasks::Step;
 use crate::library::AUDIO_FORMATS;
 use crate::location::Location;
@@ -132,6 +132,17 @@ struct PlaylistState {
 
 /// The picked picture into a downloaded file. A failure only costs the picture:
 /// the file is there, with the thumbnail yt-dlp gave it.
+/// Key of the notice shown when YouTube's bot check cuts a run. Without a
+/// cookies file the user can fix it in Ajustes; with one, theirs have gone stale.
+fn botcheck_key(which: &str, has_cookies: bool) -> &'static str {
+    match (which, has_cookies) {
+        ("streakNotice", true) => "activity.botcheck.streakNotice",
+        ("streakNotice", false) => "activity.botcheck.streakNoticeNoCookies",
+        (_, true) => "activity.botcheck.retryNotice",
+        (_, false) => "activity.botcheck.retryNoticeNoCookies",
+    }
+}
+
 fn embed_picked_cover(file: &Path, image: &Path, format: &str, events: &mut dyn DownloadEvents) {
     if !cover_embed::can_embed(format) {
         return;
@@ -148,6 +159,16 @@ struct Captures {
     captured: Vec<(String, Location)>,
     seen_titles: HashMap<String, String>,
     client_invalidated: bool,
+    /// Videos in a row (not counting the same one twice) that YouTube refused
+    /// with the bot-check, and the last of them; a file that comes down resets it.
+    bot_streak: usize,
+    last_bot_id: Option<String>,
+    /// Ids yt-dlp gave up on in this run (an `ERROR: [youtube] <id>: ...`
+    /// line); one that comes down afterwards leaves the set. They do not count
+    /// as progress.
+    failed_ids: HashSet<String>,
+    /// The run was cut short by that streak (see `BOT_STREAK_LIMIT`).
+    bot_blocked: bool,
 }
 
 // === PUBLIC API ===
@@ -333,6 +354,17 @@ impl Engine<'_> {
                 return Err(e);
             }
         };
+        if captures.bot_blocked {
+            // YouTube has cut the session: the rest would fail the same way, and
+            // a second pass over them even more slowly. They stay pending.
+            let downloaded = captures.captured.len().to_string();
+            events.line(ActivityLine::message("activity.botcheck.streak", &[&downloaded, &BOT_STREAK_LIMIT.to_string()]));
+            events.notice(FAILED, botcheck_key("streakNotice", cookies.is_some()), &[&downloaded]);
+            self.commit(&json, &folder, format, &captures, events);
+            self.archives.touch_last_activity(&json)?;
+            clean_up(storage, &folder, format, single, &captures);
+            return Ok(());
+        }
         if end == RunEnd::Stopped {
             events.line(ActivityLine::message("activity.stop.download", &[]));
             self.commit(&json, &folder, format, &captures, events);
@@ -570,6 +602,9 @@ impl Engine<'_> {
                     Err(e) => log::warn!("Could not register {id}: {e}"),
                 }
                 captures.captured.push((id.to_string(), file));
+                captures.bot_streak = 0;
+                captures.last_bot_id = None;
+                captures.failed_ids.remove(id);
             }
             return;
         }
@@ -583,12 +618,36 @@ impl Engine<'_> {
             }
             return;
         }
+        if !single && let Some(caps) = UNAVAILABLE_ERROR.captures(&text) {
+            captures.failed_ids.insert(caps[1].to_string());
+        }
+        parser.set_skipped(captures.failed_ids.len());
         if let Some(fraction) = parser.parse(&text) {
             events.progress(fraction);
         }
         self.handle_unavailable_line(&text, json, events);
+        if !single {
+            self.watch_bot_streak(&text, captures);
+        }
         log::info!(target: crate::logs::ACTIVITY, "{text}");
         events.line(ActivityLine::raw(text));
+    }
+
+    /// With YouTube refusing every video ("Sign in to confirm you're not a
+    /// bot"), yt-dlp still walks the whole list, hundreds of videos that fail
+    /// the same way (reported). After `BOT_STREAK_LIMIT` different videos in a
+    /// row it is stopped; what is left stays pending for a later sync.
+    fn watch_bot_streak(&self, line: &str, captures: &mut Captures) {
+        let Some(caps) = UNAVAILABLE_ERROR.captures(line) else { return };
+        if !caps[2].contains(BOT_CHECK_MARKER) || captures.last_bot_id.as_deref() == Some(&caps[1]) {
+            return;
+        }
+        captures.last_bot_id = Some(caps[1].to_string());
+        captures.bot_streak += 1;
+        if captures.bot_streak >= BOT_STREAK_LIMIT && !captures.bot_blocked {
+            captures.bot_blocked = true;
+            self.stop.stop();
+        }
     }
 
     fn handle_unavailable_line(&self, line: &str, json: &Location, events: &mut dyn DownloadEvents) {
@@ -674,6 +733,10 @@ impl Engine<'_> {
         let outcome = net.run(items, &mut Forward(events));
         for f in &outcome.failures {
             events.line(ActivityLine::message("activity.retry.failedOne", &[&f.title, &f.reason]));
+        }
+        if outcome.blocked {
+            events.notice(FAILED, botcheck_key("retryNotice", cookies.is_some()), &[&outcome.failures.len().to_string()]);
+            return outcome.stopped;
         }
         match outcome.failures.as_slice() {
             [] => {}

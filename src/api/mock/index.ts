@@ -40,6 +40,10 @@ export const mockApi: Api = {
   },
   watchDownloads: listener => {
     onNotice = listener;
+    // `?mockBotCheck`: YouTube cuts a run (no cookies), so the notice can be seen and tested.
+    if (new URLSearchParams(location.search).has('mockBotCheck')) {
+      window.setTimeout(() => onNotice({ status: 'FAILED', key: 'activity.botcheck.streakNoticeNoCookies', args: ['120'] }), 300);
+    }
     ui.activity = activityLog.map(text => ({ kind: 'raw', text }));
     emit('activity');
   },

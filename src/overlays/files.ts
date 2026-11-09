@@ -6,7 +6,7 @@ import { countBy, filesText, findBlock, groupByStatus, onDisk, statusText } from
 import { cover } from '../components/cover';
 import { liveBar, liveChip, patchLive } from '../components/live';
 import { closeButton, openPanel } from '../components/overlay';
-import { canPlayTrack, trackRow } from '../components/trackRow';
+import { canPlayTrack, patchPlaying, trackRow } from '../components/trackRow';
 import { hueOf, playlistPicture } from '../covers';
 import * as player from '../player';
 import { isPlayable } from '../player';
@@ -227,7 +227,7 @@ export function openFilesOverlay(playlist: Playlist, opened: FormatBlock): void 
     if (playingKey() === shown) return;
     shown = playingKey();
     refreshPlayButton();
-    refreshList();
+    patchPlaying(list, block);
   };
   const followTasks = () => {
     if (currentFootShape() === footShape) patchLive(foot);

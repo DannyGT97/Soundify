@@ -472,6 +472,55 @@ fn the_startup_reconciliation_links_what_another_copy_downloaded_into_the_same_f
     assert_eq!(store.saved_number(&json, "id2").as_deref(), Some("002"));
 }
 
+#[test]
+fn regression_a_number_alone_never_links_a_file_that_is_another_video() {
+    // Reported: the archive imported from Java numbered the videos one way, and
+    // the other copy had downloaded them under different numbers into the same
+    // folder. Linking by number alone put "002 - Dos" on the entry that Java
+    // numbered 002 (a different video) and even took its title: the whole
+    // list came out with other titles in every position.
+    let (store, storage) = store();
+    let json = path(JSON);
+
+    let mut other = new_data(true);
+    other.entries.insert("id1".into(), entry(Some("001"), Some("Uno"), Some(real_file(&storage, "001 - Uno.mp3"))));
+    other.entries.insert("id2".into(), entry(Some("002"), Some("Dos"), Some(real_file(&storage, "002 - Dos.mp3"))));
+    store.save(&json, &other).unwrap();
+    crate::transfer::write_manifest_quietly(storage.as_ref(), &json, "2026-11-02 10:00");
+
+    // The imported archive: same videos, swapped numbers, files that do not exist.
+    let mut imported = new_data(true);
+    imported.entries.insert("id1".into(), entry(Some("002"), Some("Uno"), Some(file("002 - Uno.mp3"))));
+    imported.entries.insert("id2".into(), entry(Some("001"), Some("Dos"), Some(file("001 - Dos.mp3"))));
+    store.save(&json, &imported).unwrap();
+
+    store.reconcile_all();
+
+    assert_eq!(status_of(&store, &json, "id1"), EntryStatus::Ok);
+    assert_eq!(status_of(&store, &json, "id2"), EntryStatus::Ok);
+    assert_eq!(store.saved_number(&json, "id1").as_deref(), Some("001"), "the number is the one in the file's name");
+    assert_eq!(store.saved_number(&json, "id2").as_deref(), Some("002"));
+    let titles: Vec<_> = store.list_entries(&json).unwrap().into_iter().map(|v| (v.id, v.title)).collect();
+    assert!(titles.contains(&("id1".to_string(), Some("Uno".to_string()))), "{titles:?}");
+    assert!(titles.contains(&("id2".to_string(), Some("Dos".to_string()))), "{titles:?}");
+}
+
+#[test]
+fn a_number_still_links_a_renamed_file_when_the_title_matches() {
+    // The old behaviour that is worth keeping: the file is there under its
+    // number, only the path stored in the archive is stale (the folder moved).
+    let (store, storage) = store();
+    let json = path(JSON);
+    real_file(&storage, "001 - Uno.mp3");
+    let mut data = new_data(true);
+    data.entries.insert("id1".into(), entry(Some("001"), Some("Uno"), Some("/otra/carpeta/001 - Uno.mp3".into())));
+    store.save(&json, &data).unwrap();
+
+    store.reconcile_all();
+
+    assert_eq!(status_of(&store, &json, "id1"), EntryStatus::Ok);
+}
+
 // === DEVICE PLAYLISTS ===
 
 fn device_target() -> crate::device::DeviceTarget {

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { activityText, fileNumber, liveText, noticeTone, percent, progressLine, shortStamp, summaryText, toTasksState } from './tasks';
+import { activityText, fileNumber, liveText, noticeTone, percent, pointsToSettings, progressLine, shortStamp, summaryText, toTasksState } from './tasks';
 import type { FinishedTask, RunningTask } from './state';
 
 const NOW = new Date(2026, 10, 3, 20, 0);
@@ -104,5 +104,18 @@ describe('the Gestor row of a running download', () => {
     expect(progressLine(running(null))).toBe('Preparando…');
     expect(progressLine(running(0, 3))).toBe('Archivo 1 de 3');
     expect(progressLine(running(1, 3))).toBe('Archivo 3 de 3');
+  });
+});
+
+describe('pointsToSettings', () => {
+  const notice = (key: string) => ({ status: 'FAILED', key, args: ['3'] });
+  it('is true for the YouTube bot-check notices, with or without cookies', () => {
+    for (const key of ['streakNotice', 'streakNoticeNoCookies', 'retryNotice', 'retryNoticeNoCookies']) {
+      expect(pointsToSettings(notice(`activity.botcheck.${key}`))).toBe(true);
+    }
+  });
+  it('is false for any other notice', () => {
+    expect(pointsToSettings(notice('activity.botcheck.notice'))).toBe(false);
+    expect(pointsToSettings(notice('download.error.isPlaylist'))).toBe(false);
   });
 });

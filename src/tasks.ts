@@ -101,6 +101,11 @@ export function summaryText(task: FinishedTask): string {
   return hasKey(task.summary) ? messageText(task.summary, task.summaryArgs) : task.summary;
 }
 
+/** Notices where the fix is in Ajustes → Avanzado (cookies): they stay on screen with a way there. */
+export function pointsToSettings(notice: DownloadNotice): boolean {
+  return /^activity\.botcheck\.(streak|retry)Notice(NoCookies)?$/.test(notice.key);
+}
+
 export function noticeTone(notice: DownloadNotice): 'success' | 'warning' | 'error' {
   const status = toStatus(notice.status);
   return status === 'ok' ? 'success' : status === 'failed' ? 'error' : 'warning';

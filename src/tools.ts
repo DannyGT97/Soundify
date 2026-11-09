@@ -144,6 +144,12 @@ export function openToolsSettings(): void {
   navigate('settings');
 }
 
+/** Ajustes on the Avanzado tab (where the cookies file is). */
+export function openAdvancedSettings(): void {
+  ui.settingsTab = 'advanced';
+  navigate('settings');
+}
+
 /**
  * Follows the downloads from the back, and keeps one notice with their
  * percentage while the assistant is not on screen: on a first start ffmpeg is

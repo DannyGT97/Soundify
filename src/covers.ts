@@ -74,23 +74,39 @@ export function showPicture(tile: HTMLElement, picture: Picture | null, ratio = 
   tile.dataset.picture = key;
   tile.querySelector(':scope > img.cover-img')?.remove();
   if (!picture) return;
-  void sourceOf(picture).then(source => {
-    if (!source || tile.dataset.picture !== key) return;
+  const place = (source: string, width: number, height: number) => {
     const img = new Image();
     img.className = 'cover-img';
     img.alt = '';
-    img.onload = () => {
-      if (tile.dataset.picture !== key) return;
-      const rect = crop(img.naturalWidth, img.naturalHeight, picture.kind === 'thumbnail', ratio);
-      Object.assign(img.style, placement(img.naturalWidth, img.naturalHeight, rect));
-      tile.querySelector(':scope > img.cover-img')?.remove();
-      tile.append(img);
-    };
+    Object.assign(img.style, placement(width, height, crop(width, height, picture.kind === 'thumbnail', ratio)));
     img.src = source;
+    return img;
+  };
+  // A thumbnail seen before is laid on in the same tick, so a list that is
+  // rebuilt does not show the bare tile first. Not a picked cover: it is always
+  // called `cover.jpg`, and a new one would show the old one.
+  const seen = picture.kind === 'thumbnail' ? loaded.get(key) : undefined;
+  if (seen) {
+    tile.append(place(seen.source, seen.width, seen.height));
+    return;
+  }
+  void sourceOf(picture).then(source => {
+    if (!source || tile.dataset.picture !== key) return;
+    const probe = new Image();
+    probe.onload = () => {
+      if (tile.dataset.picture !== key) return;
+      if (picture.kind === 'thumbnail') loaded.set(key, { source, width: probe.naturalWidth, height: probe.naturalHeight });
+      tile.querySelector(':scope > img.cover-img')?.remove();
+      tile.append(place(source, probe.naturalWidth, probe.naturalHeight));
+    };
+    probe.src = source;
   });
 }
 
 // === PRIVATE HELPERS ===
+
+/** Pictures that have already loaded once: where they are and how big (the browser keeps the bytes). */
+const loaded = new Map<string, { source: string; width: number; height: number }>();
 
 const waiting = new Map<string, ((path: string) => void)[]>();
 let listening = false;
