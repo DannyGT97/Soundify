@@ -24,6 +24,8 @@ pub struct ToolsReport {
     /// The app keeps its own copies (Windows). Elsewhere the system's tools
     /// are used and there is nothing to install from here.
     managed: bool,
+    /// Android: the tools travel inside the APK and are unpacked at startup.
+    built_in: bool,
     folder: String,
     tools: Vec<ToolStatus>,
 }
@@ -43,6 +45,7 @@ pub async fn tools_report(state: State<'_, AppState>) -> Result<ToolsReport, Com
     let tools = state.tools.clone();
     tauri::async_runtime::spawn_blocking(move || ToolsReport {
         managed: tools.is_managed(),
+        built_in: tools.uses_launcher(),
         folder: tools.ytdlp_dir().parent().map(|p| p.display().to_string()).unwrap_or_default(),
         tools: status::statuses(&tools, bootstrap::bundled_ffmpeg().as_deref(), &|tool| version_output(&tools, tool)),
     })
@@ -54,9 +57,11 @@ pub async fn tools_report(state: State<'_, AppState>) -> Result<ToolsReport, Com
 /// (for yt-dlp, the latest one: «Actualizar» is this too). ffmpeg comes from
 /// the copy that travels with the app when there is one.
 #[tauri::command]
-pub async fn install_tool(state: State<'_, AppState>, id: String, reinstall: bool) -> Result<(), CommandError> {
+pub async fn install_tool(app: tauri::AppHandle, state: State<'_, AppState>, id: String, reinstall: bool) -> Result<(), CommandError> {
     let tool = Tool::from_id(&id).ok_or_else(|| CommandError::io(format!("unknown tool {id}")))?;
-    if !state.tools.is_managed() {
+    // Android: only yt-dlp can be updated; everything else is part of the APK.
+    let on_phone = state.tools.uses_launcher() && tool == Tool::Ytdlp;
+    if !state.tools.is_managed() && !on_phone {
         return Err(CommandError::io("the system's tools are not installed from the app"));
     }
     if !state.installing.lock().unwrap().insert(tool) {
@@ -65,7 +70,11 @@ pub async fn install_tool(state: State<'_, AppState>, id: String, reinstall: boo
     let (tools, health, progress, formats, installing) =
         (state.tools.clone(), state.health.clone(), state.progress.clone(), state.formats.clone(), state.installing.clone());
     let result = tauri::async_runtime::spawn_blocking(move || {
-        let installed = install(&tools, tool, reinstall, &health, &progress);
+        let installed = if on_phone {
+            crate::mobile::update_ytdlp_now(&app).map(drop).map_err(std::io::Error::other)
+        } else {
+            install(&tools, tool, reinstall, &health, &progress)
+        };
         installing.lock().unwrap().remove(&tool);
         // A new yt-dlp may support other formats than the old one.
         if installed.is_ok() && tool == Tool::Ytdlp {
@@ -131,12 +140,33 @@ fn http() -> std::io::Result<ReqwestHttp> {
 
 /// What the tool prints when asked its version; `None` if it does not run.
 pub fn version_output(tools: &ToolPaths, tool: Tool) -> Option<String> {
-    let path = match tool {
-        Tool::Ytdlp => tools.ytdlp(),
-        Tool::Ffmpeg => tools.ffmpeg(),
-        Tool::Deno => tools.deno(),
+    let mut command = if tools.uses_launcher() {
+        // Android: the tools are libraries of the APK, started the way the launcher says.
+        let launcher = tools.launcher()?;
+        let mut command = match tool {
+            Tool::Ytdlp => {
+                let mut c = Command::new(&launcher.program);
+                c.args(&launcher.args);
+                c
+            }
+            Tool::Ffmpeg => {
+                let (program, fixed) = launcher.ffmpeg.split_first()?;
+                let mut c = Command::new(program);
+                c.args(fixed);
+                c
+            }
+            // QuickJS takes Deno's place there.
+            Tool::Deno => return None,
+        };
+        command.envs(launcher.env.iter().map(|(k, v)| (k, v)));
+        command
+    } else {
+        Command::new(match tool {
+            Tool::Ytdlp => tools.ytdlp(),
+            Tool::Ffmpeg => tools.ffmpeg(),
+            Tool::Deno => tools.deno(),
+        })
     };
-    let mut command = Command::new(path);
     command.args(status::version_args(tool));
     process::detach(&mut command);
     let output = command.output().inspect_err(|e| log::warn!("Could not ask {} its version: {e}", tool.name())).ok()?;

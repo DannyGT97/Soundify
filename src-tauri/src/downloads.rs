@@ -112,14 +112,15 @@ impl Downloads {
             let _ = app.emit("notice", Notice { status: task_history::FAILED, key: IS_PLAYLIST, args: &[] });
             return;
         }
-        {
+        let title = {
             let mut tasks = self.tasks.lock().unwrap();
             if tasks.is_running() {
                 return;
             }
             let (title, origin) = describe(&state.archives, &request);
             tasks.start(&title, origin);
-        }
+            title
+        };
         *self.stop.lock().unwrap() = StopFlag::new();
         self.clear_activity();
         let _ = app.emit("activity-reset", ());
@@ -129,6 +130,8 @@ impl Downloads {
         std::thread::spawn(move || {
             let state = app.state::<AppState>();
             let downloads = &state.downloads;
+            // Android freezes an app that is only in the background: the notice keeps it going.
+            crate::mobile::set_busy(&app, true, &title);
             match to_job(&state.archives, request) {
                 Some(job) => downloads.run(&app, &state, &job),
                 None => {
@@ -136,6 +139,7 @@ impl Downloads {
                     events.notice(task_history::FAILED, "activity.error.emptyInput", &[]);
                 }
             }
+            crate::mobile::set_busy(&app, false, "");
             downloads.tasks.lock().unwrap().finish();
             downloads.save_history(&state);
             downloads.emit_view(&app);

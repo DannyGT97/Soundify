@@ -199,8 +199,8 @@ export interface TaskRecordWire {
  * screen off. The queue, shuffle and repeat stay in `player.ts`, above it.
  */
 export interface PlayerBackend {
-  /** Loads a file and leaves it at second 0, paused; `onDuration` says when it is ready. */
-  load(blockKey: string, track: Track): void;
+  /** Loads a file and leaves it at second 0, paused (or playing, if `hint.autoplay`); `onDuration` says when it is ready. */
+  load(blockKey: string, track: Track, hint?: LoadHint): void;
   play(): void;
   pause(): void;
   seek(seconds: number): void;
@@ -216,6 +216,22 @@ export interface PlayerBackend {
   view(): HTMLVideoElement | null;
   /** Takes the view back out of wherever it was shown, without stopping it. */
   park(): void;
+  /** Only the engines with controls of their own (the phone's notification): play or pause done outside the app. */
+  onPlayState?(listener: (playing: boolean) => void): void;
+  /** Same: «next» / «previous» pressed outside the app. */
+  onRemoteSkip?(listener: (direction: 'next' | 'previous') => void): void;
+  /**
+   * The loudness is the device's (the phone's buttons), not the app's: the slider
+   * moves the device and `onVolume` tells where it is, at startup and on every change.
+   */
+  externalVolume?: boolean;
+  onVolume?(listener: (volume: number) => void): void;
+}
+
+/** What a native player shows for the file (the notification) and whether it starts at once. */
+export interface LoadHint {
+  playlist: string;
+  autoplay: boolean;
 }
 
 /** What the player keeps between runs (the Java `UserSettings.playerVolume` and `lastPlayed*`). */
@@ -237,6 +253,8 @@ export interface Preferences {
   language: string;
   uiScale: number;
   playerPlacement: string;
+  /** A video goes to the floating panel by itself when Reproduciendo is left. */
+  autoPip: boolean;
   includeIdInTitleName: boolean;
   appUpdateCheckEnabled: boolean;
   /** Ajustes → Actualizaciones: bring the tools already there up to date at startup, when there is a newer version. */
@@ -268,8 +286,17 @@ export interface ToolStatus {
 export interface ToolsReport {
   /** The app keeps its own copies (Windows); elsewhere the system's are used and nothing is installed from here. */
   managed: boolean;
+  /** The tools travel inside the app (Android) and are unpacked at startup: until then they count as missing, and there is nothing to install. */
+  builtIn: boolean;
   folder: string;
   tools: ToolStatus[];
+}
+/** The phone's shared storage as Android lets the app see it. */
+export interface StorageInfo {
+  /** The app may read and write the shared folders («Acceso a todos los archivos»). Always true off Android. */
+  allFiles: boolean;
+  /** Where the music goes by default (`Music/Soundify`); null off Android. */
+  musicDir: string | null;
 }
 /** «Buscar actualización» of yt-dlp; `latest` is null when GitHub did not answer. */
 export interface YtdlpCheck { latest: string | null; newer: boolean }

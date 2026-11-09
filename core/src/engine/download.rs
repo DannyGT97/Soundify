@@ -466,7 +466,14 @@ impl Engine<'_> {
         let Some((_, lines)) = self.query(query::playlist_entries_args(url, cookies)) else {
             return (IndexMap::new(), String::new());
         };
-        (query::playlist_entries(lines.iter().map(String::as_str)), lines.join("\n"))
+        let entries = query::playlist_entries(lines.iter().map(String::as_str));
+        // What yt-dlp said besides the entries (a page of the list that did not come, for one) goes
+        // to the log: a playlist that lists fewer videos than it has can then be explained.
+        let remarks: Vec<&str> = lines.iter().map(|l| l.trim())
+            .filter(|l| l.starts_with("WARNING") || l.starts_with("ERROR")).collect();
+        log::info!("playlist listing: {} videos, {} remarks{}", entries.len(), remarks.len(),
+            remarks.iter().take(5).map(|r| format!("\n  {r}")).collect::<String>());
+        (entries, lines.join("\n"))
     }
 
     /// The cached client, or the first candidate that passes the probe (then

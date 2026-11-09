@@ -70,7 +70,7 @@ export function openFilesOverlay(playlist: Playlist, opened: FormatBlock): void 
   } });
   const switcher = h('div', { class: 'segmented' });
   const chips = h('div', { class: 'toolbar' });
-  const search = h('input', { class: 'input', attrs: { placeholder: t('songs.searchPlaceholder') } });
+  const search = h('input', { class: 'input', attrs: { type: 'search', placeholder: t('songs.searchPlaceholder') } });
   search.addEventListener('input', () => {
     query = search.value;
     refreshList();

@@ -206,13 +206,26 @@ pub fn reset_preferences(state: State<'_, AppState>) -> Result<Preferences, Comm
 /// The cookies file chooser, opened where the last one was.
 #[tauri::command]
 pub async fn pick_cookies_file(app: AppHandle, state: State<'_, AppState>, title: String, filter: String) -> Result<Option<String>, CommandError> {
-    use tauri_plugin_dialog::DialogExt;
-    let current = settings::load(&LocalStorage, &state.paths.settings()).cookies_file;
-    let mut dialog = app.dialog().file().set_title(title).add_filter(filter, &["txt"]);
-    if let Some(folder) = Path::new(&current).parent().filter(|f| f.is_dir()) {
-        dialog = dialog.set_directory(folder);
+    // On the phone the dialog plugin hands back a content:// URI that yt-dlp cannot open:
+    // Kotlin picks the file and copies it into the app's folder instead.
+    #[cfg(target_os = "android")]
+    {
+        let _ = (&state, &title, &filter);
+        tauri::async_runtime::spawn_blocking(move || crate::mobile::pick_cookies_now(&app))
+            .await
+            .map_err(CommandError::io)?
+            .map_err(CommandError::io)
     }
-    Ok(dialog.blocking_pick_file().and_then(|picked| picked.into_path().ok()).map(|path| path.display().to_string()))
+    #[cfg(not(target_os = "android"))]
+    {
+        use tauri_plugin_dialog::DialogExt;
+        let current = settings::load(&LocalStorage, &state.paths.settings()).cookies_file;
+        let mut dialog = app.dialog().file().set_title(title).add_filter(filter, &["txt"]);
+        if let Some(folder) = Path::new(&current).parent().filter(|f| f.is_dir()) {
+            dialog = dialog.set_directory(folder);
+        }
+        Ok(dialog.blocking_pick_file().and_then(|picked| picked.into_path().ok()).map(|path| path.display().to_string()))
+    }
 }
 
 /// Whether a file is (still) there: the cookies' status line.

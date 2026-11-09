@@ -4,7 +4,7 @@ import { canDownload, downloadSize, missingRequired, missingTools, toolChip } fr
 
 const tool = (id: ToolStatus['id'], installed: boolean, extra: Partial<ToolStatus> = {}): ToolStatus =>
   ({ id, name: id, installed, version: installed ? '1.0' : null, bundled: false, required: id !== 'deno', ...extra });
-const report = (managed: boolean, tools: ToolStatus[]): ToolsReport => ({ managed, folder: 'data/systemtools', tools });
+const report = (managed: boolean, tools: ToolStatus[], builtIn = false): ToolsReport => ({ managed, builtIn, folder: 'data/systemtools', tools });
 const idle = { queued: new Set<ToolStatus['id']>(), installing: new Set<ToolStatus['id']>(), failed: new Set<ToolStatus['id']>(), downloads: [] };
 
 describe('missing tools', () => {
@@ -30,6 +30,14 @@ describe('missing tools', () => {
   it('it says yes when the system provides the tools, or before the report arrives', () => {
     expect(canDownload(report(false, [tool('ytdlp', false)]))).toBe(true);
     expect(canDownload(null)).toBe(true);
+  });
+
+  it('the tools in the APK block downloads only while they are being unpacked', () => {
+    const unpacking = report(false, [tool('ytdlp', false), tool('ffmpeg', false), tool('deno', false)], true);
+    expect(missingRequired(unpacking).map(x => x.id)).toEqual(['ytdlp', 'ffmpeg']);
+    expect(canDownload(unpacking)).toBe(false);
+    const ready = report(false, [tool('ytdlp', true), tool('ffmpeg', true), tool('deno', true)], true);
+    expect(canDownload(ready)).toBe(true);
   });
 
   it('a copy travelling with the app adds nothing to the download size', () => {

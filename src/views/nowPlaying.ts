@@ -4,8 +4,9 @@ import { icon } from '../icons';
 import { t } from '../i18n';
 import { findBlock } from '../library';
 import { isPhone } from '../platform';
-import { navigate, onLeave } from '../router';
-import { hidePip, parkVideo, videoView } from '../player';
+import { currentRoute, navigate, onLeave } from '../router';
+import { currentIsVideo, hidePip, parkVideo, showPip, videoView } from '../player';
+import { chooseAutoPip } from '../preferences';
 import { subscribe, ui } from '../state';
 import { cover } from '../components/cover';
 import { buildTransport, buildVolume, describe } from '../components/transport';
@@ -22,6 +23,8 @@ const CONTROLS_IDLE_MS = 2500;
  */
 export function nowPlayingView(): HTMLElement {
   ui.lastPlayerPage = 'now-playing';
+  // The panel that opened by itself on the way out goes back in on the way in.
+  if (ui.pip && ui.pipAuto) hidePip();
   const backdrop = h('div', { class: 'np-backdrop' });
   // What is shown, and over it the way into the floating panel.
   const stage = h('div', { class: 'np-stage' });
@@ -41,7 +44,17 @@ export function nowPlayingView(): HTMLElement {
   const fullscreenButton = h('button', { class: 'player-control np-fullscreen-button', onclick: () => setFullscreen(!fullscreen) });
   const controls = h('div', { class: 'np-controls' }, buildTransport(), buildVolume(), fullscreenButton);
 
-  const info = h('div', { class: 'np-info' }, title, meta);
+  // Whether a video floats by itself when this screen is left (a preference, also in Ajustes).
+  const autoPip = h('button', { class: 'pip-auto', attrs: { type: 'button' }, onclick: () => chooseAutoPip(!ui.autoPip) },
+    icon('pip', 14), h('span', { text: t('pip.auto') }));
+  const paintAuto = () => {
+    autoPip.hidden = !currentIsVideo();
+    autoPip.classList.toggle('on', ui.autoPip);
+    autoPip.setAttribute('aria-pressed', String(ui.autoPip));
+    autoPip.title = t(ui.autoPip ? 'pip.auto.on' : 'pip.auto.off');
+  };
+
+  const info = h('div', { class: 'np-info' }, title, meta, autoPip);
 
   const screen = h('div', { class: 'screen np-screen' },
     backdrop,
@@ -128,7 +141,9 @@ export function nowPlayingView(): HTMLElement {
     if (!video) parkVideo();
     stage.replaceChildren(video && ui.pip
         ? h('div', { class: 'np-video np-pip-here' },
-          h('span', { text: t('pip.here') }),
+          icon('pip', 28),
+          h('span', { class: 'pip-here-text', text: t('pip.here') }),
+          h('span', { class: 'pip-here-hint', text: t('pip.dockHint') }),
           h('button', { class: 'secondary-button', text: t('pip.bringBack'), onclick: hidePip }))
         : video
         ? view ?? h('div', { class: 'np-video' }, icon('play', 44, true))
@@ -140,9 +155,16 @@ export function nowPlayingView(): HTMLElement {
     meta.textContent = found ? `${found.playlist.title} · ${found.block.format}` : '';
   };
   onLeave(subscribe('player', refresh));
+  onLeave(subscribe('player', paintAuto));
   onLeave(subscribe('player-placement', refreshControls));
   // Back to its hidden holder in the same task: out of the page, it would pause.
   onLeave(parkVideo);
+  // After that, so the element is already parked when the panel takes it. Only
+  // for another screen: being drawn again (a language change) is not leaving.
+  onLeave(() => {
+    if (currentRoute().route !== 'now-playing' && ui.autoPip && !ui.pip) showPip(true);
+  });
   refresh();
+  paintAuto();
   return screen;
 }

@@ -31,6 +31,10 @@ export const ui = {
   duration: 0,
   /** The video is in the floating panel (`components/pip.ts`), not on any screen. */
   pip: false,
+  /** The panel opened by itself on leaving Reproduciendo (so it goes back when that is opened again). */
+  pipAuto: false,
+  /** A video goes to the floating panel by itself on leaving Reproduciendo (a preference). */
+  autoPip: true,
   shuffle: false,
   repeat: 'off' as Repeat,
   volume: 0.7,
@@ -40,7 +44,7 @@ export const ui = {
   activity: [] as ActivityLine[],
 };
 
-type Topic = 'library' | 'player' | 'tasks' | 'activity' | 'theme' | 'player-placement' | 'tools';
+type Topic = 'library' | 'player' | 'tasks' | 'activity' | 'theme' | 'player-placement' | 'tools' | 'storage';
 const listeners = new Map<Topic, Set<() => void>>();
 
 export function subscribe(topic: Topic, listener: () => void): () => void {

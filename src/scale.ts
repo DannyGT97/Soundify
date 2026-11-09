@@ -5,12 +5,15 @@
 // layout then grows past the window (or leaves a gap below) — that is what
 // failed before. In a plain browser (npm run dev) there is no webview to ask,
 // so the zoom goes on #app, whose height is a percentage and is not scaled.
+// Android is in that second case: its webview has no zoom to ask for, and every
+// phone or tablet has its own screen, so the list is the way to fit the text to it.
 //
 // The value is settings.json's `uiScale`: `preferences.ts` hands it in at
 // startup and saves every change (it listens with `onScaleChange`).
 
 import { isTauri } from '@tauri-apps/api/core';
 import { getCurrentWebview } from '@tauri-apps/api/webview';
+import { onAndroid } from './platform';
 
 export const SCALE_STEPS = [80, 90, 100, 110, 125, 150, 175] as const;
 export const DEFAULT_SCALE = 100;
@@ -60,7 +63,8 @@ export function stepFrom(percent: number, direction: 1 | -1): number {
 
 async function apply(percent: number): Promise<void> {
   const factor = percent / 100;
-  if (isTauri()) {
+  // The Android webview ignores the native zoom, so there (as in a browser) it is a CSS zoom on #app.
+  if (isTauri() && !onAndroid) {
     await getCurrentWebview().setZoom(factor);
     return;
   }

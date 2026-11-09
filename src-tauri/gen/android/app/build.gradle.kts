@@ -58,6 +58,12 @@ android {
     buildFeatures {
         buildConfig = true
     }
+    packaging {
+        // yt-dlp's Python, ffmpeg and QuickJS travel as libraries and are RUN
+        // from where Android unpacks them: Android 10+ does not let an app run
+        // anything it wrote itself.
+        jniLibs.useLegacyPackaging = true
+    }
 }
 
 kotlin {
@@ -76,6 +82,12 @@ dependencies {
     implementation("androidx.activity:activity-ktx:1.10.1")
     implementation("com.google.android.material:material:1.12.0")
     implementation("androidx.lifecycle:lifecycle-process:2.10.0")
+    // Python + yt-dlp + QuickJS and ffmpeg for the downloads (see SoundifyPlugin.kt).
+    implementation("io.github.junkfood02.youtubedl-android:library:0.18.1")
+    implementation("io.github.junkfood02.youtubedl-android:ffmpeg:0.18.1")
+    // The music player: runs in a service of its own, so it goes on with the screen off.
+    implementation("androidx.media3:media3-exoplayer:1.5.1")
+    implementation("androidx.media3:media3-session:1.5.1")
     testImplementation("junit:junit:4.13.2")
     androidTestImplementation("androidx.test.ext:junit:1.1.4")
     androidTestImplementation("androidx.test.espresso:espresso-core:3.5.0")

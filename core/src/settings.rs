@@ -57,6 +57,7 @@ pub fn preferences(settings: &UserSettings) -> Preferences {
         language: language.to_string(),
         ui_scale: settings.ui_scale,
         player_placement: placement.to_string(),
+        auto_pip: settings.auto_pip,
         include_id_in_title_name: settings.include_id_in_title_name,
         app_update_check_enabled: settings.app_update_check_enabled,
         auto_updates: settings.auto_updates,
@@ -81,6 +82,9 @@ pub fn apply(settings: &mut UserSettings, patch: &PreferencesPatch) {
     }
     if let Some(placement) = patch.player_placement.as_deref().filter(|p| PLAYER_PLACEMENTS.contains(p)) {
         settings.player_placement = placement.to_string();
+    }
+    if let Some(value) = patch.auto_pip {
+        settings.auto_pip = value;
     }
     if let Some(value) = patch.include_id_in_title_name {
         settings.include_id_in_title_name = value;
@@ -234,6 +238,17 @@ mod tests {
         assert_eq!(settings.language, "es");
         assert_eq!(settings.appearance, "");
         assert_eq!(preferences(&settings).player_placement, "both");
+    }
+
+    #[test]
+    fn auto_pip_is_on_by_default_and_can_be_turned_off() {
+        let mut settings = UserSettings::default();
+        assert!(preferences(&settings).auto_pip);
+        apply(&mut settings, &PreferencesPatch { auto_pip: Some(false), ..Default::default() });
+        assert!(!preferences(&settings).auto_pip);
+        // An old settings.json without the field keeps it on.
+        let old: UserSettings = serde_json::from_str(r#"{"uiScale":100}"#).unwrap();
+        assert!(old.auto_pip);
     }
 
     #[test]

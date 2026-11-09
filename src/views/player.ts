@@ -60,7 +60,7 @@ let chip: Chip = 'all';
 let sort: Sort = 'recent';
 
 function libraryView(): HTMLElement {
-  const search = h('input', { class: 'input', attrs: { placeholder: t('player.library.search') } });
+  const search = h('input', { class: 'input', attrs: { type: 'search', placeholder: t('player.library.search') } });
   search.value = query;
   const chipButtons = (['all', 'audio', 'video', 'device'] as Chip[]).map(key => {
     const button = h('button', { class: 'fchip', text: t(`player.library.chip.${key}`), onclick: () => {
@@ -231,7 +231,7 @@ function detailView(key: string): HTMLElement {
 
   const sub = h('div', { class: 'pl-sub' });
   const switcher = h('div', { class: 'segmented' });
-  const search = h('input', { class: 'input track-search', attrs: { placeholder: t('songs.searchPlaceholder'), 'aria-label': t('player.search') } });
+  const search = h('input', { class: 'input track-search', attrs: { type: 'search', placeholder: t('songs.searchPlaceholder'), 'aria-label': t('player.search') } });
   search.addEventListener('input', () => {
     filter = search.value;
     fillTracks();

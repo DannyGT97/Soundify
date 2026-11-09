@@ -195,6 +195,8 @@ test.describe('picture in picture', () => {
     await page.locator('.track-row').first().click();
     await page.locator('.player-bar .player-now').click();
     await expect(page).toHaveURL(/#\/now-playing/);
+    // The screen is drawn on the hashchange event, a moment after the address changes.
+    await expect(page.locator('.np-art')).toBeVisible();
   };
   const panel = (page: Page) => page.locator('.pip-panel');
 
@@ -234,6 +236,8 @@ test.describe('picture in picture', () => {
   test('it can be dragged, inside the window', async ({ page }) => {
     await playVideo(page);
     await page.locator('.np-art .pip-button').click();
+    // Over Reproduciendo the placeholder would take it back in (see the docking test): drag elsewhere.
+    await page.goto('/#/home');
     const box = await panel(page).boundingBox();
     if (!box) throw new Error('no panel');
     await page.mouse.move(box.x + 100, box.y + 100);
@@ -270,5 +274,59 @@ test.describe('picture in picture', () => {
     await page.locator('.track-row').first().click();
     await expect(panel(page)).toBeHidden();
     await expect(page.locator('.mini-player .mini-play')).toHaveAttribute('title', 'Pausa');
+  });
+
+  test('leaving Reproduciendo floats a video by itself, and coming back puts it in place', async ({ page }) => {
+    await playVideo(page);
+    await expect(panel(page)).toBeHidden();
+    await page.goto('/#/home');
+    await expect(panel(page)).toBeVisible();
+    await page.goto('/#/now-playing');
+    await expect(panel(page)).toBeHidden();
+    await expect(page.locator('.np-pip-here')).toHaveCount(0);
+  });
+
+  test('the switch in Reproduciendo turns the automatic panel off; a manual one stays', async ({ page }) => {
+    await playVideo(page);
+    const chip = page.locator('.pip-auto');
+    await expect(chip).toHaveAttribute('aria-pressed', 'true');
+    await chip.click();
+    await expect(chip).toHaveAttribute('aria-pressed', 'false');
+    await page.goto('/#/home');
+    await expect(panel(page)).toBeHidden();
+
+    await page.goto('/#/now-playing');
+    await page.locator('.np-art .pip-button').click();
+    await page.goto('/#/home');
+    await expect(panel(page)).toBeVisible();
+  });
+
+  test('audio never floats', async ({ page }) => {
+    await page.goto('/#/player?b=pl1:MP3');
+    await page.locator('.track-row').first().click();
+    await page.locator('.player-bar .player-now').click();
+    await expect(page.locator('.pip-auto')).toBeHidden();
+    await page.goto('/#/home');
+    await expect(panel(page)).toBeHidden();
+  });
+
+  test('the placeholder is small text, and dragging the panel onto it docks it back', async ({ page }) => {
+    await playVideo(page);
+    await page.locator('.np-art .pip-button').click();
+    const here = page.locator('.np-pip-here');
+    await expect(here).toBeVisible();
+    const size = await here.locator('.pip-here-text').evaluate(el => parseFloat(getComputedStyle(el).fontSize));
+    expect(size).toBeLessThanOrEqual(16);
+
+    const spot = await here.boundingBox();
+    const box = await panel(page).boundingBox();
+    if (!spot || !box) throw new Error('missing boxes');
+    await page.mouse.move(box.x + 60, box.y + 60);
+    await page.mouse.down();
+    await page.mouse.move(spot.x + spot.width / 2, spot.y + spot.height / 2, { steps: 6 });
+    await expect(here).toHaveClass(/dock-over/);
+    await page.mouse.up();
+    await expect(panel(page)).toBeHidden();
+    await expect(page.locator('.np-pip-here')).toHaveCount(0);
   });
 });

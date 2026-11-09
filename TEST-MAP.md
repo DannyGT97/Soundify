@@ -109,7 +109,10 @@ Estados: **portado** · **pendiente (fase N)** · **descartado** (con el motivo)
 ## Móvil
 | Java | Tauri | Estado |
 |---|---|---|
-| — | `e2e/phone.spec.ts` (10: ninguna pantalla se sale de ancho a 390 px, barra de pestañas, barra del reproductor reducida, lo que Android oculta) + `src-tauri/src/app_paths.rs` (2: la carpeta privada en Android) | nuevos |
+| — | `e2e/phone.spec.ts` (11: ninguna pantalla se sale de ancho a 390 px, barra de pestañas, barra del reproductor reducida, lo que Android oculta, herramientas y carpeta por defecto en Android, aviso «Dar acceso» sin permiso) + `src-tauri/src/app_paths.rs` (2: la carpeta privada en Android) + `src/api/androidPlayer.test.ts` (2: qué motor reproduce cada archivo) + `core/src/tools` (tests del `Launcher` y de `can_download` en Android) | nuevos |
+| — | `e2e/phone.spec.ts` (+2: la escala sale en Ajustes y amplía todo sin desbordar; un vídeo flota solo en móvil en un panel menor) + `e2e/player.spec.ts` (+4: imagen en imagen automática al salir y al volver, chip para quitarla, el audio no flota, texto del hueco pequeño y acoplar arrastrando) + `src/pipPanel.test.ts` (`pipSize`, `overDock`) + `core/src/settings.rs` (`autoPip`) | nuevos |
+| — | `e2e/phone.spec.ts` (+1: en Android Herramientas solo tiene yt-dlp con «Actualizar yt-dlp» y el interruptor de actualización automática; la pestaña Actualizaciones sigue oculta) | nuevos |
+| — | `e2e/phone.spec.ts` (+1: con el teclado abierto sobre un campo se ocultan menú, reproductor y pie del formulario) y `src/platform.test.ts` | nuevos |
 
 ## Pendientes
 | Java | Fase |
@@ -117,3 +120,4 @@ Estados: **portado** · **pendiente (fase N)** · **descartado** (con el motivo)
 | `ui/BackgroundTasksUiTest` (resto: Playwright de la ventana de tareas) | 8 |
 | `ui/FormsUiTest`, `ui/HomeAndManagerUiTest`, `HomeControllerTest`, `NewPlaylistControllerTest`, `PlaylistManagerControllerTest`, `SongDetailsControllerTest` | 8 (o la fase de su pantalla) |
 | `MotionTest` | descartado: las animaciones son CSS, no hay clase que probar |
+| (nuevo) | `e2e/phone.spec.ts` «a search field has an «x» that empties it» | la «x» de los buscadores vacía el campo y rehace la lista |

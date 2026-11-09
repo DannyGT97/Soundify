@@ -45,7 +45,7 @@ pub struct Tools {
 
 pub fn start(app_paths: &AppPaths, archives: &ArchiveStore, phone: &Arc<dyn PortableDevice>) -> Tools {
     let tools = Tools {
-        paths: ToolPaths::for_this_platform(app_paths.systemtools()),
+        paths: tool_paths(app_paths),
         health: Arc::new(ToolHealth::new()),
         progress: Arc::new(InstallProgress::new()),
         formats: Arc::default(),
@@ -65,11 +65,23 @@ pub fn start(app_paths: &AppPaths, archives: &ArchiveStore, phone: &Arc<dyn Port
 
     if tools.paths.is_managed() {
         start_updaters(&tools, settings::load(&LocalStorage, &app_paths.settings()).auto_updates);
-    } else {
+    } else if !tools.paths.uses_launcher() {
         let (paths, formats) = (tools.paths.clone(), tools.formats.clone());
         std::thread::spawn(move || cache_formats(&paths, &formats));
     }
+    // Android: the formats are asked once the Kotlin side has unpacked the
+    // tools (`mobile::prepare_in_background`).
     tools
+}
+
+/// Windows keeps its own copies, Android brings them in the APK and the rest
+/// use the system's.
+fn tool_paths(app_paths: &AppPaths) -> ToolPaths {
+    if cfg!(target_os = "android") {
+        ToolPaths::with_launcher(app_paths.systemtools(), Arc::default())
+    } else {
+        ToolPaths::for_this_platform(app_paths.systemtools())
+    }
 }
 
 /// The managed copies (Windows). Only what needs no asking: the ffmpeg that

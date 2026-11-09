@@ -73,7 +73,7 @@ export function openDevicePicker(purpose: DevicePurpose, onPicked: (target: Devi
   const rail = h('div', { class: 'rail' });
   const up = h('button', { class: 'icon-button', title: t('devicePicker.up'), onclick: () => go(path.slice(0, -1)) }, icon('up', 17));
   const crumbs = h('div', { class: 'crumbs' });
-  const filterInput = h('input', { class: 'input', attrs: { placeholder: t('devicePicker.filter'), 'aria-label': t('devicePicker.filter') } });
+  const filterInput = h('input', { class: 'input', attrs: { type: 'search', placeholder: t('devicePicker.filter'), 'aria-label': t('devicePicker.filter') } });
   filterInput.addEventListener('input', () => {
     filter = filterInput.value;
     renderContent();

@@ -86,6 +86,16 @@ hr { border: none; border-top: 1px solid var(--sp-line); margin: 0; width: 100%;
 .input::placeholder { color: var(--sp-placeholder); }
 .input:focus { border-color: var(--sp-accent); }
 .input.input-error, .input.input-error:focus { border-color: var(--sp-error); }
+/* Search fields: the browser's own clear button, drawn as an «x» in the muted colour (it shows once there is text) */
+.input[type="search"] { -webkit-appearance: none; appearance: none; }
+.input[type="search"]::-webkit-search-decoration { -webkit-appearance: none; }
+.input[type="search"]::-webkit-search-cancel-button {
+  -webkit-appearance: none; appearance: none; cursor: pointer; margin: 0 0 0 4px;
+  width: 16px; height: 16px; background-color: var(--sp-muted);
+  -webkit-mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2.5' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M18 6 6 18'/%3E%3Cpath d='m6 6 12 12'/%3E%3C/svg%3E") center / contain no-repeat;
+  mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2.5' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M18 6 6 18'/%3E%3Cpath d='m6 6 12 12'/%3E%3C/svg%3E") center / contain no-repeat;
+}
+.input[type="search"]::-webkit-search-cancel-button:hover { background-color: var(--sp-text-strong); }
 select.input { cursor: pointer; }
 .select-fit { width: auto; min-width: 160px; }
 .primary-button, .secondary-button, .danger-button {
@@ -208,7 +218,28 @@ select.input { cursor: pointer; }
 .np-stage { display: contents; }
 .np-art .pip-button { position: absolute; top: 8px; right: 8px; background: color-mix(in srgb, var(--sp-black) 55%, transparent); color: #fff; }
 .np-fullscreen .np-art .pip-button { display: none; }
-.np-pip-here { flex-direction: column; gap: 12px; font-size: 14px; color: var(--sp-white); }
+/* The slot the video leaves while the panel has it. `.np-video` sets the 48 px of
+   its play icon, which this text used to inherit: here it is set again, small. */
+.np-video.np-pip-here {
+  flex-direction: column; gap: 6px; padding: 16px; text-align: center; font-size: 14px; color: var(--sp-white);
+  border: 2px dashed color-mix(in srgb, var(--sp-white) 22%, transparent);
+  transition: border-color .15s, background .15s;
+}
+.np-pip-here .icon { opacity: .55; margin-bottom: 2px; }
+.np-pip-here .pip-here-text { font-size: 14px; font-weight: 700; }
+.np-pip-here .pip-here-hint { max-width: 36ch; font-size: 12px; line-height: 1.35; color: color-mix(in srgb, var(--sp-white) 55%, transparent); }
+.np-pip-here .secondary-button { margin-top: 6px; padding: 6px 14px; font-size: 13px; }
+.np-pip-here.dock-over { border-color: var(--sp-accent); border-style: solid; background: color-mix(in srgb, var(--sp-accent) 22%, var(--sp-black)); }
+/* Whether the video floats by itself when Reproduciendo is left. */
+.pip-auto {
+  display: inline-flex; align-items: center; gap: 6px; margin-top: 6px; padding: 5px 12px; border-radius: 16px;
+  font-size: 12px; font-weight: 600; color: var(--sp-muted);
+  background: color-mix(in srgb, var(--sp-text-strong) 8%, transparent);
+}
+.pip-auto[hidden] { display: none; }
+.pip-auto:hover { color: var(--sp-text-strong); }
+.pip-auto.on { color: var(--sp-text-strong); background: color-mix(in srgb, var(--sp-accent) 24%, transparent); }
+.pip-auto.on .icon { color: var(--sp-accent); }
 .np-art .cover { box-shadow: 0 6px 24px var(--sp-shadow-soft); border-radius: 12px; max-width: 100%; max-height: 100%; }
 .np-video {
   width: min(100%, 720px); aspect-ratio: 16 / 9; background: var(--sp-black); border-radius: 10px;

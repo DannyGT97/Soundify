@@ -9,11 +9,11 @@ import { confirmDialog } from '../overlays/confirm';
 import { SCALE_STEPS, currentScale, onScaleChange, setScale } from '../scale';
 import { themePicker } from '../components/themePicker';
 import { notify } from '../components/toasts';
-import { chooseLanguage, choosePlayerPlacement, preferences, resetPreferences, save } from '../preferences';
+import { chooseAutoPip, chooseLanguage, choosePlayerPlacement, preferences, resetPreferences, save } from '../preferences';
 import { onAndroid } from '../platform';
 import { buildIndex, searchIndex } from '../settingsSearch';
 import { checkForUpdate, onUpdateChange, updateState } from '../appUpdate';
-import { checkYtdlp, installTools, isBusy, loadTools, missingTools, toolChip, tools, TOOL_SIZES_MB } from '../tools';
+import { checkYtdlp, checkYtdlpOnPhone, installTools, isBusy, loadTools, missingTools, toolChip, tools, TOOL_SIZES_MB, updateYtdlpOnPhone } from '../tools';
 import type { ToolStatus } from '../api/types';
 
 interface Tab {
@@ -22,8 +22,8 @@ interface Tab {
   build: () => HTMLElement[];
 }
 
-/** What Android has no use for: nothing updates itself there, and there are no tools to install yet. */
-const DESKTOP_TABS = ['updates', 'tools'];
+/** What Android has no use for: the app updates through the store. (Herramientas is there too, only for yt-dlp.) */
+const DESKTOP_TABS = ['updates'];
 const TABS: Tab[] = ([
   { id: 'general', icon: 'general', build: general },
   { id: 'interface', icon: 'interface', build: interfaceTab },
@@ -40,13 +40,13 @@ export function settingsView(): HTMLElement {
   const content = h('div', { class: 'stack-20' });
   const tabs = h('div', { class: 'row wrap gap-8' });
   const description = h('p', { class: 'subtitle' });
-  const search = h('input', { class: 'input settings-search', attrs: { placeholder: t('settings.search.placeholder') } });
+  const search = h('input', { class: 'input settings-search', attrs: { type: 'search', placeholder: t('settings.search.placeholder') } });
 
   const showTab = (id: string) => {
     ui.settingsTab = id;
     const tab = TABS.find(x => x.id === id) ?? TABS[0]!;
     tabs.querySelectorAll('button').forEach(b => b.classList.toggle('active', b.dataset.id === tab.id));
-    description.textContent = t(`settings.${tab.id}.subtitle`);
+    description.textContent = t(onAndroid && tab.id === 'tools' ? 'tools.android.subtitle' : `settings.${tab.id}.subtitle`);
     content.replaceChildren(...tab.build());
     if (highlight) {
       const target = content.querySelector<HTMLElement>(`[data-key="${highlight}"]`);
@@ -127,7 +127,7 @@ function general(): HTMLElement[] {
   ];
 }
 
-/** A phone has one place for the player and pinches instead of a scale. */
+/** A phone has one place for the player. */
 function phoneHidden(row: HTMLElement): HTMLElement {
   row.classList.add('phone-hide');
   return row;
@@ -139,10 +139,20 @@ function interfaceTab(): HTMLElement[] {
     phoneHidden(setting('settings.interface.playerPlacement', select([
       ['side', t('player.placement.side')], ['bottom', t('player.placement.bottom')], ['both', t('player.placement.both')],
     ], ui.playerPlacement, value => choosePlayerPlacement(value as PlayerPlacement)))),
+    setting('settings.interface.autoPip', autoPipSwitch()),
     // The whole app is drawn again in the new language, this screen included.
     setting('settings.interface.language', select(LANGUAGES, language(), chooseLanguage)),
-    phoneHidden(setting('settings.interface.scale', scaleSelect())),
+    setting('settings.interface.scale', scaleSelect()),
   ];
+}
+
+/** The same preference as the switch in Reproduciendo: it follows it while this tab is open. */
+function autoPipSwitch(): HTMLInputElement {
+  const box = h('input', { class: 'switch', attrs: { type: 'checkbox' } });
+  box.checked = ui.autoPip;
+  box.addEventListener('change', () => chooseAutoPip(box.checked));
+  subscribeWhile(box, 'player', () => { box.checked = ui.autoPip; });
+  return box;
 }
 
 /** The scale list; it follows Ctrl + / Ctrl − too, while the tab is on screen. */
@@ -212,6 +222,17 @@ function toolsTab(): HTMLElement[] {
   const actions = h('div', { class: 'row center wrap gap-10' }, installMissing,
     h('button', { class: 'secondary-button', text: t('settings.tools.openFolder'), onclick: () => void api.openToolsFolder() }));
   const rows = h('div', { class: 'stack-12' });
+  // Android: ffmpeg and the JavaScript engine travel in the APK and stay as they are; only yt-dlp is updated.
+  if (onAndroid) {
+    const render = () => {
+      const ytdlp = tools.report?.tools.find(tool => tool.id === 'ytdlp');
+      rows.replaceChildren(ytdlp ? toolCard(ytdlp, true) : h('p', { class: 'help', text: t('settings.tools.loading') }));
+    };
+    subscribeWhile(rows, 'tools', render);
+    render();
+    void loadTools().catch(() => {});
+    return [rows, setting('tools.android.auto', checkbox('autoUpdates')), h('p', { class: 'help', text: t('tools.android.note') })];
+  }
   const render = () => {
     const report = tools.report;
     const missing = missingTools(report);
@@ -220,7 +241,7 @@ function toolsTab(): HTMLElement[] {
     actions.hidden = !report?.managed;
     if (!report) rows.replaceChildren(h('p', { class: 'help', text: t('settings.tools.loading') }));
     else if (!report.managed) rows.replaceChildren(h('section', { class: 'card settings-card' }, h('p', { class: 'subtitle', text: t('settings.tools.system') })));
-    else rows.replaceChildren(...report.tools.map(toolCard));
+    else rows.replaceChildren(...report.tools.map(tool => toolCard(tool)));
   };
   subscribeWhile(rows, 'tools', render);
   render();
@@ -233,7 +254,7 @@ function toolsTab(): HTMLElement[] {
   ];
 }
 
-function toolCard(tool: ToolStatus): HTMLElement {
+function toolCard(tool: ToolStatus, phone = false): HTMLElement {
   const busy = isBusy(tool.id);
   const status = h('p', { class: 'help' });
   if (busy) {
@@ -246,6 +267,8 @@ function toolCard(tool: ToolStatus): HTMLElement {
     const newer = tool.id === 'ytdlp' && tools.newerYtdlp ? ` · ${t('settings.tools.newer', tools.newerYtdlp)}` : '';
     status.textContent = t('settings.tools.installed', tool.version ?? '?') + newer;
     status.classList.add('status-text-ok');
+  } else if (phone) {
+    status.textContent = t('tools.android.preparing');
   } else {
     status.textContent = tool.bundled ? t('settings.tools.missingBundled') : t('settings.tools.missing', String(TOOL_SIZES_MB[tool.id]));
     status.classList.add('status-text-warn');
@@ -261,7 +284,13 @@ function toolCard(tool: ToolStatus): HTMLElement {
     return el;
   };
   const buttons: HTMLElement[] = [];
-  if (!tool.installed) {
+  if (phone) {
+    if (tool.installed) {
+      buttons.push(tools.newerYtdlp
+        ? button('tools.android.update', true, updateYtdlpOnPhone)
+        : button('settings.tools.checkUpdate', false, checkYtdlpOnPhone));
+    }
+  } else if (!tool.installed) {
     buttons.push(button('settings.tools.install', true, () => installTools([tool.id])));
   } else {
     if (tool.id === 'ytdlp') {
@@ -294,12 +323,15 @@ function advanced(): HTMLElement[] {
     show(file);
   };
   show(preferences().cookiesFile);
+  const cookies = setting('settings.advanced.cookies', null, h('div', { class: 'stack-6' },
+    h('div', { class: 'row center gap-10' }, path,
+      h('button', { class: 'secondary-button', text: t('common.select'), onclick: () => void choose() }),
+      h('button', { class: 'secondary-button', text: t('common.remove'), onclick: () => { save({ cookiesFile: '' }); show(''); } })),
+    status));
+  // The Chrome extension is a desktop thing: on the phone the file comes from Firefox or from the computer.
+  if (onAndroid) cookies.querySelector('.subtitle')?.replaceChildren(t('settings.advanced.cookies.androidHelp'));
   return [
-    setting('settings.advanced.cookies', null, h('div', { class: 'stack-6' },
-      h('div', { class: 'row center gap-10' }, path,
-        h('button', { class: 'secondary-button', text: t('common.select'), onclick: () => void choose() }),
-        h('button', { class: 'secondary-button', text: t('common.remove'), onclick: () => { save({ cookiesFile: '' }); show(''); } })),
-      status)),
+    cookies,
     setting('settings.advanced.reset', h('button', { class: 'danger-button', text: t('settings.advanced.reset.button'), onclick: () =>
       confirmDialog(t('settings.advanced.reset.confirm.title'), t('settings.advanced.reset.confirm.header'), t('settings.advanced.reset.confirm.body'), [
         // Like the Java app: a reset is applied on the spot (theme, language,

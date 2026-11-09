@@ -100,9 +100,9 @@
   .np-controls .player-controls { justify-content: center; gap: 14px; }
   .np-controls .player-play { width: 58px; height: 58px; border-radius: 29px; }
   .np-controls .player-slider::-webkit-slider-thumb { transform: scale(1.3); }
-  .np-art .pip-button, .mini-player .pip-button { display: none; }
-  /* A phone is not a window to float a panel in. */
-  .pip-panel { display: none; }
+  .mini-player .pip-button { display: none; }
+  /* The floating panel is smaller here (`pipSize`) and starts above both bars. */
+  .np-pip-here { padding: 10px; }
 
   /* === WINDOWS AND NOTICES === */
   .overlay-scrim { padding: 8px; }
@@ -121,7 +121,18 @@
 /* A phone on its side: every line of height counts. */
 @media (max-height: 500px) {
   .sidebar .nav-button, .sidebar.collapsed .nav-button { min-height: 40px; flex-direction: row; gap: 6px; padding: 2px; }
-  .np-head { display: none; }
+  .np-head, .pip-auto, .np-pip-here .pip-here-hint { display: none; }
   .np-content { padding: 6px 16px; gap: 6px; }
   .np-art .cover { width: auto !important; height: 100% !important; aspect-ratio: 1; }
 }
+
+/* === TYPING === */
+/* `platform.ts` sets data-typing while the on-screen keyboard is open over a text field. What is left of
+   the page is a sliver, so the menu, the player bar, the task pill and the form's summary wait. */
+:root[data-typing] .sidebar,
+:root[data-typing] .player-bar,
+:root[data-typing] .tasks-pill,
+:root[data-typing] .fp-foot { display: none !important; }
+
+/* A finger needs a bigger «x» than a pointer */
+:root[data-platform="android"] .input[type="search"]::-webkit-search-cancel-button { width: 24px; height: 24px; margin-left: 2px; }

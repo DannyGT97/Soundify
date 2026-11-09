@@ -4,6 +4,7 @@
 // Deno's download fails, to see the retry). Installing is a percentage
 // climbing on a timer, reported like the real one.
 
+import { onAndroid } from '../../platform';
 import type { ToolDownload, ToolId, ToolsReport, ToolStatus, YtdlpCheck } from '../types';
 
 const STEP_MS = 120;
@@ -32,7 +33,10 @@ export function mockCanDownload(): boolean {
 }
 
 export const mockTools = {
-  toolsReport: async (): Promise<ToolsReport> => ({ managed: true, folder: 'data\systemtools', tools: tools.map(tool => ({ ...tool })) }),
+  // `?mockAndroid`: the tools travel in the APK (nothing to install), `?mockTools=missing` is "still unpacking".
+  toolsReport: async (): Promise<ToolsReport> => ({
+    managed: !onAndroid, builtIn: onAndroid, folder: 'data\systemtools', tools: tools.map(tool => ({ ...tool })),
+  }),
   installTool,
   checkYtdlpUpdate: async (): Promise<YtdlpCheck> => ({ latest: '2026.11.01', newer: true }),
   openToolsFolder: async () => {},

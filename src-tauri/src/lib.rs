@@ -8,6 +8,7 @@ mod commands;
 mod covers;
 mod devices;
 mod downloads;
+mod mobile;
 mod mtp;
 mod window_menu;
 mod process;
@@ -58,9 +59,13 @@ pub fn run() {
   let tools = bootstrap::start(&paths, &archives, &phone);
   let history = task_history::load(&LocalStorage, &paths.task_history());
 
-  tauri::Builder::default()
+  let builder = tauri::Builder::default()
     .plugin(tauri_plugin_dialog::init())
-    .plugin(tauri_plugin_opener::init())
+    .plugin(tauri_plugin_opener::init());
+  // The Kotlin side: unpacks the tools, asks for the storage, picks folders.
+  #[cfg(target_os = "android")]
+  let builder = builder.plugin(mobile::plugin());
+  builder
     .manage(app_update::AppUpdates::default())
     .manage(AppState {
       paths,
@@ -109,19 +114,26 @@ pub fn run() {
       // Startup reconciliation: which ids still have a file (and which files
       // another copy of the app added to the same folder). The front may have
       // read the library before it ends, so it is told to read it again.
-      let reconciling = app.state::<AppState>().archives.clone();
-      let handle = app.handle().clone();
-      std::thread::spawn(move || {
-        reconciling.reconcile_all();
-        let _ = handle.emit("file-downloaded", ());
-      });
-      // On Android the store or the APK updates the app, never itself.
+      // On Android only once the storage can be read: without access every
+      // file would look deleted (`mobile::request_all_files` runs it later).
+      mobile::reconcile_in_background(app.handle().clone());
+      // On Android the store or the APK updates the app, never itself; the
+      // tools come in the APK and are unpacked now.
       #[cfg(not(target_os = "android"))]
       app_update::check_at_startup(app.handle());
+      #[cfg(target_os = "android")]
+      {
+        mobile::listen_player(app.handle());
+        mobile::prepare_in_background(app.handle().clone());
+      }
       Ok(())
     })
     .invoke_handler(tauri::generate_handler![
       window_menu::show_system_menu,
+      mobile::storage_info,
+      mobile::request_all_files,
+      mobile::pick_phone_folder,
+      mobile::native_player,
       commands::list_playlists,
       commands::formats,
       commands::tool_health,

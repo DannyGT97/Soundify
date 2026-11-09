@@ -122,7 +122,16 @@ Repositorio: https://github.com/DannyGT97/Soundify (GitHub, rama `main`, GPL-3.0
 - `src-tauri/gen/android/` — el proyecto Android que genera `tauri android init`, con dos cosas propias: `MainActivity.kt`
   (aparta el webview de las barras del sistema y del teclado, por eso el CSS no usa `safe-area`) y los iconos de
   `tauri icon`. `tauri.android.conf.json` quita de Android el ffmpeg incluido. `app_paths.rs` en Android: la carpeta
-  privada, sacada de `/proc/self` porque la necesita el logger antes de que arranque Tauri
+  privada, sacada de `/proc/self` porque la necesita el logger antes de que arranque Tauri.
+  Además, plugin Kotlin `SoundifyPlugin` (registrado en `mobile.rs`/`lib.rs`) y: `BusyService` (foreground `dataSync` mientras
+  se descarga), `PlaybackService` + `NativePlayer` (Media3: sonido en segundo plano, notificación con anterior/siguiente).
+  **Android usa rutas reales, no SAF:** permiso «Acceso a todos los archivos» (`MANAGE_EXTERNAL_STORAGE`), música por defecto en
+  `Music/Soundify`; `pick_phone_folder` convierte el selector de carpetas a ruta (solo el almacenamiento principal). Sin
+  permiso el arranque NO concilia y el front (`storage.ts`) avisa con «Dar acceso»; al concederlo se concilia. yt-dlp, Python,
+  QuickJS y ffmpeg vienen en el APK (youtubedl-android 0.18.1, `useLegacyPackaging`) y Kotlin solo los desempaqueta
+  (`prepareRuntime`); Rust los lanza con `Launcher` (`ToolPaths`) y hasta entonces cuentan como ausentes (`can_download` false,
+  evento `tools-ready`). Ya sin esto `can_download` NO es false en Android. `mobile.rs`: `storage_info`, `request_all_files`,
+  `pick_phone_folder`, `set_busy`, `native_player` (lista blanca de acciones) y `listen_player` (reemite como evento `native-player`)
 - `e2e/` — tests de interfaz (Playwright) contra `npm run dev` con la API de mentira
 - `scripts/check.mjs` — el `npm run check`
 
@@ -177,8 +186,14 @@ Repositorio: https://github.com/DannyGT97/Soundify (GitHub, rama `main`, GPL-3.0
   convierte el menú lateral en barra de pestañas (`display: contents`, 5 pestañas; Crear Playlist comparte la de
   Descargar, con `formSwitch` arriba), reduce la barra del reproductor a portada, título, play, siguiente y cerrar con
   la línea de progreso arriba, y deja la píldora de tareas flotando. Reproduciendo lleva allí los controles (sin volumen:
-  son los botones del teléfono). En Android además `canDownload` es false (y `can_download` en el back), se ocultan
-  Importar, el destino MTP (`.desktop-only`) y las pestañas Actualizaciones y Herramientas
+  son los botones del teléfono). En Android además se oculta el destino MTP (`.desktop-only`) y la pestaña Actualizaciones
+  (Herramientas solo enseña yt-dlp, para actualizarlo); Importar sí está (por carpeta). `api/androidPlayer.ts`: `AndroidPlayer` envuelve a `HtmlPlayer` (audio → servicio
+  nativo, vídeo → webview). El volumen es el del aparato (`DeviceVolume.kt`, `STREAM_MUSIC`): el deslizador lo mueve
+  (`playerSetVolume`) y los botones del aparato mueven el deslizador (evento `volume`, `PlayerBackend.onVolume`; en el arranque
+  no se aplica el volumen guardado: `externalVolume`). `onVolume` NO se fía solo de los eventos: un 0 se confirma preguntando 300 ms
+  después y el deslizador se resincroniza al volver a la app (`visibilitychange`/`focus`) y cada 3 s mientras se ve (el síntoma:
+  deslizador «en silencio» con el sonido bien; causa sin demostrar, **sin comprobar en la tablet**; `DeviceVolume.kt` deja en
+  logcat `SoundifyVolume` cada cambio que ve) **Teclado en Android** (`platform.ts`, `watchKeyboard`): con un campo de texto enfocado y la página `>120 px` más baja que su máximo, la raíz lleva `data-typing` y `phone.css` oculta menú, barra del reproductor, píldora de tareas y el pie del formulario (resumen + Descargar), y el campo se centra; al cerrar el teclado vuelve todo. En una tablet apaisada con teclado el campo salía cortado. **Sin probar en la tablet** `storage.ts`: estado del acceso a archivos (`?mockNoStorage` lo niega)
 - `router.ts` — rutas por hash (`#/manager`, `#/player?b=pl1:MP3`); cada visita rehace la pantalla,
   lo que tiene que sobrevivir vive en `state.ts`. `onLeave()` para timers y suscripciones
 - `state.ts` — estado de la UI (menú plegado, tema, ubicación del reproductor, lo que suena, la tarea); no guarda nada: lo que dura entre arranques va por `preferences.ts`. `subscribe`/`emit` por tema (`library`, `player`, `tasks`, `theme`, `player-placement`)
@@ -192,7 +207,10 @@ Repositorio: https://github.com/DannyGT97/Soundify (GitHub, rama `main`, GPL-3.0
 - `scale.ts` — la escala de la interfaz: en la app es el zoom NATIVO del webview (`setZoom`, permiso
   `core:webview:allow-set-webview-zoom`), que recoloca todo; un `zoom` de CSS en la raíz hacía crecer
   la pantalla por debajo de la ventana. En el navegador, `zoom` sobre `#app` (alto en %, no `vh`).
-  Ctrl + / Ctrl − / Ctrl 0 van por los mismos pasos que la lista de Ajustes; se guarda en `settings.json`
+  Ctrl + / Ctrl − / Ctrl 0 van por los mismos pasos que la lista de Ajustes; se guarda en `settings.json`.
+  **En Android también hay escala** (cada móvil o tableta tiene su pantalla): su webview no tiene zoom nativo, así que ahí
+  va por la rama del navegador (`zoom` de CSS sobre `#app`, `onAndroid`). Las media queries de `phone.css` miran la ventana
+  real, no la ampliada; lo que se adapta al ancho ampliado son las container queries. **Sin probar en la tablet**
 - `preferences.ts` — las preferencias de `settings.json`: `loadPreferences()` antes de la primera
   pantalla (tema, idioma, escala y sitio del reproductor aplicados ya), `save(patch)`, los `choose*`
   y `resetPreferences()` (vuelve a fábrica y lo aplica en caliente). localStorage ya no se usa
@@ -225,7 +243,13 @@ Repositorio: https://github.com/DannyGT97/Soundify (GitHub, rama `main`, GPL-3.0
   los bordes vienen de `data-tauri-drag-region`; redimensionar, de Tauri (lo hace solo en una ventana sin marco). El rectángulo de la
   ventana incluye 11 px invisibles de sombra a cada lado. Sin el menú de Snap Layouts al pasar por el botón de maximizar.
 - `components/pip.ts` — imagen en imagen: un panel dentro de la app (no una ventana) con el MISMO `<video>` de `htmlPlayer.ts`, para
-  vídeo. Cerrarlo pausa en el mismo segundo; `pipPanel.ts` = dónde puede estar (lógica pura)
+  vídeo. Cerrarlo pausa en el mismo segundo; `pipPanel.ts` = dónde puede estar (lógica pura: `pipSize` 320×180, o 208×117 en
+  móvil, `startSpot`, `clampPanel`, `overDock`). **Sale solo al dejar Reproduciendo con un vídeo** (`ui.autoPip`, ajuste
+  `autoPip` de `settings.json`, por defecto sí; se quita con el chip «Imagen en imagen automática» de Reproduciendo o en Ajustes →
+  Interfaz) y vuelve solo al entrar (`ui.pipAuto` distingue el panel abierto solo del abierto a mano, que se queda). En el hueco
+  de Reproduciendo (`.np-pip-here`) se puede arrastrar el panel para devolverlo (`.dock-over`) o usar «Traerlo aquí». También
+  funciona en móvil y tableta (solo el botón del reproductor de la barra sigue oculto en móvil)
+- **Buscadores con «x» para borrar:** todos son `type="search"` (Gestor, Reproductor y su búsqueda de archivos, Ver archivos, Ajustes, filtro del explorador de dispositivos) y la «x» es el botón nativo (`::-webkit-search-cancel-button`, dibujado con máscara en `app.css`; más grande en Android, `phone.css`). Un buscador nuevo = `attrs: { type: 'search' }`; `keys.ts` ya lo trata como campo de texto. **Sin ver en la tablet**
 - `components/themePicker.ts` — rejilla reutilizada por el botón del menú y Ajustes → Interfaz.
 - `components/toasts.ts` — `notify({ tone, text })`, avisos apilados que caducan individualmente y viven
   en el armazón para sobrevivir a la navegación; los estados persistentes siguen en sus tarjetas.
@@ -269,6 +293,25 @@ Repositorio: https://github.com/DannyGT97/Soundify (GitHub, rama `main`, GPL-3.0
     Probado solo con yt-dlp simulado, nunca contra YouTube.
 - **La migración de la lógica sigue [MIGRATION-PLAN.md](MIGRATION-PLAN.md)** (fases 1–10), y cada
   test portado se apunta en [TEST-MAP.md](TEST-MAP.md)
-- Android de verdad (fase 10): descargar, almacenamiento SAF, importar y sonido en segundo plano. Hoy el APK enseña la interfaz con la biblioteca vacía; solo probado en emulador
+- **Android: la playlist «Canciones» de YouTube, de +700 vídeos, en el móvil (tablet) solo enseñaba 100** (anotado el 09/11/2026 por el
+  usuario). Encontrado: en el código no hay ningún límite (`--playlist-end` no existe), pero `pick_cookies_file` usaba el plugin
+  `dialog`, que en Android devuelve un `content://` y `into_path()` falla: el selector de `cookies.txt` nunca ponía nada, así que
+  en el móvil no había forma de tener cookies. Arreglado: en Android lo elige Kotlin (`SoundifyPlugin.pickCookies`, `ACTION_OPEN_DOCUMENT`),
+  lo copia a `filesDir/cookies.txt` y devuelve esa ruta (`mobile::pick_cookies_now`). El APK compila, **SIN probar en la tablet** (estaba
+  desconectada) ni contra YouTube: falta elegir un `cookies.txt` en Ajustes → Avanzado y ver si la lista pasa de 100. OJO: el log de
+  escritorio de «Canciones» sin cookies llegó a 611 vídeos, así que el límite de 100 sin cookies no está demostrado; si con cookies
+  sigue en 100, mirar la salida de yt-dlp en Actividad.
+  **Resuelto y comprobado en la tablet (09/11/2026):** la causa era el yt-dlp viejo del APK (youtubedl-android 0.18.1 trae la
+  2025.11.12; en Android nada lo actualizaba). Ahora `SoundifyPlugin.updateYtDlp` (`YoutubeDL.updateYoutubeDL`, canal estable, se guarda en
+  `noBackupFilesDir`) lo llama `install_tool("ytdlp")` y `mobile::prepare_in_background` al arrancar si `autoUpdates` está activo
+  (`update_ytdlp_claimed`); en Ajustes → Herramientas la tarjeta ofrece «Buscar actualización» y solo «Actualizar yt-dlp» si hay otra
+  versión. Tras actualizar (2026.10.26) y pulsar Sincronizar, «Canciones» listó 775 vídeos y registró 674 nuevos (antes 101). OJO: una
+  playlist registrada con el yt-dlp viejo NO se rehace sola: hay que pulsar Sincronizar. La consulta de la lista
+  (`playlist_entries_args`) ya no lleva `--no-warnings` y `fetch_entries` deja en el log «playlist listing: N videos, M remarks» con los
+  WARNING/ERROR de yt-dlp, para explicar una lista corta
+- Android (fase 10): escrito entero (almacenamiento con rutas reales, descargas con yt-dlp del APK, reproductor Media3, importar) y
+  el APK arranca en emulador x86_64 y en la tablet, pero **SIN comprobar de punta a punta**: faltan una descarga real contra
+  YouTube, reproducir con la pantalla apagada, la notificación, importar una carpeta y vídeo por `asset://`. Al arrancar sale en la
+  consola del webview `Uncaught (in promise) #<Object>` sin diagnosticar (`logcat -s Tauri/Console`). Si algo falla, reabrirlo aquí
 - Herramientas: «Cancelar» una descarga de herramienta a medias y la comprobación de yt-dlp «una vez al
   día» del prototipo (`design/tools-setup-prototype.html`, fuera de git) no se hicieron

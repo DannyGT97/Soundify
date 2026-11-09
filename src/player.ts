@@ -93,6 +93,25 @@ engine.onError(() => {
   else load(queue.next(), true);
 });
 
+// Pause, play, next and previous from the phone's notification, lock screen or headphones.
+engine.onPlayState?.(playing => {
+  if (!ui.nowPlaying || ui.playing === playing) return;
+  ui.playing = playing;
+  emit('player');
+  if (!playing) void savePosition();
+});
+// The device's volume moved (its buttons): the slider follows at once.
+engine.onVolume?.(volume => {
+  if (ui.volume === volume) return;
+  ui.volume = volume;
+  memory.volume = volume;
+  emit('player');
+});
+engine.onRemoteSkip?.(direction => {
+  if (direction === 'next') next();
+  else previous();
+});
+
 // === PUBLIC API ===
 
 export function isPlayable(format: string | null | undefined): boolean {
@@ -182,8 +201,11 @@ export function savePosition(): Promise<void> {
  */
 export async function restoreLast(): Promise<void> {
   memory = await api.playerMemory().catch(() => memory);
-  ui.volume = memory.volume;
-  engine.setVolume(memory.volume);
+  // When the volume is the device's it is not ours to set at startup: the slider shows where it is.
+  if (!engine.externalVolume) {
+    ui.volume = memory.volume;
+    engine.setVolume(memory.volume);
+  }
   const last = memory.last;
   const index = last ? queueOf(last.archive).findIndex(tr => tr.id === last.trackId) : -1;
   if (last && index >= 0) start(last.archive, index, false, last.position);
@@ -205,10 +227,11 @@ export function currentIsVideo(): boolean {
   return !!ui.nowPlaying && (findBlock(ui.nowPlaying.blockKey)?.block.video ?? false);
 }
 
-/** Into the floating panel, playing as it was. */
-export function showPip(): void {
+/** Into the floating panel, playing as it was. `auto`: it was not asked for, Reproduciendo was just left. */
+export function showPip(auto = false): void {
   if (ui.pip || !currentIsVideo()) return;
   ui.pip = true;
+  ui.pipAuto = auto;
   emit('player');
 }
 
@@ -216,6 +239,7 @@ export function showPip(): void {
 export function hidePip(): void {
   if (!ui.pip) return;
   ui.pip = false;
+  ui.pipAuto = false;
   engine.park();
   emit('player');
 }
@@ -258,7 +282,7 @@ function load(track: Track, autoplay: boolean, resumeAt = 0): void {
   ui.position = resumeAt;
   ui.duration = 0;
   pendingSeek = resumeAt;
-  engine.load(currentBlock, track);
+  engine.load(currentBlock, track, { playlist: found?.playlist.title ?? '', autoplay });
   // Another playlist, now of audio: nothing to float, and it keeps sounding.
   if (!found?.block.video) hidePip();
   memory.last = {
@@ -274,6 +298,7 @@ function load(track: Track, autoplay: boolean, resumeAt = 0): void {
 
 function stop(): void {
   ui.pip = false;
+  ui.pipAuto = false;
   engine.unload();
   queue = null;
   ui.nowPlaying = null;

@@ -116,6 +116,8 @@ pub struct UserSettings {
     /// Where the player shows: "side", "bottom" or "both".
     #[serde(deserialize_with = "null_as_empty")]
     pub player_placement: String,
+    /// A video goes to the floating panel by itself when Now Playing is left.
+    pub auto_pip: bool,
 }
 
 impl Default for UserSettings {
@@ -140,6 +142,7 @@ impl Default for UserSettings {
             last_played_position: 0.0,
             appearance: String::new(),
             player_placement: String::new(),
+            auto_pip: true,
         }
     }
 }
@@ -152,6 +155,7 @@ pub struct Preferences {
     pub language: String,
     pub ui_scale: i32,
     pub player_placement: String,
+    pub auto_pip: bool,
     pub include_id_in_title_name: bool,
     pub app_update_check_enabled: bool,
     pub auto_updates: bool,
@@ -167,6 +171,7 @@ pub struct PreferencesPatch {
     pub language: Option<String>,
     pub ui_scale: Option<i32>,
     pub player_placement: Option<String>,
+    pub auto_pip: Option<bool>,
     pub include_id_in_title_name: Option<bool>,
     pub app_update_check_enabled: Option<bool>,
     pub auto_updates: Option<bool>,

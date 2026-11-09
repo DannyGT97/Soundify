@@ -58,16 +58,16 @@ pub fn is_required(tool: Tool) -> bool {
 /// ffmpeg yt-dlp still downloads but cannot convert: the video was left as
 /// .mp4, cleaned away as a leftover, and the task ended with nothing.
 pub fn can_download(tools: &ToolPaths) -> bool {
-    // yt-dlp does not run on Android yet (phase 10 of the plan).
-    if cfg!(target_os = "android") {
-        return false;
-    }
     Tool::ALL.into_iter().filter(|tool| is_required(*tool)).all(|tool| is_installed(tools, tool))
 }
 
 /// Whether the tool can be run. Outside Windows the system's tools are used
 /// and the app cannot tell from a path: there, whatever answers counts.
 pub fn is_installed(tools: &ToolPaths, tool: Tool) -> bool {
+    // Inside the app (Android): everything is there once the runtime is unpacked.
+    if tools.uses_launcher() {
+        return tools.launcher().is_some();
+    }
     if !tools.is_managed() {
         return true;
     }
@@ -176,6 +176,16 @@ mod tests {
         assert!(!can_download(&tools), "no ffprobe");
         fs::write(tools.ffprobe(), "x").unwrap();
         assert!(can_download(&tools), "Deno is only recommended");
+    }
+
+    #[test]
+    fn tools_inside_the_app_count_once_the_runtime_is_ready() {
+        use std::sync::{Arc, OnceLock};
+        let slot = Arc::new(OnceLock::new());
+        let tools = ToolPaths::with_launcher("nowhere", slot.clone());
+        assert!(!can_download(&tools), "still unpacking");
+        slot.set(super::super::Launcher::default()).unwrap();
+        assert!(can_download(&tools));
     }
 
     #[test]

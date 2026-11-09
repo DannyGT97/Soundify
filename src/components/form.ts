@@ -10,6 +10,8 @@ import { cover } from './cover';
 import { library } from '../library';
 import { isPlayable } from '../player';
 import { canDownload, tools } from '../tools';
+import { onAndroid } from '../platform';
+import { defaultMusicDir } from '../storage';
 import { navigate } from '../router';
 import { deviceLabel, openDevicePicker } from '../overlays/devicePicker';
 import { closeFloating, openFloating } from './floating';
@@ -85,7 +87,8 @@ export interface Destinations {
 
 /** "Carpeta local" and "Dispositivo MTP", each saying what was chosen once it is. */
 export function destinations(changed: () => void): Destinations {
-  let text = '';
+  // On the phone the music goes to Music/Soundify unless another folder is picked.
+  let text = onAndroid ? defaultMusicDir() : '';
   let device: DeviceTarget | null = null;
   const set = (value: string, target: DeviceTarget | null) => {
     text = value;

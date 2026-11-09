@@ -7,11 +7,13 @@ import type { Api } from '..';
 import type {
   CopyOutcome, CopyProgress, CreatedPlaylist, DeleteResult, DeviceEntry, DeviceTarget, DownloadNotice, DownloadRequest, ExportResult, PlayerMemory, Preferences, TaskOrigin, WindowControls,
 } from '../types';
+import { onAndroid } from '../../platform';
 import { emit, ui, type TaskStatus } from '../../state';
 import { activityLog, AUDIO_FORMATS, importedPlaylist, playlists, VIDEO_FORMATS } from './data';
 import { mockCanDownload, mockTools } from './tools';
 
 let timer: number | undefined;
+let storageGranted = typeof location === 'undefined' || !new URLSearchParams(location.search).has('mockNoStorage');
 
 /** The browser has no window to drive: `?mockWindow` draws the title bar anyway, for its tests. */
 function mockWindowControls(): WindowControls | null {
@@ -54,6 +56,10 @@ export const mockApi: Api = {
   setTasksWindowOpen: () => {},
   // There is no folder chooser in a plain browser: always the same made-up one.
   pickFolder: async () => 'D:\\Música\\Descargas',
+  // `?mockAndroid` has the phone's storage; `?mockNoStorage` starts without the access, and asking grants it.
+  storageInfo: async () => ({ allFiles: storageGranted, musicDir: onAndroid ? '/storage/emulated/0/Music/Soundify' : null }),
+  requestAllFiles: async () => { storageGranted = true; return true; },
+  onToolsReady: () => {},
   copyPlaylist,
   cancelCopy: () => { copyCancelled = true; },
   scanImport: async folder => ({
@@ -163,7 +169,7 @@ const MOCK_UPDATE = {
 let playerMemory: PlayerMemory = { volume: 0.7, last: null };
 
 const FACTORY_PREFERENCES: Preferences = {
-  appearance: 'dark', language: 'es', uiScale: 100, playerPlacement: 'both',
+  appearance: 'dark', language: 'es', uiScale: 100, playerPlacement: 'both', autoPip: true,
   includeIdInTitleName: false, appUpdateCheckEnabled: true, autoUpdates: true, cookiesFile: '', lastAppUpdateCheck: '',
 };
 const PREFERENCES_KEY = 'soundify.mock.preferences';

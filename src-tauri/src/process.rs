@@ -20,8 +20,17 @@ impl YtDlpProcess {
         Self { tools }
     }
 
-    fn command(&self, args: &[String]) -> Command {
-        let mut command = Command::new(self.tools.ytdlp());
+    fn command(&self, args: &[String]) -> io::Result<Command> {
+        let mut command = match (self.tools.launcher(), self.tools.uses_launcher()) {
+            // Android: Python running yt-dlp, with its libraries found through the environment.
+            (Some(launcher), _) => {
+                let mut command = Command::new(&launcher.program);
+                command.args(&launcher.args).envs(launcher.env.iter().map(|(k, v)| (k, v)));
+                command
+            }
+            (None, true) => return Err(io::Error::other("the tools are still being unpacked")),
+            (None, false) => Command::new(self.tools.ytdlp()),
+        };
         command.args(with_utf8_encoding(args));
         // Without this, on Windows yt-dlp (Python) can dump its output in the
         // console encoding (cp1252) when stdout is a pipe. Any title with an
@@ -40,13 +49,13 @@ impl YtDlpProcess {
                 command.env("PATH", path);
             }
         }
-        command
+        Ok(command)
     }
 }
 
 impl Downloader for YtDlpProcess {
     fn run(&self, request: &YtDlpRequest, stop: &StopFlag, on_line: &mut dyn FnMut(OutputLine)) -> io::Result<RunEnd> {
-        run_lines(self.command(&request.args), stop, on_line)
+        run_lines(self.command(&request.args)?, stop, on_line)
     }
 }
 

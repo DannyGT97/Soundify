@@ -6,7 +6,7 @@
 import { api, type Preferences, type PreferencesPatch } from './api';
 import { setLanguage } from './i18n';
 import { initScale, onScaleChange, setScale } from './scale';
-import { PLAYER_PLACEMENTS, THEMES, setPlayerPlacement, setTheme, type PlayerPlacement, type Theme } from './state';
+import { PLAYER_PLACEMENTS, THEMES, emit, setPlayerPlacement, ui, setTheme, type PlayerPlacement, type Theme } from './state';
 
 let prefs: Preferences | null = null;
 
@@ -39,6 +39,13 @@ export function choosePlayerPlacement(value: PlayerPlacement): void {
   save({ playerPlacement: value });
 }
 
+/** Applies it on the spot (whoever shows the switch listens to `player`) and saves it. */
+export function chooseAutoPip(value: boolean): void {
+  ui.autoPip = value;
+  emit('player');
+  save({ autoPip: value });
+}
+
 export function chooseLanguage(code: string): void {
   save({ language: code });
   setLanguage(code);
@@ -58,5 +65,6 @@ export async function resetPreferences(): Promise<void> {
 function applyAll(p: Preferences): void {
   setTheme(THEMES.includes(p.appearance as Theme) ? p.appearance as Theme : 'dark');
   setPlayerPlacement(PLAYER_PLACEMENTS.includes(p.playerPlacement as PlayerPlacement) ? p.playerPlacement as PlayerPlacement : 'both');
+  ui.autoPip = p.autoPip;
   setLanguage(p.language);
 }

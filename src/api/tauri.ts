@@ -9,7 +9,7 @@ import { revealItemInDir } from '@tauri-apps/plugin-opener';
 import type { Api } from '.';
 import type {
   ActivityLine, AppUpdate, AppUpdateProgress, CopyOutcome, CopyProgress, CreatedPlaylist, DeleteResult, DeviceEntry, DeviceImportScan, DevicesView, DownloadNotice, ExportResult,
-  FormatCatalog, ImportOutcome, ImportScan, PlayerMemory, Playlist, Preferences, TasksViewWire, ToolDownload, ToolsReport, YtdlpCheck,
+  FormatCatalog, ImportOutcome, ImportScan, PlayerMemory, Playlist, Preferences, StorageInfo, TasksViewWire, ToolDownload, ToolsReport, YtdlpCheck,
 } from './types';
 import { onAndroid } from '../platform';
 import { emit, ui } from '../state';
@@ -44,9 +44,14 @@ export const tauriApi: Api = {
   },
   setTasksWindowOpen: open => void invoke('set_tasks_window_open', { open }),
   pickFolder: async title => {
+    // Android: the dialog plugin hands back a content:// URI; the downloads need a real path.
+    if (onAndroid) return invoke<string | null>('pick_phone_folder');
     const chosen = await open({ directory: true, multiple: false, title });
     return typeof chosen === 'string' ? chosen : null;
   },
+  storageInfo: () => invoke<StorageInfo>('storage_info'),
+  requestAllFiles: () => invoke<boolean>('request_all_files'),
+  onToolsReady: listener => void listen<boolean>('tools-ready', event => listener(event.payload)),
   copyPlaylist: (blockKey, destination, register, onProgress) =>
     withCopyProgress(onProgress, () => invoke<CopyOutcome>('copy_playlist', { blockKey, destination, register })),
   cancelCopy: () => void invoke('cancel_copy'),

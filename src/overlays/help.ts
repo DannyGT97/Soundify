@@ -2,6 +2,7 @@ import { h } from '../dom';
 import { icon } from '../icons';
 import { t } from '../i18n';
 import { closeButton, closeOverlay, openPanel } from '../components/overlay';
+import { onAndroid } from '../platform';
 import { importFromDevice, importFromFolder } from './transfer';
 
 /**
@@ -28,8 +29,9 @@ export function openImportHelp(): void {
     fold.setAttribute('aria-expanded', String(!body.hidden));
   } }, chevron, h('span', { text: t('import.which') }));
 
+  // A phone has no other phone to plug in by USB: that way is for the computer.
   const way = (iconName: 'general' | 'device', title: string, text: string, button: HTMLElement) =>
-    h('div', { class: 'way' },
+    h('div', { class: iconName === 'device' ? 'way desktop-only' : 'way' },
       h('span', { class: 'way-ic' }, icon(iconName, 22)),
       h('b', { text: title }),
       h('p', { class: 'muted', text }),
@@ -42,7 +44,7 @@ export function openImportHelp(): void {
     h('div', { class: 'mod-body' },
       h('p', { class: 'muted', text: t('import.intro') }),
       h('div', { class: 'ways' },
-        way('general', t('import.computer'), t('import.computer.text'),
+        way('general', t(onAndroid ? 'import.phone' : 'import.computer'), t(onAndroid ? 'import.phone.text' : 'import.computer.text'),
           h('button', { class: 'primary-button', text: t('help.import.action'), onclick: () => {
             closeOverlay();
             void importFromFolder();

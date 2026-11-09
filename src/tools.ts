@@ -10,7 +10,6 @@ import { t } from './i18n';
 import { navigate } from './router';
 import { emit, subscribe, ui } from './state';
 import { liveNotice, notify } from './components/toasts';
-import { onAndroid } from './platform';
 import { messageText } from './tasks';
 import { toolDownloadsText } from './toolDownloads';
 
@@ -28,6 +27,8 @@ export interface ToolsState {
   newerYtdlp: string | null;
   /** The assistant shows the progress itself: the notice stays away meanwhile. */
   wizardOpen: boolean;
+  /** Android: the tools in the APK could not be unpacked. */
+  unpackFailed: boolean;
 }
 
 export const tools: ToolsState = {
@@ -38,13 +39,18 @@ export const tools: ToolsState = {
   downloads: [],
   newerYtdlp: null,
   wizardOpen: false,
+  unpackFailed: false,
 };
 
 // === PURE LOGIC ===
 
-/** Missing tools, in order. Outside Windows the system's are used: nothing is ever missing. */
+/**
+ * Missing tools, in order. Outside Windows the system's are used: nothing is
+ * ever missing. On Android they travel in the APK: they count as missing only
+ * while they are being unpacked, and there is nothing to install.
+ */
 export function missingTools(report: ToolsReport | null): ToolStatus[] {
-  if (!report?.managed) return [];
+  if (!report?.managed && !report?.builtIn) return [];
   return report.tools.filter(tool => !tool.installed);
 }
 
@@ -59,7 +65,6 @@ export function missingRequired(report: ToolsReport | null): ToolStatus[] {
  * Before the report arrives it says yes: the back still refuses if it must.
  */
 export function canDownload(report: ToolsReport | null): boolean {
-  if (onAndroid) return false;
   return missingRequired(report).length === 0;
 }
 
@@ -128,6 +133,20 @@ export async function installTools(ids: readonly ToolId[], reinstall = false): P
   return allOk;
 }
 
+/**
+ * Android: «Actualizar yt-dlp». The one in the APK is as old as the APK, and an old one
+ * misses things (long playlists came out cut at 100 videos). The library downloads only
+ * when GitHub has another version, so the answer is told by comparing versions.
+ */
+export async function updateYtdlpOnPhone(): Promise<boolean> {
+  const before = tools.report?.tools.find(tool => tool.id === 'ytdlp')?.version ?? null;
+  const ok = await installTools(['ytdlp'], true);
+  if (!ok) return false;
+  const after = tools.report?.tools.find(tool => tool.id === 'ytdlp')?.version ?? null;
+  notify({ tone: 'success', text: after && after !== before ? t('tools.updated', 'yt-dlp', after) : t('tools.check.upToDate', 'yt-dlp') });
+  return true;
+}
+
 /** «Buscar actualización» of yt-dlp: says it in a notice when there is nothing new. */
 export async function checkYtdlp(): Promise<YtdlpCheck> {
   const check = await api.checkYtdlpUpdate();
@@ -136,6 +155,21 @@ export async function checkYtdlp(): Promise<YtdlpCheck> {
   if (check.latest === null) notify({ tone: 'error', text: t('tools.check.failed') });
   else if (!check.newer) notify({ tone: 'success', text: t('tools.check.upToDate', 'yt-dlp') });
   return check;
+}
+
+/**
+ * Android: «Buscar actualización». Asks GitHub like the desktop does; if that cannot be
+ * asked (no network from the back), the library itself decides by trying to update.
+ */
+export async function checkYtdlpOnPhone(): Promise<void> {
+  const check = await api.checkYtdlpUpdate().catch(() => null);
+  if (check === null || check.latest === null) {
+    await updateYtdlpOnPhone();
+    return;
+  }
+  tools.newerYtdlp = check.newer ? check.latest : null;
+  emit('tools');
+  if (!check.newer) notify({ tone: 'success', text: t('tools.check.upToDate', 'yt-dlp') });
 }
 
 /** Ajustes on the Herramientas tab. */
@@ -157,6 +191,11 @@ export function openAdvancedSettings(): void {
  */
 export function watchTools(): void {
   let notice: ReturnType<typeof liveNotice> | null = null;
+  // Android: the tools in the APK are ready (or not) a few seconds after the app opens.
+  api.onToolsReady(ok => {
+    tools.unpackFailed = !ok;
+    void loadTools().catch(() => emit('tools'));
+  });
   api.watchToolDownloads(downloads => {
     tools.downloads = downloads;
     emit('tools');

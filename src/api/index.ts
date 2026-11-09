@@ -8,12 +8,14 @@ import type {
   AppUpdate, AppUpdateProgress, CopyOutcome, CopyProgress, CreatedPlaylist, DeleteResult, DeviceEntry, DeviceImportScan, DevicesView, DeviceTarget, DownloadNotice, DownloadRequest,
   ExportResult, FormatCatalog, ImportOutcome, ImportScan, PlayerBackend, PlayerMemory, Playlist,
   Preferences, PreferencesPatch,
-  ToolDownload, ToolId, ToolsReport, WindowControls, YtdlpCheck,
+  StorageInfo, ToolDownload, ToolId, ToolsReport, WindowControls, YtdlpCheck,
 } from './types';
 import { mockApi } from './mock';
 import { insideTauri, tauriApi } from './tauri';
 import { SimulatedPlayer } from './mock/player';
 import { HtmlPlayer } from './htmlPlayer';
+import { AndroidPlayer } from './androidPlayer';
+import { onAndroid } from '../platform';
 
 export interface Api {
   /** The library the Gestor, Inicio and the Player show: always the last state known. */
@@ -38,6 +40,16 @@ export interface Api {
   setTasksWindowOpen(open: boolean): void;
   /** The system's folder chooser; null if the user closed it. */
   pickFolder(title: string): Promise<string | null>;
+  /** Android: whether the app can use the shared folders, and where the music goes by default. */
+  storageInfo(): Promise<StorageInfo>;
+  /**
+   * Android: opens the system screen where «Acceso a todos los archivos» is
+   * granted and resolves when the user is back, with what they decided. Once
+   * granted, the library is read again from the folders.
+   */
+  requestAllFiles(): Promise<boolean>;
+  /** Android: the tools in the APK are unpacked (true) or could not be (false). */
+  onToolsReady(listener: (ok: boolean) => void): void;
   /** Copies a playlist+format into its own folder inside `destination`. Rejects with an `ApiError`. */
   copyPlaylist(blockKey: string, destination: string, register: boolean,
                onProgress: (progress: CopyProgress) => void): Promise<CopyOutcome>;
@@ -146,7 +158,13 @@ export interface Api {
 // `npm run dev` in a plain browser (and Playwright) keeps the mock.
 export const api: Api = insideTauri() ? tauriApi : mockApi;
 // The webview's own <audio>/<video> plays the real files; a plain browser has
-// none to open, so it keeps the clock.
-export const playerBackend: PlayerBackend = insideTauri() ? new HtmlPlayer(path => api.fileUrl(path)) : new SimulatedPlayer();
+// none to open, so it keeps the clock. On the phone the music goes through a
+// native service (it goes on with the screen off) and only video through the webview.
+function makePlayerBackend(): PlayerBackend {
+  if (!insideTauri()) return new SimulatedPlayer();
+  const html = new HtmlPlayer(path => api.fileUrl(path));
+  return onAndroid ? new AndroidPlayer(html) : html;
+}
+export const playerBackend: PlayerBackend = makePlayerBackend();
 
 export type * from './types';

@@ -69,7 +69,9 @@ pub fn video_thumbnail_args(url: &str, cookies_file: Option<&str>) -> Vec<String
 /// does not have to walk (and wait out the sleep-interval of) every other one.
 pub fn playlist_entries_args(url: &str, cookies_file: Option<&str>) -> Vec<String> {
     with_cookies_and_url(
-        &["--flat-playlist", "--print", "%(playlist_index)s|%(id)s|%(title)s", "--no-warnings"],
+        // No `--no-warnings`, on purpose: when YouTube cuts the list short (a page of the
+        // playlist that does not arrive) yt-dlp only says so in a warning.
+        &["--flat-playlist", "--print", "%(playlist_index)s|%(id)s|%(title)s"],
         url,
         cookies_file,
     )
