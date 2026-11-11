@@ -196,6 +196,21 @@ pub fn open_folder_now(app: &AppHandle, folder: &str) -> Result<(), String> {
     android::open_folder(app, folder)
 }
 
+/// Before downloading an update: may the app install apps? `Ok(false)` = not yet,
+/// and the screen where the user allows it is now open.
+#[cfg(target_os = "android")]
+pub fn allow_install_now(app: &AppHandle) -> Result<bool, String> {
+    android::allow_install(app)
+}
+
+/// Gives a downloaded and verified APK to Android's installer. `Ok(true)` =
+/// the installer is open; `Ok(false)` = the user first has to allow Soundify to
+/// install apps (that screen is now open).
+#[cfg(target_os = "android")]
+pub fn install_apk_now(app: &AppHandle, apk: &std::path::Path) -> Result<bool, String> {
+    android::install_apk(app, apk)
+}
+
 #[cfg(target_os = "android")]
 mod android {
     use std::collections::BTreeMap;
@@ -281,6 +296,25 @@ mod android {
             .run_mobile_plugin::<serde_json::Value>("openFolder", serde_json::json!({ "path": folder }))
             .map(|_| ())
             .map_err(|e| e.to_string())
+    }
+
+    #[derive(Deserialize)]
+    #[serde(rename_all = "camelCase")]
+    struct Installing {
+        needs_permission: bool,
+    }
+
+    pub fn allow_install(app: &AppHandle) -> Result<bool, String> {
+        let answer: Installing = bridge(app)?.0.run_mobile_plugin("allowInstall", ()).map_err(|e| e.to_string())?;
+        Ok(!answer.needs_permission)
+    }
+
+    pub fn install_apk(app: &AppHandle, apk: &std::path::Path) -> Result<bool, String> {
+        let answer: Installing = bridge(app)?
+            .0
+            .run_mobile_plugin("installApk", serde_json::json!({ "path": apk.to_string_lossy() }))
+            .map_err(|e| e.to_string())?;
+        Ok(!answer.needs_permission)
     }
 
     #[derive(serde::Serialize)]

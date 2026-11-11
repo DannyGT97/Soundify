@@ -21,7 +21,7 @@ use soundify_core::http::ReqwestHttp;
 use soundify_core::logs::FileLogger;
 use soundify_core::settings;
 use soundify_core::storage::LocalStorage;
-use soundify_core::updater::{self, APPLY_FLAG, Update};
+use soundify_core::updater::{self, APPLY_FLAG, Package, Update};
 use tauri::{AppHandle, Emitter, Manager, State};
 
 use crate::app_paths::AppPaths;
@@ -130,7 +130,8 @@ pub async fn check_app_update(app: AppHandle) -> Result<Option<Update>, CommandE
 #[tauri::command]
 pub async fn install_app_update(app: AppHandle, updates: State<'_, AppUpdates>) -> Result<(), CommandError> {
     // A development build runs from `target/`: there is no portable to replace.
-    if cfg!(debug_assertions) {
+    // (On Android the debug APK is the one that gets installed, so it can update.)
+    if cfg!(debug_assertions) && !cfg!(target_os = "android") {
         return Err(CommandError::key("update.devBuild"));
     }
     let Some(update) = updates.found.lock().unwrap().clone() else {
@@ -143,7 +144,11 @@ pub async fn install_app_update(app: AppHandle, updates: State<'_, AppUpdates>) 
     let result = tauri::async_runtime::spawn_blocking(move || install(&worker, &update)).await.map_err(CommandError::io);
     app.state::<AppUpdates>().installing.store(false, Ordering::SeqCst);
     result??;
-    app.exit(0);
+    // On Windows the new copy takes over once this one closes. On Android the
+    // system's installer replaces the app by itself (and restarts it).
+    if cfg!(not(target_os = "android")) {
+        app.exit(0);
+    }
     Ok(())
 }
 
@@ -151,7 +156,7 @@ pub async fn install_app_update(app: AppHandle, updates: State<'_, AppUpdates>) 
 
 fn find_newer(app: &AppHandle) -> Result<Option<Update>, CommandError> {
     let http = ReqwestHttp::new(env!("CARGO_PKG_VERSION")).map_err(CommandError::io)?;
-    let found = updater::find_newer(&http, env!("CARGO_PKG_VERSION"));
+    let found = updater::find_newer(&http, env!("CARGO_PKG_VERSION"), Package::current());
 
     // The day is recorded WHATEVER the outcome: the point of it being daily is
     // not repeating it, not repeating it until there is news.
@@ -170,10 +175,14 @@ fn find_newer(app: &AppHandle) -> Result<Option<Update>, CommandError> {
 fn install(app: &AppHandle, update: &Update) -> Result<(), CommandError> {
     let paths = &app.state::<AppState>().paths;
     let http = ReqwestHttp::new(env!("CARGO_PKG_VERSION")).map_err(CommandError::io)?;
-    let name = exe_name().ok_or_else(|| CommandError::io("no executable name"))?;
+
+    // Before downloading tens of MB: on Android the install has to be allowed first.
+    if update.package == Package::Apk && !may_install(app)? {
+        return Err(CommandError::key("update.android.allowInstall"));
+    }
 
     let mut last = u32::MAX;
-    let zip = updater::download(&http, update, &paths.updates(), &mut |fraction| {
+    let package = updater::download(&http, update, &paths.updates(), &mut |fraction| {
         let percent = (fraction * 100.0).round() as u32;
         // Every chunk would flood the front; only whole percents go out.
         if percent != last {
@@ -183,11 +192,41 @@ fn install(app: &AppHandle, update: &Update) -> Result<(), CommandError> {
     })?;
     let _ = app.emit("app-update-progress", Progress::Verified);
 
-    let staged_root = updater::stage(&zip, &paths.staged_update(), &name)?;
+    if update.package == Package::Apk {
+        return install_apk(app, &package, update);
+    }
+    let name = exe_name().ok_or_else(|| CommandError::io("no executable name"))?;
+    let staged_root = updater::stage(&package, &paths.staged_update(), &name)?;
     hand_over(&staged_root.join(&name), &staged_root, &paths.app_dir).map_err(CommandError::io)?;
     // From here on the new copy is in charge, waiting for this one to close.
     let _ = app.emit("app-update-progress", Progress::Installing { version: &update.version });
     Ok(())
+}
+
+#[cfg(target_os = "android")]
+fn may_install(app: &AppHandle) -> Result<bool, CommandError> {
+    crate::mobile::allow_install_now(app).map_err(CommandError::io)
+}
+
+#[cfg(not(target_os = "android"))]
+fn may_install(_: &AppHandle) -> Result<bool, CommandError> {
+    Err(CommandError::io("an APK is only installed on Android"))
+}
+
+/// Android: the verified APK goes to the system's installer, which asks the
+/// user to confirm and replaces the app.
+#[cfg(target_os = "android")]
+fn install_apk(app: &AppHandle, apk: &Path, update: &Update) -> Result<(), CommandError> {
+    if !crate::mobile::install_apk_now(app, apk).map_err(CommandError::io)? {
+        return Err(CommandError::key("update.android.allowInstall"));
+    }
+    let _ = app.emit("app-update-progress", Progress::Installing { version: &update.version });
+    Ok(())
+}
+
+#[cfg(not(target_os = "android"))]
+fn install_apk(_: &AppHandle, _: &Path, _: &Update) -> Result<(), CommandError> {
+    Err(CommandError::io("an APK is only installed on Android"))
 }
 
 /// Launches the staged copy to do the swap. It waits for this executable to

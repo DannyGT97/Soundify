@@ -1,5 +1,6 @@
 import { h } from '../dom';
 import { t } from '../i18n';
+import { onAndroid } from '../platform';
 import { closeOverlay, openOverlay } from '../components/overlay';
 import type { AppUpdate } from '../api';
 
@@ -11,7 +12,7 @@ import type { AppUpdate } from '../api';
  */
 export function openUpdateAvailable(update: AppUpdate, installed: string, onInstall: () => void): void {
   openOverlay(t('update.available.heading', update.version), [
-    h('p', { class: 'subtitle', text: t('update.available.from', installed) }),
+    h('p', { class: 'subtitle', text: t(onAndroid ? 'update.available.from.android' : 'update.available.from', installed) }),
     // Always there, installing or not: it is what sets this apart from
     // "download an exe from the internet".
     h('p', { class: 'help-note', text: t('update.available.trust') }),

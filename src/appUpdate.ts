@@ -10,6 +10,7 @@
 import { api, type AppUpdate, type AppUpdateProgress } from './api';
 import { appVersion } from './appInfo';
 import { t } from './i18n';
+import { onAndroid } from './platform';
 import { notify } from './components/toasts';
 import { openUpdateAvailable } from './overlays/updateAvailable';
 import { errorText } from './transfer';
@@ -73,7 +74,7 @@ export function progressText(progress: AppUpdateProgress): string {
   switch (progress.phase) {
     case 'downloading': return t('settings.updates.downloading', progress.version, progress.percent);
     case 'verified': return t('settings.updates.verified');
-    case 'installing': return t('settings.updates.installing', progress.version);
+    case 'installing': return t(onAndroid ? 'settings.updates.installing.android' : 'settings.updates.installing', progress.version);
   }
 }
 

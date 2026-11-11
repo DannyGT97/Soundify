@@ -22,16 +22,14 @@ interface Tab {
   build: () => HTMLElement[];
 }
 
-/** What Android has no use for: the app updates through the store. (Herramientas is there too, only for yt-dlp.) */
-const DESKTOP_TABS = ['updates'];
-const TABS: Tab[] = ([
+const TABS: Tab[] = [
   { id: 'general', icon: 'general', build: general },
   { id: 'interface', icon: 'interface', build: interfaceTab },
   { id: 'updates', icon: 'updates', build: updates },
   { id: 'tools', icon: 'tools', build: toolsTab },
   { id: 'advanced', icon: 'advanced', build: advanced },
   { id: 'about', icon: 'about', build: about },
-] as Tab[]).filter(tab => !onAndroid || !DESKTOP_TABS.includes(tab.id));
+];
 
 let highlight: string | null = null;
 
@@ -74,7 +72,7 @@ export function settingsView(): HTMLElement {
     }
     // While there are results, no tab shows as selected.
     tabs.querySelectorAll('button').forEach(b => b.classList.remove('active'));
-    const hits = searchIndex(index, search.value).filter(hit => !onAndroid || !DESKTOP_TABS.includes(hit.category));
+    const hits = searchIndex(index, search.value);
     content.replaceChildren(...(hits.length ? hits.map(hit => h('button', { class: 'card search-hit', onclick: () => {
       search.value = '';
       highlight = hit.key;
@@ -208,7 +206,8 @@ function updates(): HTMLElement[] {
       h('p', { class: 'subtitle', text: t('settings.updates.check.desc') }),
       h('div', { class: 'stack-6' }, h('div', {}, button), status)),
     setting('settings.updates.auto', checkbox('appUpdateCheckEnabled')),
-    setting('settings.updates.tools', checkbox('autoUpdates')),
+    // On Android that switch lives in Herramientas (only yt-dlp is updated there).
+    ...(onAndroid ? [] : [setting('settings.updates.tools', checkbox('autoUpdates'))]),
   ];
 }
 

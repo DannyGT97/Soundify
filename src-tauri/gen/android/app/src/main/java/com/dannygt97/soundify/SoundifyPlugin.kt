@@ -267,6 +267,62 @@ class SoundifyPlugin(private val activity: Activity) : Plugin(activity) {
     }
   }
 
+  // === UPDATING THE APP ===
+
+  /** Can this app hand an APK to the installer? (Android 8+ asks the user once: "Install unknown apps".) */
+  private fun mayInstall(): Boolean =
+    Build.VERSION.SDK_INT < Build.VERSION_CODES.O || activity.packageManager.canRequestPackageInstalls()
+
+  private fun openInstallSettings() {
+    try {
+      activity.startActivity(Intent(Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES, Uri.parse("package:${activity.packageName}")))
+    } catch (e: Exception) {
+      // No such screen on this phone: the front still says what to allow.
+    }
+  }
+
+  /**
+   * Asked BEFORE downloading an update, so nobody downloads ~50 MB to then be
+   * sent to a settings screen: if the install is not allowed yet, that screen
+   * opens and `needsPermission` comes back.
+   */
+  @Command
+  fun allowInstall(invoke: Invoke) {
+    val needs = !mayInstall()
+    if (needs) openInstallSettings()
+    invoke.resolve(JSObject().put("needsPermission", needs))
+  }
+
+  /**
+   * Hands the downloaded (and already verified) APK to the system's installer.
+   * Only a file of the app's own `updates/` folder is accepted.
+   */
+  @Command
+  fun installApk(invoke: Invoke) {
+    val args = invoke.parseArgs(PathArgs::class.java)
+    val updates = File(activity.filesDir, "updates").canonicalFile
+    val apk = File(args.path).canonicalFile
+    if (!apk.path.startsWith(updates.path + File.separator) || !apk.isFile || !apk.name.endsWith(".apk")) {
+      invoke.reject("that file is not a downloaded update")
+      return
+    }
+    if (!mayInstall()) {
+      openInstallSettings()
+      invoke.resolve(JSObject().put("needsPermission", true))
+      return
+    }
+    try {
+      val uri = androidx.core.content.FileProvider.getUriForFile(activity, "${activity.packageName}.fileprovider", apk)
+      val install = Intent(Intent.ACTION_VIEW)
+        .setDataAndType(uri, "application/vnd.android.package-archive")
+        .addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_ACTIVITY_NEW_TASK)
+      activity.startActivity(install)
+      invoke.resolve(JSObject().put("needsPermission", false))
+    } catch (e: Exception) {
+      invoke.reject("install: ${e.message}", e)
+    }
+  }
+
   // === KEEPING THE APP ALIVE ===
 
   /** Starts or stops the foreground notice that keeps Android from killing the app while it downloads. */

@@ -124,6 +124,39 @@ test('regression: pressing play does not rebuild the rows (their thumbnails used
   expect(marks).toEqual(marks.map((_, i) => i + 1));
 });
 
+test('the headers sort the files and the queue follows the order shown', async ({ page }) => {
+  await page.clock.install();
+  await page.goto('/#/player?b=pl1:MP3');
+  const rows = page.locator('.track-row');
+  await rows.first().waitFor();
+  const numbers = () => rows.locator('.num, .eq').evaluateAll(all => all.map(el => el.textContent));
+  const ascending = await numbers();
+  const titleHeader = page.locator('.cols .col-sort', { hasText: 'Título' });
+  const numberHeader = page.locator('.cols .col-sort.n');
+  await expect(numberHeader).toHaveAttribute('aria-sort', 'ascending');
+
+  // The active column flips when pressed again; the first row is the last number.
+  await numberHeader.click();
+  await expect(numberHeader).toHaveAttribute('aria-sort', 'descending');
+  const descending = await numbers();
+  expect(descending).toEqual([...ascending].reverse());
+
+  // Another column starts ascending and the previous one stops being marked.
+  await titleHeader.click();
+  await expect(titleHeader).toHaveAttribute('aria-sort', 'ascending');
+  await expect(numberHeader).toHaveAttribute('aria-sort', 'none');
+  const titles = await rows.locator('.row-title').allTextContents();
+  expect(titles).toEqual([...titles].sort((a, b) => a.localeCompare(b, undefined, { numeric: true, sensitivity: 'base' })));
+
+  // «Descargado» too, and pressing the first file plays the one shown first.
+  await page.locator('.cols .col-sort.added').click();
+  await expect(page.locator('.cols .col-sort.added')).toHaveAttribute('aria-sort', 'ascending');
+  const first = (await rows.locator('.row-title').first().textContent()) ?? '';
+  await rows.first().click();
+  await page.clock.runFor(1000);
+  await expect(page.locator('.player-bar')).toContainText(first);
+});
+
 test('regression: space plays and pauses instead of pressing the last button again', async ({ page }) => {
   await page.clock.install();
   await page.goto('/#/player?b=pl1:MP3');

@@ -16,6 +16,15 @@ Repositorio: https://github.com/DannyGT97/Soundify (GitHub, rama `main`, GPL-3.0
   Firmado con la clave de depuración: para publicarlo hace falta un keystore propio
 - **Comprobar: `npm run check`** (tsc + vitest + cargo test + clippy, salida corta: una línea por
   herramienta, o solo lo que falla). Interfaz aparte: `npm run test:ui` (Playwright). Build: `npm run build`
+- **Actualizar la app en Android (11/11/2026, SIN comprobar en la tablet):** Ajustes → Actualizaciones también está en Android (sin el interruptor
+  de herramientas, que allí vive en Herramientas). `app_update.rs` hace lo mismo que en escritorio (comprobar, bajar a `filesDir/updates`, verificar SHA-256 + Ed25519),
+  pero en lugar de `stage`/`hand_over` entrega el APK al instalador del sistema: `SoundifyPlugin.installApk` (FileProvider + `ACTION_VIEW`;
+  solo acepta `.apk` dentro de `filesDir/updates`, `file_paths.xml`) tras `REQUEST_INSTALL_PACKAGES`. Antes de bajar nada se comprueba el permiso «Instalar
+  aplicaciones desconocidas» (`allowInstall`/`mayInstall`; si falta abre su pantalla y el error es `update.android.allowInstall`). Android pide confirmar y no
+  se hace `app.exit(0)`. La build de depuración SÍ se actualiza sola en Android (en escritorio se niega). **Para que instale por encima hace falta que el APK nuevo vaya firmado
+  con la MISMA clave que el instalado (hoy la de depuración; publicar de verdad pide un keystore propio) y un `versionCode` mayor.** Ninguna release publicada
+  lleva APK todavía: hasta entonces Android dice «al día». Publicarlo: `npx tauri android build --debug --apk --target aarch64 --target x86_64`
+  y `node scripts/package-apk.mjs --key "<ruta>"` (mismas reglas con la clave que el ZIP) → los tres archivos `-tauri.apk*` se suben a la MISMA release de GitHub.
 - **Publicar una release: cuando el usuario lo pida, lo hace Claude entero, SIEMPRE QUE NO MIRE LA CLAVE PRIVADA.**
   La clave privada de firma (su ruta está en `CLAUDE.local.md`, que git ignora) no se abre, ni se lee, ni se muestra, ni se copia: solo se pasa su
   ruta al script. Pasos: `node scripts/release-build.mjs` desde el commit de la versión (mejor en un `git worktree` de esa etiqueta; envuelve
@@ -58,7 +67,9 @@ Repositorio: https://github.com/DannyGT97/Soundify (GitHub, rama `main`, GPL-3.0
   `tauri-plugin-log` pone fechas en los rotados y por eso no se usa)
   Fase 9: `updater/` (= `AppUpdater` + `UpdateDownloader`/`UpdateInstaller`/`UpdateVerifier`/
   `ReleaseNotes`: ZIP portable de la release de GitHub (`DannyGT97/Soundify`) firmado con Ed25519, assets con sufijo `-tauri`
-  para no casar con las releases Java 1.x; NO `tauri-plugin-updater`) y `device/` (trait
+  para no casar con las releases Java 1.x; NO `tauri-plugin-updater`. `Package` = Zip (Windows) o Apk (Android, `Package::current()`):
+  una release puede llevar los dos juegos de tres assets y cada plataforma coge el suyo (`-tauri.apk`, `.apk.sha256`, `.apk.sig`); una
+  release sin el suyo no cuenta como actualización) y `device/` (trait
   `PortableDevice`, `NoDevices` fuera de Windows, `fake::FakeDevice` para tests) con lo que lo usa:
   `transfer/device` (copiar al/del teléfono, importar desde él), `engine/download/device` (=
   `DeviceSyncService`, un vídeo cada vez, preparado en local y empujado después) y `archive/device`
@@ -312,6 +323,16 @@ Repositorio: https://github.com/DannyGT97/Soundify (GitHub, rama `main`, GPL-3.0
   si no es válida.
 
 ## Pendiente
+- **Hecho el 11/11/2026, sin ver en la app real** (tests en verde):
+  - **ZIP de actualización limitados.** `updater/download.rs`: tras descargar y verificar, `prune_old_zips` deja en `data/updates/` solo
+    los `KEPT_ZIPS` (2) `Soundify-*-tauri.zip` más recientes por fecha de modificación (el recién bajado siempre se queda) y borra el
+    resto; no toca `staged/` ni otros archivos, y una descarga rechazada no borra nada. Tests en el mismo archivo.
+  - **Tabla de archivos del Reproductor ordenable.** Las cabeceras «#», «Título» y «Descargado» de una playlist son botones
+    (`views/player.ts`, `aria-sort`, flecha en la activa): pulsar la activa invierte; otra empieza ascendente (1 primero, A primero, el más
+    reciente primero). Lógica en `trackOrder.ts` (con test); el orden se recuerda por playlist **solo mientras la app está abierta** y la
+    cola suena en el orden mostrado (`queueOf` en `player.ts`; al reordenar la playlist que suena, `reorderQueue` reconstruye la cola desde
+    el archivo actual sin cortarlo; con aleatorio se vuelve a barajar el resto). El buscador y el orden se combinan. Test e2e en
+    `player.spec.ts`. En pantallas estrechas la columna «Descargado» ya se ocultaba, así que ahí solo se ordena por # y título.
 - **Arreglado el 09/11/2026, SIN comprobar con datos reales** (los tests lo cubren; falta verlo en la app de verdad. Si
   alguno vuelve a pasar, reabrirlo aquí con lo que se vea):
   - **Orden de los archivos distinto entre dev y build.** `reconcile_entries` (`core/src/archive/sync.rs`) enlaza ahora

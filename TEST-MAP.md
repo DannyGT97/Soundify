@@ -96,6 +96,7 @@ Estados: **portado** · **pendiente (fase N)** · **descartado** (con el motivo)
 ## Fase 9
 | Java | Tauri | Estado |
 |---|---|---|
+| — | `core/src/updater/mod.rs` (+3: Android coge el APK y Windows el ZIP de la misma release, una release solo-ZIP no es actualización en Android, salta una más nueva sin APK), `download.rs` (+1: el APK se baja como `.apk` y la poda no toca los ZIP), `e2e/phone.spec.ts` (Actualizaciones en Android) | nuevos: actualizar la app en Android |
 | `UpdateVerifierTest` | `core/src/updater/verify.rs` (18: firma Ed25519, hash, asset equivocado, solo releases del repositorio de GitHub) | portado |
 | `UpdateInstallerTest` | `core/src/updater/install.rs` (16: sustituir el portable, esperar a que el exe se pueda escribir) | portado; `waitPidFromArgs` no se porta (se espera al fichero, no al proceso) |
 | `AppUpdaterTest` | `core/src/updater/mod.rs` (19: versión, sufijo `-tauri`, qué release se propone, nunca borradores ni pre-releases) + `download.rs` (6) + `src/appUpdate.test.ts` (5) + `e2e/settings.spec.ts` (ventana con notas, fallo al instalar) | portado |

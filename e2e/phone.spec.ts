@@ -56,10 +56,15 @@ test('on Android the tools come in the app, the music goes to Music/Soundify and
   await expect(page.getByRole('button', { name: 'Importar' })).toBeVisible();
 
   await page.goto('/?mockAndroid#/settings');
-  await expect(page.locator('.settings-tab')).toHaveCount(5);
-  await expect(page.locator('.settings-tab', { hasText: 'Actualizaciones' })).toBeHidden();
-  await page.getByPlaceholder('Buscar ajustes').fill('yt-dlp');
-  await expect(page.locator('.search-hit').filter({ hasText: 'Actualizaciones' })).toHaveCount(0);
+  await expect(page.locator('.settings-tab')).toHaveCount(6);
+});
+
+test('on Android, Actualizaciones updates the app (the system installer confirms) and leaves the tools switch to Herramientas', async ({ page }) => {
+  await page.goto('/?mockAndroid#/settings');
+  await page.locator('.settings-tab', { hasText: 'Actualizaciones' }).click();
+  await expect(page.getByText('Actualizar yt-dlp, ffmpeg y Deno automáticamente')).toHaveCount(0);
+  await page.getByRole('button', { name: 'Buscar actualizaciones' }).click();
+  await expect(page.getByText('Android te pedirá confirmar la instalación')).toBeVisible();
 });
 
 test('on Android, Herramientas offers to update yt-dlp (the one in the app ages) and nothing else', async ({ page }) => {

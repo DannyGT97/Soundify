@@ -6,6 +6,7 @@ import { countBy, filesText, findBlock, library, onDisk } from '../library';
 import * as player from '../player';
 import { formatTime, isPlayable } from '../player';
 import { filterByTitle } from '../search';
+import { nextOrder, orderOf, setOrder, sortTracks, type SortKey } from '../trackOrder';
 import { ago } from '../relativeTime';
 import { navigate, onLeave, type Params } from '../router';
 import { subscribe, ui } from '../state';
@@ -263,11 +264,40 @@ function detailView(key: string): HTMLElement {
   const tracks = h('div', { class: 'tracks' });
   const none = h('p', { class: 'none' });
   const footNote = h('div', { class: 'foot-note' });
+  // The headers sort the list; the arrow marks the active one and its direction.
+  const COLUMNS: { key: SortKey; class: string; label: string }[] = [
+    { key: 'number', class: 'n', label: '#' },
+    { key: 'title', class: '', label: t('player.column.title') },
+    { key: 'added', class: 'added', label: t('player.column.added') },
+  ];
+  const headers = new Map<SortKey, HTMLElement>();
+  for (const column of COLUMNS) {
+    headers.set(column.key, h('button', {
+      class: `col-sort ${column.class}`.trim(),
+      attrs: { type: 'button' },
+      onclick: () => {
+        setOrder(block.key, nextOrder(orderOf(block.key), column.key));
+        fillTracks();
+        player.reorderQueue(block.key);
+      },
+    }, h('span', { text: column.label }), icon('chevron-down', 12)));
+  }
   const cols = h('div', { class: `cols${block.video ? ' wide' : ''}` },
-    h('span', { class: 'n', text: '#' }),
+    headers.get('number')!,
     h('span', { class: 'thumb-col' }),
-    h('span', { text: t('player.column.title') }),
-    h('span', { class: 'added', text: t('player.column.added') }));
+    headers.get('title')!,
+    headers.get('added')!);
+  const refreshHeaders = () => {
+    const order = orderOf(block.key);
+    for (const column of COLUMNS) {
+      const header = headers.get(column.key)!;
+      const active = column.key === order.key;
+      header.classList.toggle('active', active);
+      header.dataset.dir = active ? order.dir : '';
+      header.setAttribute('aria-sort', active ? (order.dir === 'asc' ? 'ascending' : 'descending') : 'none');
+      header.title = t('player.sort.by', column.label);
+    }
+  };
 
   const refreshPlay = () => {
     const sounding = ui.nowPlaying?.blockKey === block.key && ui.playing;
@@ -283,7 +313,8 @@ function detailView(key: string): HTMLElement {
   };
 
   function fillTracks(): void {
-    const shown: Track[] = filterByTitle(onDisk(block.tracks), filter);
+    refreshHeaders();
+    const shown: Track[] = sortTracks(filterByTitle(onDisk(block.tracks), filter), orderOf(block.key));
     tracks.replaceChildren(...shown.map(track =>
       trackRow(block, track, h('span', { class: 'd', text: relative(track.addedDaysAgo) }), { thumbWidth: 68, thumbHeight: 40 })));
     none.hidden = shown.length > 0;

@@ -10,6 +10,7 @@ import { api, playerBackend as engine, type PlayerMemory, type Track } from './a
 import { findBlock, onDisk } from './library';
 import { PlayerQueue, nextRepeat } from './playerQueue';
 import { emit, ui } from './state';
+import { orderOf, sortTracks } from './trackOrder';
 
 /**
  * What the built-in player can open, by format NAME (ALAC is .m4a too and
@@ -122,6 +123,21 @@ export function isPlayable(format: string | null | undefined): boolean {
 export function play(blockKey: string, track: Track): void {
   const index = queueOf(blockKey).findIndex(tr => tr.id === track.id);
   if (index >= 0) start(blockKey, index, true);
+}
+
+/**
+ * The list of the playing block was sorted again: the queue follows the new
+ * order from the file that is sounding, which keeps playing untouched.
+ */
+export function reorderQueue(blockKey: string): void {
+  if (!queue || currentBlock !== blockKey || !ui.nowPlaying) return;
+  const tracks = queueOf(blockKey);
+  const playing = ui.nowPlaying.track.id;
+  const index = tracks.findIndex(tr => tr.id === playing);
+  if (index < 0) return;
+  queue = new PlayerQueue(tracks, index);
+  queue.repeat = ui.repeat;
+  if (ui.shuffle) queue.setShuffled(true);
 }
 
 /** From the first file (shuffled, the rest come in a fixed random order). */
@@ -320,6 +336,7 @@ function persist(): Promise<void> {
   return api.savePlayerMemory(copy).catch(() => {});
 }
 
+/** The block's files on disk in the order the Reproductor shows them (by number unless the user sorted it). */
 function queueOf(blockKey: string): Track[] {
-  return onDisk(findBlock(blockKey)?.block.tracks ?? []);
+  return sortTracks(onDisk(findBlock(blockKey)?.block.tracks ?? []), orderOf(blockKey));
 }

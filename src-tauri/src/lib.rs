@@ -117,10 +117,9 @@ pub fn run() {
       // On Android only once the storage can be read: without access every
       // file would look deleted (`mobile::request_all_files` runs it later).
       mobile::reconcile_in_background(app.handle().clone());
-      // On Android the store or the APK updates the app, never itself; the
-      // tools come in the APK and are unpacked now.
-      #[cfg(not(target_os = "android"))]
+      // The daily check for a newer version (on Android it offers the APK).
       app_update::check_at_startup(app.handle());
+      // On Android the tools come in the APK and are unpacked now.
       #[cfg(target_os = "android")]
       {
         mobile::listen_player(app.handle());
