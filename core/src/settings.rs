@@ -59,6 +59,9 @@ pub fn preferences(settings: &UserSettings) -> Preferences {
         player_placement: placement.to_string(),
         auto_pip: settings.auto_pip,
         include_id_in_title_name: settings.include_id_in_title_name,
+        concurrent_fragments: settings.concurrent_fragments,
+        parallel_downloads: settings.parallel_downloads,
+        parallel_blocks: settings.parallel_blocks,
         app_update_check_enabled: settings.app_update_check_enabled,
         auto_updates: settings.auto_updates,
         cookies_file: settings.cookies_file.clone(),
@@ -88,6 +91,15 @@ pub fn apply(settings: &mut UserSettings, patch: &PreferencesPatch) {
     }
     if let Some(value) = patch.include_id_in_title_name {
         settings.include_id_in_title_name = value;
+    }
+    if let Some(value) = patch.concurrent_fragments {
+        settings.concurrent_fragments = value;
+    }
+    if let Some(value) = patch.parallel_downloads {
+        settings.parallel_downloads = value;
+    }
+    if let Some(value) = patch.parallel_blocks {
+        settings.parallel_blocks = value;
     }
     if let Some(value) = patch.app_update_check_enabled {
         settings.app_update_check_enabled = value;
@@ -249,6 +261,51 @@ mod tests {
         // An old settings.json without the field keeps it on.
         let old: UserSettings = serde_json::from_str(r#"{"uiScale":100}"#).unwrap();
         assert!(old.auto_pip);
+    }
+
+    #[test]
+    fn concurrent_fragments_are_off_by_default_and_a_reset_turns_them_off() {
+        let mut settings = UserSettings::default();
+        assert!(!preferences(&settings).concurrent_fragments);
+        apply(&mut settings, &PreferencesPatch { concurrent_fragments: Some(true), ..Default::default() });
+        assert!(preferences(&settings).concurrent_fragments);
+        // A patch without the field leaves it alone.
+        apply(&mut settings, &PreferencesPatch { auto_pip: Some(false), ..Default::default() });
+        assert!(settings.concurrent_fragments);
+        assert!(!reset(&settings).concurrent_fragments);
+        // An old settings.json without the field keeps it off.
+        let old: UserSettings = serde_json::from_str(r#"{"uiScale":100}"#).unwrap();
+        assert!(!old.concurrent_fragments);
+    }
+
+    #[test]
+    fn parallel_downloads_are_off_by_default_and_a_reset_turns_them_off() {
+        let mut settings = UserSettings::default();
+        assert!(!preferences(&settings).parallel_downloads);
+        apply(&mut settings, &PreferencesPatch { parallel_downloads: Some(true), ..Default::default() });
+        assert!(preferences(&settings).parallel_downloads);
+        // A patch without the field leaves it alone.
+        apply(&mut settings, &PreferencesPatch { auto_pip: Some(false), ..Default::default() });
+        assert!(settings.parallel_downloads);
+        assert!(!reset(&settings).parallel_downloads);
+        // An old settings.json without the field keeps it off.
+        let old: UserSettings = serde_json::from_str(r#"{"uiScale":100}"#).unwrap();
+        assert!(!old.parallel_downloads);
+    }
+
+    #[test]
+    fn parallel_blocks_are_off_by_default_and_a_reset_turns_them_off() {
+        let mut settings = UserSettings::default();
+        assert!(!preferences(&settings).parallel_blocks);
+        apply(&mut settings, &PreferencesPatch { parallel_blocks: Some(true), ..Default::default() });
+        assert!(preferences(&settings).parallel_blocks);
+        // A patch without the field leaves it alone, and it is independent of the other option.
+        apply(&mut settings, &PreferencesPatch { parallel_downloads: Some(true), ..Default::default() });
+        assert!(settings.parallel_blocks);
+        assert!(!reset(&settings).parallel_blocks);
+        // An old settings.json without the field keeps it off.
+        let old: UserSettings = serde_json::from_str(r#"{"uiScale":100}"#).unwrap();
+        assert!(!old.parallel_blocks);
     }
 
     #[test]

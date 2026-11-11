@@ -28,7 +28,12 @@ export interface Api {
   createPlaylist(url: string, format: string, folder: string, numbered: boolean): Promise<CreatedPlaylist>;
   /** Starts a download in the background; only one runs at a time. */
   startDownload(request: DownloadRequest): void;
-  stopDownload(): void;
+  /** Stops one running task, or all of them without an id. */
+  stopDownload(taskId?: number): void;
+  /** Takes a task that waits its turn out of the queue. */
+  removeQueued(id: number): void;
+  /** Empties the queue; the running download goes on. */
+  clearQueue(): void;
   clearTaskHistory(): void;
   /**
    * Mirrors the back's task and Activity into `ui` from now on (topics `tasks`
@@ -60,7 +65,8 @@ export interface Api {
   /** Registers each folder; one failing never stops the rest. */
   importPlaylists(folders: string[]): Promise<ImportOutcome[]>;
   /** Shows a folder in the system's file explorer. */
-  revealFolder(folder: string): void;
+  /** Opens the folder itself in the system's explorer (not its parent). */
+  revealFolder(folder: string): Promise<void>;
   /**
    * «Eliminar»: forgets the playlist+format and, with `files`, deletes what it
    * downloaded first (null when `files` is false). Rejects with an `ApiError`.

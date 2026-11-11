@@ -292,6 +292,8 @@ impl SafetyNet<'_> {
             number_files: true,
             player_client: client.map(str::to_string),
             playlist_items: None,
+            // One short video at a time: nothing to gain from more fragments.
+            concurrent_fragments: 0,
         };
         let request = YtDlpRequest { args: command::build(self.format, &cfg) };
 

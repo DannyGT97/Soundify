@@ -1,6 +1,6 @@
 # Mapa de tests (Java → Tauri)
 
-Cada test de la app Java (`D:\Proyectos\soundifylocal\src\test\java`) y dónde quedó aquí. Un test se
+Cada test de la app Java (`src/test/java` del repositorio `soundifylocal`) y dónde quedó aquí. Un test se
 apunta al portar su clase, en la misma fase. Los «regresión:» se portan 1:1 y con su nombre.
 
 Estados: **portado** · **pendiente (fase N)** · **descartado** (con el motivo).
@@ -12,7 +12,7 @@ Estados: **portado** · **pendiente (fase N)** · **descartado** (con el motivo)
 | `ui/NavigationUiTest` | `e2e/navigation.spec.ts` (menú, marca, plegado entre pantallas) | portado |
 | `i18n/I18nKeysTest` | `src/i18n.test.ts` (solo español; en/ca en la fase 8) | portado en parte |
 | — | `src/urls.test.ts`, `src/scale.test.ts`, `src/library.test.ts` (`groupByStatus` incluido), `src/player.test.ts`, `src/keys.test.ts` (dónde escribe el espacio) | nuevos |
-| — | `e2e/player.spec.ts`: regresiones de pulsar el archivo que ya suena (no reinicia), espacio = pausa/reproduce sin repetir el último botón, volumen en Reproduciendo con el reproductor solo en el menú | nuevos |
+| — | `e2e/player.spec.ts`: lápiz sobre la portada grande del Reproductor (aparece al pasar el ratón); regresiones de pulsar el archivo que ya suena (no reinicia), espacio = pausa/reproduce sin repetir el último botón, volumen en Reproduciendo con el reproductor solo en el menú | nuevos |
 | — | `core`: contrato de `Storage` (disco, memoria con rutas y con URIs), `Location`, `ScriptedDownloader` | nuevos |
 | `ui/PlayerUiTest` | `e2e/player.spec.ts` (barra, reloj, pausa, cerrar) — el resto en la fase 7 | portado en parte |
 | `ui/BackgroundTasksUiTest` | `e2e/player.spec.ts` (la descarga aparece y termina en el indicador) — el resto en la fase 5 | portado en parte |
@@ -38,7 +38,7 @@ Estados: **portado** · **pendiente (fase N)** · **descartado** (con el motivo)
 ## Fase 3
 | Java | Tauri | Estado |
 |---|---|---|
-| `YtDlpCommandBuilderTest` | `core/src/ytdlp/command.rs` (13) | portado + 3 nuevos (tabla de flags de metadatos por formato, la URL va la última, `--playlist-items`/pausas solo en playlist) |
+| `YtDlpCommandBuilderTest` | `core/src/ytdlp/command.rs` (16) | portado + 6 nuevos (tabla de flags de metadatos por formato, la URL va la última, `--playlist-items`/pausas solo en playlist; `--concurrent-fragments`: ausente de serie, `2` al activarlo, tope y «1 = ninguno») |
 | `YtDlpProgressParserTest` | `core/src/ytdlp/progress.rs` (14) | portado, con las dos regresiones |
 | `OutputCleaningTest` | `core/src/ytdlp/cleaning.rs` (4) | portado |
 | `UnavailableReasonTest` | `core/src/ytdlp/unavailable.rs` (8) + `src/library.test.ts` (`statusText`) | portado; el motivo es una clave de i18n y el texto lo pone el front |
@@ -61,7 +61,7 @@ Estados: **portado** · **pendiente (fase N)** · **descartado** (con el motivo)
 | Java | Tauri | Estado |
 |---|---|---|
 | `SafetyNetServiceTest` | `core/src/engine/safety_net.rs` (18) | portado (`cleanErrorLine`) + nuevos: reintento por `player_client`, marcas de fallo, parar a medias |
-| `BackgroundTasksTest` | `core/src/engine/tasks.rs` (7) | portado |
+| `BackgroundTasksTest` | `core/src/engine/tasks.rs` (7 + 3 de la cola: orden y una a la vez, quitar/vaciar, ids y `is_busy_with`) | portado; la cola es nueva |
 | `ActivityLogTest` | `core/src/engine/activity.rs` (11) | portado |
 | — (el ciclo de `DownloadCoordinator` no tenía) | `core/src/engine/download/tests.rs` (18) | nuevo: descarga entera con un `Downloader` falso que emite salida de yt-dlp real; «Crear» registra sin descargar, título genérico, playlist que no se puede listar, numeración ya fijada; descarga suelta en la carpeta elegida |
 | — | `core/src/ytdlp/cleaning.rs` (+3) | nuevo: el manifiesto nunca es un resto; una descarga suelta solo limpia lo suyo |
@@ -83,7 +83,7 @@ Estados: **portado** · **pendiente (fase N)** · **descartado** (con el motivo)
 | — | `core/src/settings.rs` (+3: memoria del reproductor, ✕ olvida el último archivo, volumen acotado) | nuevo |
 | `RelativeTimeTest` | `src/relativeTime.test.ts` (4) | portado; el back ya manda los días contados, así que se prueba desde el número de días (antes no había semana/mes/año en singular ni años) |
 | `ui/PlayerUiTest` (resto) | `e2e/player.spec.ts` | portado; volver al segundo tras reiniciar se prueba a mano (la API de mentira no guarda entre recargas) |
-| — | `e2e/manager.spec.ts` (3: bloque en descarga y hermanos en espera, «Ver archivos» en vivo, «Ir a la descarga») + `src/tasks.test.ts` (`blockKey`, `liveText`, `progressLine`) + `core/src/engine/tasks.rs` (`the_block_being_downloaded_is_known_only_while_it_runs`) y `download/tests.rs` (aviso `downloaded` por archivo) | nuevo: descarga en vivo en el Gestor |
+| — | `e2e/manager.spec.ts` (4: bloque en descarga y hermanos sin atenuar, «Ver archivos» en vivo, «Ir a la descarga», cola con Tareas/quitar/arranque solo) + `src/tasks.test.ts` (también `queue`) y, antes de la cola: (bloque en descarga y hermanos en espera, «Ver archivos» en vivo, «Ir a la descarga») + `src/tasks.test.ts` (`blockKey`, `liveText`, `progressLine`) + `core/src/engine/tasks.rs` (`the_block_being_downloaded_is_known_only_while_it_runs`) y `download/tests.rs` (aviso `downloaded` por archivo) | nuevo: descarga en vivo en el Gestor |
 
 ## Fase 8
 | Java | Tauri | Estado |
@@ -110,9 +110,13 @@ Estados: **portado** · **pendiente (fase N)** · **descartado** (con el motivo)
 | Java | Tauri | Estado |
 |---|---|---|
 | — | `e2e/phone.spec.ts` (11: ninguna pantalla se sale de ancho a 390 px, barra de pestañas, barra del reproductor reducida, lo que Android oculta, herramientas y carpeta por defecto en Android, aviso «Dar acceso» sin permiso) + `src-tauri/src/app_paths.rs` (2: la carpeta privada en Android) + `src/api/androidPlayer.test.ts` (2: qué motor reproduce cada archivo) + `core/src/tools` (tests del `Launcher` y de `can_download` en Android) | nuevos |
+| — | `core/src/settings.rs` (`concurrent_fragments`: apagado de serie, un parche sin el campo no lo toca, el reset lo apaga, un `settings.json` viejo lo deja apagado) + `e2e/settings.spec.ts` (el interruptor de Ajustes → Avanzado se guarda, sobrevive a recargar y el reset lo apaga) | nuevos (fase 2 de la descarga simultánea) |
 | — | `e2e/phone.spec.ts` (+2: la escala sale en Ajustes y amplía todo sin desbordar; un vídeo flota solo en móvil en un panel menor) + `e2e/player.spec.ts` (+4: imagen en imagen automática al salir y al volver, chip para quitarla, el audio no flota, texto del hueco pequeño y acoplar arrastrando) + `src/pipPanel.test.ts` (`pipSize`, `overDock`) + `core/src/settings.rs` (`autoPip`) | nuevos |
 | — | `e2e/phone.spec.ts` (+1: en Android Herramientas solo tiene yt-dlp con «Actualizar yt-dlp» y el interruptor de actualización automática; la pestaña Actualizaciones sigue oculta) | nuevos |
 | — | `e2e/phone.spec.ts` (+1: con el teclado abierto sobre un campo se ocultan menú, reproductor y pie del formulario) y `src/platform.test.ts` | nuevos |
+| — | `core/src/engine/tasks.rs` (planificador: ids, aislamiento con límite 2, reserva de carpeta y archive con grafías equivalentes, nadie adelanta, el teléfono de uno en uno, quitar libera sitio, título/progreso/bloque/parada por tarea, `request_stop_all`, avisos tardíos por id, avisos de una tarea que ya no está) + `core/src/engine/resources.rs` (3) + `core/src/archive/tests.rs` (+2: cambios concurrentes al mismo archive sin pérdidas y a archives distintos sin mezclarse) + `src-tauri/src/downloads.rs` (2: forma de `activity` y `notice` con `taskId`) + `src/tasks.test.ts` (+1: con varias en marcha se enseña la primera) | nuevos (fase 3 de la descarga simultánea) |
+| — | Fase 5 (dos bloques a la vez, experimental): `core/src/engine/tasks.rs` (+4: límite 1 de serie y 2 con el ajuste, presupuesto de 2 procesos, el segundo proceso se niega si una tarea espera, se libera), `core/src/engine/download/tests.rs` (+3: pide y suelta el segundo proceso; sin él no reparte), `core/src/settings.rs` (+1: `parallel_blocks` apagado de serie y el reset lo apaga), `src/tasks.test.ts` (+2: conserva todas las tareas, `overallPercent`), `e2e/manager.spec.ts` (+2: dos bloques a la vez, tercero en cola, parar uno y «Detener todas»; apagado, el segundo espera) y `e2e/settings.spec.ts` (+1: el ajuste experimental) | nuevos |
+| — | `core/src/engine/download/lanes.rs` (20: reparto en mitades contiguas y por título, rangos de `--playlist-items`, progreso combinado, dos peticiones realmente a la vez y nunca más de dos con retrasos deterministas, parar las dos o solo una, combinar resultados, 429) + `core/src/engine/download/tests.rs` (+10: apagado de serie es un proceso; reparto sin elementos comunes que cubre todo lo pendiente; el segundo numera a continuación del primero; copia de `archive.txt` y de las cookies que se borra después; un solo elemento no abre un segundo proceso; reanudar pide solo lo pendiente; Detener para los dos; 429 del segundo deja sus elementos a la segunda pasada; una descarga suelta nunca usa dos) + `core/src/settings.rs` (`parallel_downloads`) + `core/src/ytdlp/command.rs` (`cleaned_title`) + `e2e/settings.spec.ts` (el interruptor se guarda y el reset lo apaga) | nuevos (fase 4 de la descarga simultánea) |
 
 ## Pendientes
 | Java | Fase |

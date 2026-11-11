@@ -4,7 +4,7 @@
 
 import type { ActivityLine, DownloadNotice, TaskOrigin, TaskRecordWire, TasksViewWire } from './api/types';
 import { hasKey, t } from './i18n';
-import { emit, ui, type FinishedTask, type RunningTask, type TaskStatus } from './state';
+import { emit, ui, type FinishedTask, type QueuedTask, type RunningTask, type TaskStatus } from './state';
 
 const STATUSES: readonly TaskStatus[] = ['ok', 'warning', 'stopped', 'failed'];
 
@@ -17,6 +17,18 @@ export function markSeen(): void {
 export function percent(task: RunningTask | null = ui.task): number | null {
   if (!task || task.step === 'prepare' || task.fraction === null) return null;
   return Math.round(Math.min(1, Math.max(0, task.fraction)) * 100);
+}
+
+/** The running task that downloads this archive, if any. */
+export function runningFor(blockKey: string): RunningTask | null {
+  return ui.running.find(task => task.blockKey === blockKey) ?? null;
+}
+
+/** One ring for several tasks: the mean of those that already know how far they are (null if none does). */
+export function overallPercent(tasks: readonly RunningTask[]): number | null {
+  const known = tasks.map(task => percent(task)).filter((value): value is number => value !== null);
+  if (!known.length) return null;
+  return Math.round(known.reduce((sum, value) => sum + value, 0) / tasks.length);
 }
 
 /** The file being downloaded now, 1-based, for "Archivo X de Y". */
@@ -33,6 +45,11 @@ export function statusMark(status: TaskStatus): { icon: 'ok' | 'warning' | 'stop
     case 'stopped': return { icon: 'stopped', filled: true };
     case 'failed': return { icon: 'error', filled: false };
   }
+}
+
+/** The task of this archive that waits its turn, if any. */
+export function queuedFor(blockKey: string): QueuedTask | null {
+  return ui.queue.find(q => q.blockKey === blockKey) ?? null;
 }
 
 /** The chip of a Gestor row while one of its formats downloads: «Descargando MP3 · 3/12». */
@@ -56,13 +73,16 @@ export function originText(origin: string): string {
 // === FROM THE BACK ===
 
 /** The back's view, as `ui` keeps it. Pure: `applyTasksView` is the one that stores it. */
-export function toTasksState(view: TasksViewWire, now: Date): Pick<typeof ui, 'task' | 'unseenResult' | 'history'> {
-  const running = view.running;
+export function toTasksState(view: TasksViewWire, now: Date): Pick<typeof ui, 'task' | 'running' | 'queue' | 'unseenResult' | 'history'> {
+  // One task normally, two with «Descargar más rápido»; `task` is the first of them.
+  const running: RunningTask[] = view.running.map(task => ({
+    id: task.id, title: task.title, origin: toOrigin(task.origin), step: task.step, fraction: task.fraction, total: task.total, blockKey: task.blockKey ?? null,
+  }));
   return {
-    task: running
-        ? { title: running.title, origin: toOrigin(running.origin), step: running.step, fraction: running.fraction, total: running.total, blockKey: running.blockKey ?? null }
-        : null,
-    unseenResult: running ? null : toStatus(view.unseen),
+    task: running[0] ?? null,
+    running,
+    queue: (view.queued ?? []).map(q => ({ id: q.id, title: q.title, origin: toOrigin(q.origin), blockKey: q.blockKey ?? null })),
+    unseenResult: view.running.length ? null : toStatus(view.unseen),
     history: view.history.map(record => toFinished(record, now)),
   };
 }

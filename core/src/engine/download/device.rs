@@ -438,6 +438,8 @@ impl Engine<'_> {
             number_files: false,
             player_client: Some(player_client.to_string()),
             playlist_items: None,
+            // One short video at a time: nothing to gain from more fragments.
+            concurrent_fragments: 0,
         };
         let mut captures = ItemCaptures::default();
         let single = run.single;

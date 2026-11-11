@@ -5,6 +5,7 @@ import { api, type FormatBlock, type Playlist, type Track } from '../api';
 import { countBy, filesText, findBlock, groupByStatus, onDisk, statusText } from '../library';
 import { cover } from '../components/cover';
 import { liveBar, liveChip, patchLive } from '../components/live';
+import { queuedFor, runningFor } from '../tasks';
 import { closeButton, openPanel } from '../components/overlay';
 import { canPlayTrack, patchPlaying, trackRow } from '../components/trackRow';
 import { hueOf, playlistPicture } from '../covers';
@@ -161,19 +162,29 @@ export function openFilesOverlay(playlist: Playlist, opened: FormatBlock): void 
 
   let footShape = '';
   const currentFootShape = () => {
-    const task = ui.task;
-    return `${block.key}|${task?.blockKey === block.key ? `live|${task.step}` : task ? 'busy' : 'idle'}|${canDownload(tools.report)}|${countBy(block.tracks, 'pending') + countBy(block.tracks, 'failed')}`;
+    const task = runningFor(block.key);
+    return `${block.key}|${task ? `live|${task.id}|${task.step}` : queuedFor(block.key) ? 'queued' : 'idle'}|${canDownload(tools.report)}|${countBy(block.tracks, 'pending') + countBy(block.tracks, 'failed')}`;
   };
 
   function refreshFoot(): void {
     footShape = currentFootShape();
-    const task = ui.task;
-    if (task && task.blockKey === block.key) {
+    const task = runningFor(block.key);
+    if (task) {
       foot.replaceChildren(
         liveChip(task, block.format),
         h('div', { class: 'grow' }, liveBar(task)),
-        h('button', { class: 'secondary-button small-button danger-text', onclick: () => api.stopDownload() },
+        h('button', { class: 'secondary-button small-button danger-text', onclick: () => api.stopDownload(task.id) },
           icon('stopped', 14, true), h('span', { text: t('tasks.stop') })));
+      foot.hidden = false;
+      return;
+    }
+    const queued = queuedFor(block.key);
+    if (queued) {
+      foot.replaceChildren(
+        h('span', { class: 'pm-badge queued', text: t('tasks.queue.badge') }),
+        h('div', { class: 'grow' }),
+        h('button', { class: 'secondary-button small-button', onclick: () => api.removeQueued(queued.id) },
+          icon('close', 14), h('span', { text: t('tasks.queue.remove') })));
       foot.hidden = false;
       return;
     }
@@ -183,7 +194,7 @@ export function openFilesOverlay(playlist: Playlist, opened: FormatBlock): void 
     const sync = h('button', { class: 'primary-button small-button', onclick: () => {
       if (canDownload(tools.report)) api.startDownload({ kind: 'update', blockKey: block.key });
     } }, icon('sync', 14), h('span', { text: t('manager.sync') }));
-    sync.disabled = task !== null || !canDownload(tools.report) || block.accessible === false;
+    sync.disabled = !canDownload(tools.report) || block.accessible === false;
     foot.replaceChildren(
       h('span', { class: 'grow muted', text: missing === 1 ? t('files.missing.one') : t('files.missing.many', missing) }),
       sync);

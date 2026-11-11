@@ -27,9 +27,12 @@ export function openTasksOverlay(): void {
 
 function content(): Node[] {
   const nodes: Node[] = [h('div', { class: 'section-label', text: t('tasks.running') })];
-  const task = ui.task;
-  if (task) {
-    const pct = percent();
+  if (ui.running.length > 1) {
+    nodes.push(h('div', { class: 'row' }, h('div', { class: 'grow' }),
+      h('button', { class: 'text-button danger-text', text: t('tasks.stopAll'), onclick: () => api.stopDownload() })));
+  }
+  for (const task of ui.running) {
+    const pct = percent(task);
     const step = (key: string, name: string) => {
       const order = ['prepare', 'download', 'retry'];
       const state = order.indexOf(name) < order.indexOf(task.step) ? 'done' : name === task.step ? 'current' : '';
@@ -37,20 +40,32 @@ function content(): Node[] {
     };
     const bar = h('div', { class: `progress${pct === null ? ' indeterminate' : ''}` }, h('div', { class: 'progress-fill' }));
     if (pct !== null) (bar.firstChild as HTMLElement).style.width = `${pct}%`;
-    nodes.push(h('div', { class: 'card stack-12' },
+    nodes.push(h('div', { class: 'card stack-12', attrs: { 'data-running': String(task.id) } },
       h('div', {}, h('div', { class: 'card-title', text: task.title }), h('div', { class: 'subtitle', text: originText(task.origin) })),
       h('div', { class: 'row gap-6' }, step('tasks.step.prepare', 'prepare'), step('tasks.step.download', 'download'), step('tasks.step.retry', 'retry')),
       bar,
       h('div', { class: 'row-title', text: progressText(task, pct) }),
       h('div', { class: 'row wrap gap-8' },
-        h('button', { class: 'secondary-button danger-text', text: t('tasks.stop'), onclick: api.stopDownload }),
+        h('button', { class: 'secondary-button danger-text', text: t('tasks.stop'), onclick: () => api.stopDownload(task.id) }),
         h('button', { class: 'secondary-button', text: t('tasks.goTo'), onclick: () => {
           closeOverlay();
           goTo(task);
         } }),
         h('button', { class: 'secondary-button', text: t('activity.open'), onclick: openActivityOverlay }))));
-  } else {
-    nodes.push(h('p', { class: 'help', text: t('tasks.idle') }));
+  }
+  if (!ui.running.length) nodes.push(h('p', { class: 'help', text: t('tasks.idle') }));
+
+  if (ui.queue.length) {
+    nodes.push(h('div', { class: 'row center gap-8' },
+      h('div', { class: 'section-label', text: t('tasks.queue', ui.queue.length) }),
+      h('div', { class: 'grow' }),
+      h('button', { class: 'text-button', text: t('tasks.queue.clear'), onclick: api.clearQueue })));
+    nodes.push(h('div', { class: 'history-list', attrs: { 'data-queue': '' } }, ...ui.queue.map((item, index) => h('div', { class: 'history-row', attrs: { 'data-queued': String(item.id) } },
+      h('span', { class: 'subtitle queue-position', text: String(index + 1) }),
+      h('div', { class: 'grow min0' },
+        h('div', { class: 'row-title ellipsis', text: item.title }),
+        h('div', { class: 'subtitle', text: originText(item.origin) })),
+      h('button', { class: 'icon-button', title: t('tasks.queue.remove'), attrs: { 'aria-label': t('tasks.queue.remove') }, onclick: () => api.removeQueued(item.id) }, icon('close', 16))))));
   }
 
   const toggle = h('button', { class: 'text-button', text: historyVisible ? t('tasks.history.hide') : t('tasks.history.show') });

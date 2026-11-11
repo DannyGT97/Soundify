@@ -69,3 +69,26 @@ test('checking for updates opens the window with the notes, and a failed install
   await expect(page.locator('.toast-error')).toContainText('No se ha instalado nada');
   await expect(page.getByRole('button', { name: 'Buscar ahora' })).toBeEnabled();
 });
+
+test('«Descargar más rápido» is one experimental switch that sets the three speed-ups, is off by default, remembered and reset', async ({ page }) => {
+  await page.goto('/#/settings');
+  await page.locator('.settings-tab', { hasText: 'Avanzado' }).click();
+  const row = page.locator('[data-key="settings.advanced.faster"]');
+  const box = row.locator('input.switch');
+  await expect(row).toContainText('Descargar más rápido (experimental)');
+  await expect(row).toContainText('YouTube te bloquee');
+  await expect(box).not.toBeChecked();
+  // The three old switches are gone: this is the only one.
+  await expect(page.locator('[data-key="settings.advanced.parallel"]')).toHaveCount(0);
+  await expect(page.locator('[data-key="settings.advanced.fragments"]')).toHaveCount(0);
+
+  await box.check();
+  await page.reload();
+  await page.locator('.settings-tab', { hasText: 'Avanzado' }).click();
+  await expect(box).toBeChecked();
+
+  await page.getByRole('button', { name: 'Reset', exact: true }).click();
+  await page.locator('#overlay-root .danger-button').click();
+  await expect(page.locator('.toast-text')).toContainText('Configuración restablecida');
+  await expect(box).not.toBeChecked();
+});

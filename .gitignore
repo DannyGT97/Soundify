@@ -12,3 +12,37 @@ src-tauri/resources/ffmpeg/*.exe
 # Prototipos de diseno (HTML sueltos, solo de referencia)
 design/
 release/
+
+# Local Claude Code files: personal settings, notes and the launcher (CLAUDE.md is shared, these are not)
+.claude/
+CLAUDE.local.md
+
+# Secrets and signing keys: never in the repository
+*.pem
+*.key
+*.keystore
+*.jks
+*.p12
+.env
+.env.*
+local.properties
+
+# Built packages and logs
+*.apk
+*.aab
+*.log
+
+# The app's own data folder (next to the exe in a portable build) and scratch files
+/data/
+/temp/
+
+# Editor and system leftovers
+.idea/
+.vscode/
+Thumbs.db
+.DS_Store
+*.swp
+*.orig
+
+# Plan de migracion: notas de trabajo locales
+MIGRATION-PLAN.md

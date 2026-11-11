@@ -6,7 +6,7 @@ import { countBy, filesText, findBlock, library, loadLibrary, onDisk, pendingTex
 import { navigate, onLeave, type Params } from '../router';
 import { subscribe, ui } from '../state';
 import { filterByTitle } from '../search';
-import { progressLine } from '../tasks';
+import { progressLine, queuedFor, runningFor } from '../tasks';
 import { cover } from '../components/cover';
 import { openMenu, type MenuItem } from '../components/floating';
 import { liveBar, liveChip, livePhase, patchLive, percentText } from '../components/live';
@@ -17,6 +17,7 @@ import { openFilesOverlay } from '../overlays/files';
 import { openImportHelp } from '../overlays/help';
 import { copyToDevice, copyToFolder } from '../overlays/transfer';
 import { notify } from '../components/toasts';
+import { errorText } from '../transfer';
 import { canDownload, tools } from '../tools';
 import { toolsNotice } from '../components/toolsNotice';
 
@@ -121,8 +122,9 @@ let unfolding: string | null = null;
 
 function playlistRow(playlist: Playlist, rerender: () => void): HTMLElement {
   const expanded = ui.expandedPlaylists.has(playlist.id);
-  const task = ui.task;
-  const live = task?.blockKey ? playlist.formats.find(b => b.key === task.blockKey) ?? null : null;
+  // The block of this playlist that is downloading (with two at once, each playlist has its own).
+  const live = playlist.formats.find(b => runningFor(b.key)) ?? null;
+  const task = live ? runningFor(live.key) : null;
   const files = playlist.formats.reduce((n, b) => n + onDisk(b.tracks).length, 0);
   const waiting = playlist.formats.reduce((n, b) => n + missing(b), 0);
   const deviceBlock = playlist.formats.find(b => b.device);
@@ -186,14 +188,13 @@ function playlistRow(playlist: Playlist, rerender: () => void): HTMLElement {
   const entering = unfolding === playlist.id;
   if (entering) unfolding = null;
   return h('section', { class: `pm-row${live ? ' active' : ''}` }, header,
-    expanded ? h('div', { class: `pm-blocks${entering ? ' entering' : ''}` }, ...playlist.formats.map(b => formatBlock(playlist, b, live)))
+    expanded ? h('div', { class: `pm-blocks${entering ? ' entering' : ''}` }, ...playlist.formats.map(b => formatBlock(playlist, b)))
       : task && live ? liveBar(task, ' pm-row-bar') : null);
 }
 
-/** `live`: the block of this playlist being downloaded, if any; the others wait for it. */
-function formatBlock(playlist: Playlist, block: FormatBlock, live: FormatBlock | null): HTMLElement {
-  const task = ui.task;
-  const active = task !== null && live === block;
+function formatBlock(playlist: Playlist, block: FormatBlock): HTMLElement {
+  const task = runningFor(block.key);
+  const active = task !== null;
   const pending = countBy(block.tracks, 'pending');
   const failed = countBy(block.tracks, 'failed');
   const unavailable = countBy(block.tracks, 'unavailable');
@@ -212,17 +213,21 @@ function formatBlock(playlist: Playlist, block: FormatBlock, live: FormatBlock |
   if (block.lastSync) add(h('span', { text: t('manager.lastSync', block.lastSync) }));
 
   const worthSyncing = pending + failed > 0;
+  const queued = queuedFor(block.key);
   const update = active
-    ? h('button', { class: 'secondary-button danger-text', onclick: () => api.stopDownload() },
+    ? h('button', { class: 'secondary-button danger-text', onclick: () => api.stopDownload(task?.id) },
       icon('stopped', 16, true), h('span', { text: t('tasks.stop') }))
+    : queued
+    ? h('button', { class: 'secondary-button', title: t('tasks.queue.remove'), onclick: () => api.removeQueued(queued.id) },
+      icon('close', 16), h('span', { text: t('tasks.queue.remove') }))
     : h('button', {
       class: worthSyncing ? 'primary-button' : 'secondary-button compactable',
       title: t('manager.sync'),
       onclick: () => { if (canDownload(tools.report)) api.startDownload({ kind: 'update', blockKey: block.key }); },
     }, icon('sync', 16), h('span', { text: t('manager.sync') }));
-  if (!active) update.disabled = task !== null || !canDownload(tools.report) || offline;
+  if (!active && !queued) update.disabled = !canDownload(tools.report) || offline;
 
-  const element = h('div', { class: `pm-block${active ? ' active' : live ? ' waiting' : ''}` },
+  const element = h('div', { class: `pm-block${active ? ' active' : ''}` },
     h('div', { class: 'fl-main' },
       h('span', { class: 'fmt', text: block.format.toUpperCase() }),
       h('div', { class: 'grow min0' },
@@ -233,7 +238,8 @@ function formatBlock(playlist: Playlist, block: FormatBlock, live: FormatBlock |
             title: t(block.numbered ? 'manager.numbered' : 'manager.notNumbered'),
             attrs: { role: 'img' },
           }, icon(block.numbered ? 'list-ordered' : 'list', 14)),
-          active ? h('span', { class: 'pm-badge', text: t('manager.block.downloading') }) : null),
+          active ? h('span', { class: 'pm-badge', text: t('manager.block.downloading') }) : null,
+          queued ? h('span', { class: 'pm-badge queued', text: t('tasks.queue.badge') }) : null),
         h('div', { class: 'fl-sub ellipsis' }, ...sub)),
       h('div', { class: 'fl-actions' },
         update,
@@ -242,15 +248,15 @@ function formatBlock(playlist: Playlist, block: FormatBlock, live: FormatBlock |
         moreButton(playlist, block))),
     task && active ? h('div', { class: 'fl-live' },
       h('div', { class: 'row center gap-8' },
-        h('span', { text: progressLine(task), attrs: { 'data-live': 'line' } }),
+        h('span', { text: progressLine(task), attrs: { 'data-live': 'line', 'data-task': String(task.id) } }),
         h('div', { class: 'grow' }),
-        h('span', { text: percentText(task), attrs: { 'data-live': 'pct' } })),
+        h('span', { text: percentText(task), attrs: { 'data-live': 'pct', 'data-task': String(task.id) } })),
       liveBar(task)) : null);
   element.dataset.block = block.key;
   // Rebuilt, the animations would start over: the same clock for all keeps
   // the sweep and the dot where they were.
   if (active) element.style.setProperty('--live-phase', livePhase());
-  const flash = finished?.key === block.key ? Date.now() - finished.at : Infinity;
+  const flash = Date.now() - (finished.get(block.key) ?? -Infinity);
   if (!active && flash < FLASH_MS) {
     element.classList.add('done');
     element.style.setProperty('--done-delay', `${FLASH_HOLD_MS - flash}ms`);
@@ -282,8 +288,9 @@ function moreButton(playlist: Playlist, block: FormatBlock): HTMLElement {
 const FLASH_HOLD_MS = 1200;
 const FLASH_MS = FLASH_HOLD_MS + 3000;
 
-let followed: string | null = null;
-let finished: { key: string; at: number } | null = null;
+let followed = new Set<string>();
+/** Block → when it ended well (for the green flash). */
+const finished = new Map<string, number>();
 
 /**
  * Follows the download even while the Gestor is not on screen: the playlist
@@ -292,18 +299,25 @@ let finished: { key: string; at: number } | null = null;
  * remembered for its green flash.
  */
 subscribe('tasks', () => {
-  const key = ui.task?.blockKey ?? null;
-  if (key && key !== followed) {
+  const keys = new Set(ui.running.flatMap(task => (task.blockKey ? [task.blockKey] : [])));
+  for (const key of keys) {
+    if (followed.has(key)) continue;
     const found = findBlock(key);
     if (found) ui.expandedPlaylists.add(found.playlist.id);
   }
-  if (!ui.task && followed && ui.history[0]?.status === 'ok') finished = { key: followed, at: Date.now() };
-  followed = key;
+  // The ones that stopped running: green if the history says that playlist ended well.
+  for (const key of followed) {
+    if (keys.has(key)) continue;
+    const title = findBlock(key)?.playlist.title;
+    const record = ui.history.find(item => item.title === title) ?? ui.history[0];
+    if (record?.status === 'ok') finished.set(key, Date.now());
+  }
+  followed = keys;
 });
 
 function liveShape(): string {
-  const task = ui.task;
-  return `${canDownload(tools.report)}|${task ? `${task.blockKey ?? ''}|${task.step}` : ''}`;
+  const running = ui.running.map(task => `${task.id}:${task.blockKey ?? ''}:${task.step}`).join(',');
+  return `${canDownload(tools.report)}|${running}|${ui.queue.map(q => q.id).join(',')}`;
 }
 
 /** One cover per playlist: every format of it shows the picked image. */
@@ -322,7 +336,8 @@ export async function changeCover(playlist: Playlist): Promise<void> {
 /** A phone's folder opens in Windows' own explorer; a local one, in the system's. */
 export function openFolder(playlist: Playlist, block: FormatBlock): void {
   if (!block.device) {
-    api.revealFolder(playlist.folder);
+    api.revealFolder(playlist.folder)
+      .catch(error => notify({ tone: 'error', text: errorText(error) }));
     return;
   }
   api.openDeviceFolder(block.device.deviceId, block.device.path)

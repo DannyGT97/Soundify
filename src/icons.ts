@@ -5,9 +5,9 @@
 
 import {
   Activity, AudioLines, Check, ChevronRight, Clock, ChevronsLeft, ChevronsRight, CloudDownload, Ellipsis,
-  Copy, Eye, Maximize2, Minus, PictureInPicture2, Film, Folder, FolderInput, FolderOpen, House, Info, Library, Link, List, ListMusic, ListOrdered, ListPlus, Menu, Palette, PanelLeftClose, Trash2, TriangleAlert, CircleX,
+  Copy, Eye, Maximize2, Minus, PictureInPicture2, Film, Folder, FolderInput, FolderOpen, House, Info, Link, List, ListMusic, ListOrdered, ListPlus, Menu, Palette, PanelLeftClose, Trash2, TriangleAlert, CircleX,
   Maximize, Minimize, Pause, Play, Wrench, RefreshCw, Repeat, Repeat1, Search, Settings, Shuffle, SkipBack, SkipForward,
-  SlidersHorizontal, Smartphone, Square, Volume2, VolumeX, X, ImagePlus, Image, Unplug, FileJson, FileMusic, ChevronDown, ArrowDownToLine, Music, ArrowLeft, ArrowUp, FolderPlus, Usb, LayoutGrid, LoaderCircle, createElement, type IconNode,
+  SlidersHorizontal, Smartphone, Square, Volume2, VolumeX, X, ImagePlus, Image, Unplug, FileJson, FileMusic, ChevronDown, ArrowDownToLine, Music, ArrowLeft, ArrowUp, FolderPlus, LibraryBig, Pencil, Usb, LayoutGrid, LoaderCircle, createElement, type IconNode,
 } from 'lucide';
 
 const ICONS = {
@@ -15,7 +15,7 @@ const ICONS = {
   home: House,
   download: Link,
   'new-playlist': ListPlus,
-  manager: Library,
+  manager: LibraryBig,
   player: ListMusic,
   settings: Settings,
   palette: Palette,
@@ -76,6 +76,7 @@ const ICONS = {
   'chevron-down': ChevronDown,
   'image-plus': ImagePlus,
   image: Image,
+  pencil: Pencil,
   unplug: Unplug,
   'file-json': FileJson,
   'file-music': FileMusic,

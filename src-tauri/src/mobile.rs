@@ -184,6 +184,18 @@ pub fn pick_cookies_now(app: &AppHandle) -> Result<Option<String>, String> {
     android::pick_cookies(app)
 }
 
+/// The image chooser for a cover on the phone (the dialog plugin returns a `content://` URI there).
+#[cfg(target_os = "android")]
+pub fn pick_image_now(app: &AppHandle) -> Result<Option<String>, String> {
+    android::pick_image(app)
+}
+
+/// Shows a folder in the phone's file browser.
+#[cfg(target_os = "android")]
+pub fn open_folder_now(app: &AppHandle, folder: &str) -> Result<(), String> {
+    android::open_folder(app, folder)
+}
+
 #[cfg(target_os = "android")]
 mod android {
     use std::collections::BTreeMap;
@@ -255,6 +267,20 @@ mod android {
     pub fn pick_cookies(app: &AppHandle) -> Result<Option<String>, String> {
         let picked: Picked = bridge(app)?.0.run_mobile_plugin("pickCookies", ()).map_err(|e| e.to_string())?;
         Ok(picked.path)
+    }
+
+    /// The cover image the user picked, already copied where the app can read it.
+    pub fn pick_image(app: &AppHandle) -> Result<Option<String>, String> {
+        let picked: Picked = bridge(app)?.0.run_mobile_plugin("pickImage", ()).map_err(|e| e.to_string())?;
+        Ok(picked.path)
+    }
+
+    pub fn open_folder(app: &AppHandle, folder: &str) -> Result<(), String> {
+        bridge(app)?
+            .0
+            .run_mobile_plugin::<serde_json::Value>("openFolder", serde_json::json!({ "path": folder }))
+            .map(|_| ())
+            .map_err(|e| e.to_string())
     }
 
     #[derive(serde::Serialize)]

@@ -13,7 +13,9 @@ export interface NowPlaying { blockKey: string; track: Track; }
 export type TaskStatus = 'ok' | 'warning' | 'stopped' | 'failed';
 /** `fraction` is 0–1 while downloading, null while it cannot tell (preparing). */
 /** `blockKey`: the playlist+format block being downloaded, once the back knows it (null before, and for a loose URL's own archive). */
-export interface RunningTask { title: string; origin: TaskOrigin; step: 'prepare' | 'download' | 'retry'; fraction: number | null; total: number; blockKey: string | null; }
+/** A download ordered while another one runs: it starts by itself when its turn comes. */
+export interface QueuedTask { id: number; title: string; origin: TaskOrigin; blockKey: string | null; }
+export interface RunningTask { id: number; title: string; origin: TaskOrigin; step: 'prepare' | 'download' | 'retry'; fraction: number | null; total: number; blockKey: string | null; }
 /** `summary` is an i18n key (with `summaryArgs`), or text the Java app already translated. */
 export interface FinishedTask { title: string; origin: TaskOrigin; status: TaskStatus; summary: string | null; summaryArgs: string[]; finishedAt: string; }
 
@@ -38,7 +40,11 @@ export const ui = {
   shuffle: false,
   repeat: 'off' as Repeat,
   volume: 0.7,
+  /** The first task running (what the pill and Tareas lead with); null when nothing runs. */
   task: null as RunningTask | null,
+  /** Everything running now: one, or two with Ajustes → «Descargar más rápido» (experimental). */
+  running: [] as RunningTask[],
+  queue: [] as QueuedTask[],
   unseenResult: null as TaskStatus | null,
   history: [] as FinishedTask[],
   activity: [] as ActivityLine[],

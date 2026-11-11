@@ -174,11 +174,14 @@ export type ActivityLine =
   | { kind: 'message'; key: string; args: string[] };
 
 /** How a download went, worth a notice (statuses as `task_history` writes them). */
-export interface DownloadNotice { status: string; key: string; args: string[]; }
+export interface DownloadNotice { status: string; key: string; args: string[]; /** The task it is about, if any. */ taskId?: number | null; }
 
 /** The back's `TasksView`, as it arrives: the front maps it into `ui` (see `tasks.ts`). */
 export interface TasksViewWire {
-  running: { title: string; origin: string; step: 'prepare' | 'download' | 'retry'; fraction: number | null; total: number; blockKey?: string | null } | null;
+  /** What runs now. One at a time today, but the back already sends a list: each task has its own id. */
+  running: { id: number; title: string; origin: string; step: 'prepare' | 'download' | 'retry'; fraction: number | null; total: number; blockKey?: string | null }[];
+  /** Waiting behind the running one, in the order they will start. */
+  queued: { id: number; title: string; origin: string; blockKey?: string | null }[];
   unseen: string | null;
   history: TaskRecordWire[];
 }
@@ -256,6 +259,11 @@ export interface Preferences {
   /** A video goes to the floating panel by itself when Reproduciendo is left. */
   autoPip: boolean;
   includeIdInTitleName: boolean;
+  /** Ajustes → Avanzado: yt-dlp fetches two fragments at once (only DASH/HLS; off by default). */
+  concurrentFragments: boolean;
+  parallelDownloads: boolean;
+  /** Experimental: two different downloads (two playlists, or a playlist and a loose URL) at once. */
+  parallelBlocks: boolean;
   appUpdateCheckEnabled: boolean;
   /** Ajustes → Actualizaciones: bring the tools already there up to date at startup, when there is a newer version. */
   autoUpdates: boolean;

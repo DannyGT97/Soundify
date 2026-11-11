@@ -2,6 +2,8 @@ package com.dannygt97.soundify
 
 import android.content.ComponentName
 import android.content.Context
+import android.graphics.Bitmap
+import android.graphics.BitmapFactory
 import android.net.Uri
 import android.os.Handler
 import android.os.Looper
@@ -13,6 +15,7 @@ import androidx.media3.common.Player
 import androidx.media3.session.MediaController
 import androidx.media3.session.SessionToken
 import app.tauri.plugin.JSObject
+import java.io.ByteArrayOutputStream
 import java.io.File
 
 /**
@@ -65,12 +68,41 @@ class NativePlayer(private val context: Context, private val emit: (JSObject) ->
     }
   }
 
-  fun load(path: String, title: String, subtitle: String, autoplay: Boolean) = withController { c ->
+  fun load(path: String, title: String, subtitle: String, autoplay: Boolean, artwork: String) = withController { c ->
     durationSent = false
-    val meta = MediaMetadata.Builder().setTitle(title).setArtist(subtitle).setAlbumTitle(subtitle).build()
-    c.setMediaItem(MediaItem.Builder().setUri(Uri.fromFile(File(path))).setMediaMetadata(meta).build())
+    val meta = MediaMetadata.Builder().setTitle(title).setArtist(subtitle).setAlbumTitle(subtitle)
+    // Without this the notification shows whatever picture the file happens to carry inside, and
+    // the app's logo when it carries none: so it comes from the thumbnail the page already has.
+    coverBytes(artwork)?.let { meta.setArtworkData(it, MediaMetadata.PICTURE_TYPE_FRONT_COVER) }
+    c.setMediaItem(MediaItem.Builder().setUri(Uri.fromFile(File(path))).setMediaMetadata(meta.build()).build())
     c.playWhenReady = autoplay
     c.prepare()
+  }
+
+  /**
+   * The thumbnail cut square and small (a YouTube one is 4:3 with black bands above and below the
+   * 16:9 picture, the same cut as `crop` in covers.ts), as JPEG bytes. Null if it cannot be read.
+   */
+  private fun coverBytes(path: String): ByteArray? {
+    if (path.isEmpty()) return null
+    return try {
+      val full = BitmapFactory.decodeFile(path) ?: return null
+      var top = 0
+      var usable = full.height
+      if (Math.abs(full.width.toDouble() / full.height - 4.0 / 3.0) < 0.02) {
+        usable = Math.round(full.width * 9.0 / 16.0).toInt()
+        top = (full.height - usable) / 2
+      }
+      val side = Math.min(full.width, usable)
+      val square = Bitmap.createBitmap(full, (full.width - side) / 2, top + (usable - side) / 2, side, side)
+      val small = if (side > COVER_SIZE) Bitmap.createScaledBitmap(square, COVER_SIZE, COVER_SIZE, true) else square
+      ByteArrayOutputStream().use { out ->
+        small.compress(Bitmap.CompressFormat.JPEG, 90, out)
+        out.toByteArray()
+      }
+    } catch (e: Exception) {
+      null
+    }
   }
 
   fun play() = withController { it.play() }
@@ -116,5 +148,6 @@ class NativePlayer(private val context: Context, private val emit: (JSObject) ->
 
   companion object {
     private const val TICK_MS = 500L
+    private const val COVER_SIZE = 512
   }
 }

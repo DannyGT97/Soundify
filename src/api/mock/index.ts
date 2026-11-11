@@ -8,11 +8,12 @@ import type {
   CopyOutcome, CopyProgress, CreatedPlaylist, DeleteResult, DeviceEntry, DeviceTarget, DownloadNotice, DownloadRequest, ExportResult, PlayerMemory, Preferences, TaskOrigin, WindowControls,
 } from '../types';
 import { onAndroid } from '../../platform';
-import { emit, ui, type TaskStatus } from '../../state';
+import { emit, ui, type RunningTask, type TaskStatus } from '../../state';
 import { activityLog, AUDIO_FORMATS, importedPlaylist, playlists, VIDEO_FORMATS } from './data';
 import { mockCanDownload, mockTools } from './tools';
 
-let timer: number | undefined;
+/** One clock per running task: with «Descargar más rápido» two of them tick at once. */
+const timers = new Map<number, number>();
 let storageGranted = typeof location === 'undefined' || !new URLSearchParams(location.search).has('mockNoStorage');
 
 /** The browser has no window to drive: `?mockWindow` draws the title bar anyway, for its tests. */
@@ -35,7 +36,18 @@ export const mockApi: Api = {
   formats: async () => ({ audio: AUDIO_FORMATS, video: VIDEO_FORMATS }),
   createPlaylist,
   startDownload,
-  stopDownload: () => { if (ui.task) finish('stopped'); },
+  stopDownload: taskId => {
+    const ids = typeof taskId === 'number' ? [taskId] : ui.running.map(task => task.id);
+    ids.forEach(id => finish(id, 'stopped'));
+  },
+  removeQueued: id => {
+    waiting = waiting.filter(w => w.id !== id);
+    syncQueue();
+  },
+  clearQueue: () => {
+    waiting = [];
+    syncQueue();
+  },
   clearTaskHistory: () => {
     ui.history = [];
     emit('tasks');
@@ -75,7 +87,7 @@ export const mockApi: Api = {
       alreadyRegistered: false,
     };
   }),
-  revealFolder: () => {},
+  revealFolder: async () => {},
   deletePlaylistFormat,
   // One made-up phone, always connected, with a playlist already on it to import.
   listDevices: async () => ({ available: true, devices: [{ id: MOCK_PHONE.deviceId, name: MOCK_PHONE.deviceName }] }),
@@ -144,7 +156,10 @@ export const mockApi: Api = {
   savePlayerMemory: async memory => { playerMemory = { ...memory }; },
   // Kept in sessionStorage: a reload keeps the look, like settings.json does.
   preferences: async () => ({ ...readPreferences() }),
-  savePreferences: async patch => { writePreferences({ ...readPreferences(), ...patch }); },
+  savePreferences: async patch => {
+    writePreferences({ ...readPreferences(), ...patch });
+    startReady();
+  },
   resetPreferences: async () => {
     writePreferences(FACTORY_PREFERENCES);
     return { ...FACTORY_PREFERENCES };
@@ -170,7 +185,7 @@ let playerMemory: PlayerMemory = { volume: 0.7, last: null };
 
 const FACTORY_PREFERENCES: Preferences = {
   appearance: 'dark', language: 'es', uiScale: 100, playerPlacement: 'both', autoPip: true,
-  includeIdInTitleName: false, appUpdateCheckEnabled: true, autoUpdates: true, cookiesFile: '', lastAppUpdateCheck: '',
+  includeIdInTitleName: false, concurrentFragments: false, parallelDownloads: false, parallelBlocks: false, appUpdateCheckEnabled: true, autoUpdates: true, cookiesFile: '', lastAppUpdateCheck: '',
 };
 const PREFERENCES_KEY = 'soundify.mock.preferences';
 
@@ -267,14 +282,51 @@ function startDownload(request: DownloadRequest): void {
     onNotice({ status: 'FAILED', key: 'tools.error.missing', args: [] });
     return;
   }
-  if (ui.task) return;
   const { title, origin, total, blockKey } = describe(request);
-  ui.task = { title, origin, step: 'prepare', fraction: null, total, blockKey };
+  if (blockKey && (ui.running.some(task => task.blockKey === blockKey) || waiting.some(w => w.blockKey === blockKey))) {
+    onNotice({ status: 'WARNING', key: 'tasks.queue.duplicate', args: [title] });
+    return;
+  }
+  // Nobody goes ahead of what already waits.
+  if (waiting.length || ui.running.length >= runLimit()) {
+    waiting.push({ id: nextId++, request, title, origin, blockKey });
+    syncQueue();
+    onNotice({ status: 'OK', key: 'tasks.queue.added', args: [title, String(waiting.length)] });
+    return;
+  }
+  begin({ id: nextId++, title, origin, step: 'prepare', fraction: null, total, blockKey });
+}
+
+/** One download at a time, or two with Ajustes → Avanzado → «Descargar más rápido». */
+function runLimit(): number {
+  return readPreferences().parallelBlocks ? 2 : 1;
+}
+
+/** Starts what waits for as long as there is room (the planner of the real back). */
+function startReady(): void {
+  let started = false;
+  while (waiting.length && ui.running.length < runLimit()) {
+    const next = waiting.shift()!;
+    const { total } = describe(next.request);
+    begin({ id: next.id, title: next.title, origin: next.origin, step: 'prepare', fraction: null, total, blockKey: next.blockKey });
+    started = true;
+  }
+  if (started) syncQueue();
+}
+
+function setRunning(running: RunningTask[]): void {
+  ui.running = running;
+  ui.task = running[0] ?? null;
+}
+
+function begin(started: RunningTask): void {
+  setRunning([...ui.running, started]);
   ui.unseenResult = null;
   emit('tasks');
   let ticks = 0;
-  timer = window.setInterval(() => {
-    const task = ui.task;
+  const id = started.id;
+  timers.set(id, window.setInterval(() => {
+    const task = ui.running.find(running => running.id === id);
     if (!task) return;
     ticks++;
     if (task.step === 'prepare') {
@@ -286,11 +338,20 @@ function startDownload(request: DownloadRequest): void {
       task.fraction = Math.min(1, (task.fraction ?? 0) + 1 / task.total);
       landOneFile(task.blockKey);
     } else {
-      finish('ok');
+      finish(id, 'ok');
       return;
     }
     emit('tasks');
-  }, 700);
+  }, 700));
+}
+
+/** Ordered while another one ran: they start one by one, as the real queue does. */
+let waiting: { id: number; request: DownloadRequest; title: string; origin: TaskOrigin; blockKey: string | null }[] = [];
+let nextId = 1;
+
+function syncQueue(): void {
+  ui.queue = waiting.map(w => ({ id: w.id, title: w.title, origin: w.origin, blockKey: w.blockKey }));
+  emit('tasks');
 }
 
 /** A pending file of the block comes down, as the archive would record it, and the front hears so. */
@@ -321,16 +382,20 @@ function describe(request: DownloadRequest): { title: string; origin: TaskOrigin
   }
 }
 
-function finish(status: TaskStatus): void {
-  window.clearInterval(timer);
-  const task = ui.task;
+function finish(id: number, status: TaskStatus): void {
+  window.clearInterval(timers.get(id));
+  timers.delete(id);
+  const task = ui.running.find(running => running.id === id);
   if (!task) return;
   const now = new Date();
   const time = `${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`;
   ui.history.unshift({ title: task.title, origin: task.origin, status, summary: null, summaryArgs: [], finishedAt: time });
   ui.history = ui.history.slice(0, 20);
-  ui.task = null;
-  ui.unseenResult = status;
+  setRunning(ui.running.filter(running => running.id !== id));
+  ui.unseenResult = ui.running.length ? null : status;
   emit('tasks');
+  const queued = waiting.length;
+  startReady();
+  if (queued && ui.running.length) return;
   if (status === 'ok') onNotice({ status: 'OK', key: 'tasks.status.ok', args: [] });
 }

@@ -30,6 +30,20 @@ const TITLE_NOISE: [&str; 13] = [
     r"(?i)\s*music\s*video",
 ];
 
+static TITLE_NOISE_REGEXES: std::sync::LazyLock<Vec<regex::Regex>> =
+    std::sync::LazyLock::new(|| TITLE_NOISE.iter().filter_map(|p| regex::Regex::new(p).ok()).collect());
+
+/// The title as yt-dlp will write it after the cleaning above, in lower case and trimmed:
+/// two titles with the same result land on the same file name (Windows does not tell
+/// upper from lower case), which is what must never happen in two processes at once.
+pub fn cleaned_title(title: &str) -> String {
+    let mut text = title.to_string();
+    for re in TITLE_NOISE_REGEXES.iter() {
+        text = re.replace_all(&text, "").into_owned();
+    }
+    text.trim().to_lowercase()
+}
+
 #[derive(Debug, Clone, Default)]
 pub struct BuildConfig {
     /// The folder ffmpeg is in. None where the downloader brings its own (Android).
@@ -53,6 +67,18 @@ pub struct BuildConfig {
     /// is walked. Worked out by comparing the real playlist against what is
     /// already archived before starting.
     pub playlist_items: Option<String>,
+    /// Fragments yt-dlp may fetch at once (`--concurrent-fragments`). 0 or 1 = the
+    /// argument is not sent. Only DASH/HLS streams come in fragments, so it does
+    /// nothing for a plain MP3; it is capped at [`MAX_CONCURRENT_FRAGMENTS`].
+    pub concurrent_fragments: u32,
+}
+
+/// The most fragments at once the app ever asks for: every one is another request to YouTube.
+pub const MAX_CONCURRENT_FRAGMENTS: u32 = 2;
+
+/// What Ajustes' switch means: off = yt-dlp's own default (one at a time), on = the conservative value.
+pub fn fragments_for(enabled: bool) -> u32 {
+    if enabled { MAX_CONCURRENT_FRAGMENTS } else { 0 }
 }
 
 /// The arguments to download `cfg.url` in `format` (an audio or a video format name).
@@ -113,6 +139,10 @@ fn add_common(cmd: &mut Vec<String>, cfg: &BuildConfig) {
         push(cmd, &["--ffmpeg-location", dir]);
     }
     push(cmd, &["--yes-playlist", "--ignore-errors"]);
+    if cfg.concurrent_fragments > 1 {
+        let n = cfg.concurrent_fragments.min(MAX_CONCURRENT_FRAGMENTS);
+        push(cmd, &["--concurrent-fragments", &n.to_string()]);
+    }
 
     if cfg.is_playlist {
         if cfg.number_files {
@@ -329,5 +359,32 @@ mod tests {
         cfg.is_playlist = false;
         let cmd = build("MP3", &cfg);
         assert!(!has(&cmd, "--playlist-items") && !has(&cmd, "--sleep-requests"));
+    }
+
+    #[test]
+    fn concurrent_fragments_are_not_sent_by_default() {
+        let cfg = config(true, 0, true, None, None);
+        assert_eq!(cfg.concurrent_fragments, 0);
+        assert!(!has(&build("MP3", &cfg), "--concurrent-fragments"));
+        assert!(!has(&build("MP4", &cfg), "--concurrent-fragments"));
+    }
+
+    #[test]
+    fn concurrent_fragments_go_with_the_conservative_value_when_on() {
+        let mut cfg = config(false, 0, false, None, None);
+        cfg.concurrent_fragments = fragments_for(true);
+        for format in ["MP3", "MP4"] {
+            assert_eq!(after(&build(format, &cfg), "--concurrent-fragments"), "2");
+        }
+        assert_eq!(fragments_for(false), 0);
+    }
+
+    #[test]
+    fn concurrent_fragments_are_capped_and_one_means_none() {
+        let mut cfg = config(false, 0, false, None, None);
+        cfg.concurrent_fragments = 16;
+        assert_eq!(after(&build("MP4", &cfg), "--concurrent-fragments"), MAX_CONCURRENT_FRAGMENTS.to_string());
+        cfg.concurrent_fragments = 1;
+        assert!(!has(&build("MP4", &cfg), "--concurrent-fragments"));
     }
 }

@@ -30,9 +30,9 @@ use crate::task_history::{FAILED, OK, WARNING};
 use crate::ytdlp::cleaning::{clean_leftovers_of, clean_output_folder};
 use crate::ytdlp::client::{self, BOT_CHECK_MARKER, CANDIDATES, ONLY_IMAGES_MARKER};
 use crate::ytdlp::command::{self, BuildConfig, MOVED_PREFIX, SEEN_PREFIX};
-use crate::ytdlp::progress::ProgressParser;
 use crate::ytdlp::query::{self, PlaylistEntry};
 use crate::ytdlp::unavailable;
+use lanes::{Item, Progress, Share};
 
 /// "ERROR: [youtube] <id>: <reason>" — a video yt-dlp gave up on mid-run.
 static UNAVAILABLE_ERROR: LazyLock<Regex> =
@@ -109,6 +109,14 @@ pub trait DownloadEvents {
     fn downloaded(&mut self, id: &str);
     /// How it went, worth a notice: `status` is a `task_history` status.
     fn notice(&mut self, status: &'static str, key: &str, args: &[&str]);
+    /// The run wants a second yt-dlp process for its playlist. The app has a limit on processes
+    /// for all the tasks together (`BackgroundTasks::claim_extra_process`): false = not now, go
+    /// on with one. The default has no limit.
+    fn extra_process(&mut self) -> bool {
+        true
+    }
+    /// Gives the second process back (always after a `true` from [`DownloadEvents::extra_process`]).
+    fn release_extra_process(&mut self) {}
 }
 
 /// Everything a run needs from outside.
@@ -163,10 +171,6 @@ struct Captures {
     /// with the bot-check, and the last of them; a file that comes down resets it.
     bot_streak: usize,
     last_bot_id: Option<String>,
-    /// Ids yt-dlp gave up on in this run (an `ERROR: [youtube] <id>: ...`
-    /// line); one that comes down afterwards leaves the set. They do not count
-    /// as progress.
-    failed_ids: HashSet<String>,
     /// The run was cut short by that streak (see `BOT_STREAK_LIMIT`).
     bot_blocked: bool,
 }
@@ -320,34 +324,73 @@ impl Engine<'_> {
             number_files,
             player_client: Some(player_client),
             playlist_items,
+            concurrent_fragments: command::fragments_for(settings.concurrent_fragments),
         };
 
-        let mut parser = ProgressParser::new();
-        let run_total = match &playlist {
-            Some(p) => {
-                parser.lock_total_items((p.entries.len() - p.pending.len()) as i64, p.pending.len() as i64);
-                p.pending.len()
+        // Two processes on one playlist only when asked for and there is something to share out.
+        let shares: Vec<Share> = match &playlist {
+            Some(p) if settings.parallel_downloads => self.lane_shares(p, cfg.playlist_offset, number_files),
+            _ => Vec::new(),
+        };
+        // ...and only if the app has a second process to spare: the limit is for all the tasks together.
+        let shares = Some(shares).filter(|s| s.len() > 1).filter(|_| events.extra_process());
+        let (mut progress, run_total) = match (&playlist, &shares) {
+            (Some(p), Some(shares)) => {
+                let items: Vec<usize> = shares.iter().map(|s| s.positions.len()).collect();
+                (Progress::bounded(p.entries.len() - p.pending.len(), &items), p.pending.len())
             }
-            None if title.is_none() => {
-                parser.lock_total_items(0, 1);
-                1
-            }
+            (Some(p), None) => (Progress::bounded(p.entries.len() - p.pending.len(), &[p.pending.len()]), p.pending.len()),
+            (None, _) if title.is_none() => (Progress::bounded(0, &[1]), 1),
             // A playlist whose check failed: yt-dlp's own total is the right one.
-            None => 0,
+            (None, _) => (Progress::unbounded(), 0),
         };
         events.step(Step::Download, u32::try_from(run_total).unwrap_or(u32::MAX));
 
-        let request = YtDlpRequest { args: command::build(format, &cfg) };
+        let mut lane_files: Vec<Location> = Vec::new();
+        let requests = match &shares {
+            Some(shares) => {
+                let counts: Vec<String> = shares.iter().map(|s| s.positions.len().to_string()).collect();
+                events.line(ActivityLine::message("activity.workers.two", &[&counts[0], &counts[1]]));
+                match self.lane_requests(format, &cfg, &txt, shares, &mut lane_files) {
+                    Ok(requests) => requests,
+                    Err(e) => {
+                        events.release_extra_process();
+                        return Err(e);
+                    }
+                }
+            }
+            None => vec![YtDlpRequest { args: command::build(format, &cfg) }],
+        };
+
         let mut captures = Captures::default();
         let single = title.is_none();
-        let result = self.downloader.run(&request, self.stop, &mut |line| {
+        let lane_count = requests.len();
+        // The lanes the app itself stopped because YouTube asked to slow down (429).
+        let mut backed_off: HashSet<usize> = HashSet::new();
+        let results = lanes::run(self.downloader, self.stop, &requests, &mut |lane, line| {
             let text = match line {
                 OutputLine::Stdout(t) | OutputLine::Stderr(t) => t,
             };
-            self.on_line(text, &json, &folder, single, &mut settings, &mut parser, &mut captures, events);
+            let rate_limited = lane_count > 1 && lanes::is_rate_limited(&text);
+            self.on_line(text, lane, &json, &folder, single, &mut settings, &mut progress, &mut captures, events);
+            // The second process goes; the first one finishes alone and what the second left
+            // goes to the second pass.
+            if rate_limited && backed_off.insert(lane_count - 1) {
+                events.line(ActivityLine::message("activity.workers.backoff", &[]));
+                return Some(lane_count - 1);
+            }
+            None
         });
+        if shares.is_some() {
+            events.release_extra_process();
+        }
+        for file in &lane_files {
+            if let Err(e) = storage.remove_file(file) {
+                log::debug!("Could not remove {file}: {e}");
+            }
+        }
 
-        let end = match result {
+        let end = match lanes::combine(results, &backed_off) {
             Ok(end) => end,
             Err(e) => {
                 self.commit(&json, &folder, format, &captures, events);
@@ -583,11 +626,12 @@ impl Engine<'_> {
     fn on_line(
         &self,
         text: String,
+        lane: usize,
         json: &Location,
         folder: &Location,
         single: bool,
         settings: &mut UserSettings,
-        parser: &mut ProgressParser,
+        progress: &mut Progress,
         captures: &mut Captures,
         events: &mut dyn DownloadEvents,
     ) {
@@ -611,7 +655,7 @@ impl Engine<'_> {
                 captures.captured.push((id.to_string(), file));
                 captures.bot_streak = 0;
                 captures.last_bot_id = None;
-                captures.failed_ids.remove(id);
+                progress.recovered(lane, id);
             }
             return;
         }
@@ -626,10 +670,9 @@ impl Engine<'_> {
             return;
         }
         if !single && let Some(caps) = UNAVAILABLE_ERROR.captures(&text) {
-            captures.failed_ids.insert(caps[1].to_string());
+            progress.failed(lane, &caps[1]);
         }
-        parser.set_skipped(captures.failed_ids.len());
-        if let Some(fraction) = parser.parse(&text) {
+        if let Some(fraction) = progress.parse(lane, &text) {
             events.progress(fraction);
         }
         self.handle_unavailable_line(&text, json, events);
@@ -667,6 +710,60 @@ impl Engine<'_> {
             Ok(()) => events.line(ActivityLine::message("activity.unavailable.single", &[reason])),
             Err(e) => log::warn!("Could not mark {id} as unavailable: {e}"),
         }
+    }
+
+    // === TWO PROCESSES ON ONE PLAYLIST ===
+
+    /// What each process takes. Fewer than two shares = not worth a second process.
+    fn lane_shares(&self, playlist: &PlaylistState, offset: u32, numbered: bool) -> Vec<Share> {
+        let items: Vec<Item> = playlist
+            .pending
+            .iter()
+            .filter_map(|id| playlist.entries.get(id).map(|e| Item::new(e.position, e.title.as_deref(), id)))
+            .collect();
+        lanes::split(&items, offset, numbered, lanes::workers_for(true))
+    }
+
+    /// One request per share. The first keeps the real work file; each of the others gets a
+    /// copy (and its own cookies file), so no two processes write to the same file. Their
+    /// paths go to `scratch_files`, to be deleted when the run ends. The registry of what came
+    /// down is the archive's JSON, written from here, one thing at a time.
+    fn lane_requests(
+        &self,
+        format: &str,
+        cfg: &BuildConfig,
+        txt: &Location,
+        shares: &[Share],
+        scratch_files: &mut Vec<Location>,
+    ) -> io::Result<Vec<YtDlpRequest>> {
+        let storage = self.archives.storage();
+        let dir = archive_io::parent_of(txt).ok_or_else(|| io::Error::other("the work file has no folder"))?;
+        let mut requests = Vec::new();
+        for (i, share) in shares.iter().enumerate() {
+            let mut lane = cfg.clone();
+            lane.playlist_items = Some(lanes::item_ranges(&share.positions));
+            lane.playlist_offset = share.offset;
+            if i > 0 {
+                let copy = storage.child(&dir, &format!("archive.lane{}.txt", i + 1))?;
+                storage.write(&copy, &storage.read(txt).unwrap_or_default())?;
+                lane.archive_file = copy.to_string();
+                scratch_files.push(copy);
+                // yt-dlp rewrites the cookies file when it ends: one each, or two writers.
+                // Best effort; if it cannot be copied they share the original.
+                if let Some(cookies) = cfg.cookies_file.as_deref() {
+                    let own = storage.child(&dir, &format!("cookies.lane{}.txt", i + 1)).and_then(|own| {
+                        storage.write(&own, &storage.read(&Location::parse(cookies))?)?;
+                        Ok(own)
+                    });
+                    if let Ok(own) = own {
+                        lane.cookies_file = Some(own.to_string());
+                        scratch_files.push(own);
+                    }
+                }
+            }
+            requests.push(YtDlpRequest { args: command::build(format, &lane) });
+        }
+        Ok(requests)
     }
 
     // === AFTER THE RUN ===
@@ -798,6 +895,7 @@ fn clean_up(storage: &dyn Storage, folder: &Location, format: &str, single: bool
 
 mod create;
 mod device;
+mod lanes;
 pub use create::{CreateError, Created};
 pub use device::{DeviceJob, DeviceSide, device_playlist_json, nice_device_file_name};
 

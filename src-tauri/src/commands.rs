@@ -134,7 +134,7 @@ pub fn tool_downloads(state: State<'_, AppState>) -> Vec<ToolDownload> {
 
 // === DOWNLOADS ===
 
-/// The running task (if any), the unseen result and the history; what
+/// The running tasks (if any), the ones waiting, the unseen result and the history; what
 /// changes later arrives as the `tasks` event.
 #[tauri::command]
 pub fn tasks_view(state: State<'_, AppState>) -> TasksView {
@@ -157,8 +157,18 @@ pub fn start_download(app: AppHandle, state: State<'_, AppState>, request: Downl
 }
 
 #[tauri::command]
-pub fn stop_download(app: AppHandle, state: State<'_, AppState>) {
-    state.downloads.stop(&app);
+pub fn remove_queued(app: AppHandle, state: State<'_, AppState>, id: u64) {
+    state.downloads.remove_queued(&app, id);
+}
+
+#[tauri::command]
+pub fn clear_queue(app: AppHandle, state: State<'_, AppState>) {
+    state.downloads.clear_queue(&app);
+}
+
+#[tauri::command]
+pub fn stop_download(app: AppHandle, state: State<'_, AppState>, task_id: Option<u64>) {
+    state.downloads.stop(&app, task_id);
 }
 
 /// What the activity window shows when it opens; new lines arrive as the
@@ -187,11 +197,14 @@ pub fn preferences(state: State<'_, AppState>) -> Preferences {
 
 /// Saved on each change, like the Java panels: there is no «Guardar» button.
 #[tauri::command]
-pub fn save_preferences(state: State<'_, AppState>, patch: PreferencesPatch) -> Result<(), CommandError> {
+pub fn save_preferences(app: AppHandle, state: State<'_, AppState>, patch: PreferencesPatch) -> Result<(), CommandError> {
     let file = state.paths.settings();
     let mut current = settings::load(&LocalStorage, &file);
     settings::apply(&mut current, &patch);
-    settings::save(&LocalStorage, &file, &current).map_err(CommandError::io)
+    settings::save(&LocalStorage, &file, &current).map_err(CommandError::io)?;
+    // Several downloads at once may have just been allowed: the ones waiting can start.
+    state.downloads.replan(&app);
+    Ok(())
 }
 
 /// Back to the factory values; the front applies what comes back on the spot.
@@ -232,6 +245,23 @@ pub async fn pick_cookies_file(app: AppHandle, state: State<'_, AppState>, title
 #[tauri::command]
 pub fn file_exists(path: String) -> bool {
     !path.trim().is_empty() && Path::new(&path).is_file()
+}
+
+/// Opens a music folder in the system's file explorer, showing what is INSIDE it
+/// (revealing it would open its parent with the folder selected).
+#[tauri::command]
+pub fn open_folder(app: AppHandle, folder: String) -> Result<(), CommandError> {
+    if !Path::new(&folder).is_dir() {
+        return Err(CommandError::key("manager.openFolder.missing"));
+    }
+    // The opener plugin cannot open a folder on the phone: Kotlin asks the file browser.
+    #[cfg(target_os = "android")]
+    return crate::mobile::open_folder_now(&app, &folder).map_err(CommandError::io);
+    #[cfg(not(target_os = "android"))]
+    {
+        use tauri_plugin_opener::OpenerExt;
+        app.opener().open_path(folder, None::<&str>).map_err(CommandError::io)
+    }
 }
 
 /// The player's volume and last file, for the bar at startup.

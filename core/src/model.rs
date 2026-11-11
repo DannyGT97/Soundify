@@ -118,6 +118,16 @@ pub struct UserSettings {
     pub player_placement: String,
     /// A video goes to the floating panel by itself when Now Playing is left.
     pub auto_pip: bool,
+    /// Ask yt-dlp for two fragments at once (`--concurrent-fragments 2`). Off by
+    /// default: it only helps DASH/HLS downloads and adds requests to YouTube.
+    pub concurrent_fragments: bool,
+    /// One playlist advances with two yt-dlp processes at once (see `engine::download`'s lanes).
+    /// Off by default: it doubles the requests to YouTube.
+    pub parallel_downloads: bool,
+    /// Two different downloads (two playlists, a playlist and a loose URL...) run at the same time
+    /// instead of one after the other. Off by default; with `parallel_downloads` they still share
+    /// two yt-dlp processes between them.
+    pub parallel_blocks: bool,
 }
 
 impl Default for UserSettings {
@@ -143,6 +153,9 @@ impl Default for UserSettings {
             appearance: String::new(),
             player_placement: String::new(),
             auto_pip: true,
+            concurrent_fragments: false,
+            parallel_downloads: false,
+            parallel_blocks: false,
         }
     }
 }
@@ -157,6 +170,9 @@ pub struct Preferences {
     pub player_placement: String,
     pub auto_pip: bool,
     pub include_id_in_title_name: bool,
+    pub concurrent_fragments: bool,
+    pub parallel_downloads: bool,
+    pub parallel_blocks: bool,
     pub app_update_check_enabled: bool,
     pub auto_updates: bool,
     pub cookies_file: String,
@@ -173,6 +189,9 @@ pub struct PreferencesPatch {
     pub player_placement: Option<String>,
     pub auto_pip: Option<bool>,
     pub include_id_in_title_name: Option<bool>,
+    pub concurrent_fragments: Option<bool>,
+    pub parallel_downloads: Option<bool>,
+    pub parallel_blocks: Option<bool>,
     pub app_update_check_enabled: Option<bool>,
     pub auto_updates: Option<bool>,
     pub cookies_file: Option<String>,

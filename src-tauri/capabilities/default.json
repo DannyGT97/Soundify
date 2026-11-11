@@ -15,7 +15,6 @@
     "core:window:allow-close",
     "core:window:allow-set-fullscreen",
     "core:webview:allow-set-webview-zoom",
-    "dialog:allow-open",
-    "opener:allow-reveal-item-in-dir"
+    "dialog:allow-open"
   ]
 }

@@ -584,3 +584,61 @@ fn deleting_everything_of_a_device_playlist_goes_to_the_phone() {
     assert_eq!(result, DeleteResult { deleted: 1, unregistered: 0, left_over: 0 });
     assert!(!phone.has_folder("Music/P (mp3)"));
 }
+
+#[test]
+fn concurrent_changes_to_one_archive_lose_none() {
+    let (store, _) = store();
+    let json = path(JSON);
+    store.register_playlist(&json, None, None, &items(&[("seed", "Seed")]), true).unwrap();
+
+    // Eight threads each register their own items on the same archive: without the store's
+    // write lock the last save would erase the others'.
+    let threads: Vec<_> = (0..8)
+        .map(|n| {
+            let store = store.clone();
+            let json = json.clone();
+            std::thread::spawn(move || {
+                for k in 0..10 {
+                    let pair = items(&[(&format!("id{n}_{k}"), &format!("Title {n} {k}"))]);
+                    store.register_new_playlist_items(&json, &pair).unwrap();
+                }
+            })
+        })
+        .collect();
+    for thread in threads {
+        thread.join().unwrap();
+    }
+    assert_eq!(store.known_ids(&json).unwrap().len(), 81);
+}
+
+#[test]
+fn concurrent_changes_to_different_archives_stay_apart() {
+    let (store, _) = store();
+    let jsons: Vec<Location> = (0..4).map(|n| path(&format!("/archives/pl_P_00000{n}/mp3/data.json"))).collect();
+    for (n, json) in jsons.iter().enumerate() {
+        store.register_playlist(json, None, None, &items(&[(&format!("seed{n}"), "Seed")]), true).unwrap();
+    }
+    let threads: Vec<_> = jsons
+        .iter()
+        .cloned()
+        .enumerate()
+        .map(|(n, json)| {
+            let store = store.clone();
+            std::thread::spawn(move || {
+                for k in 0..10 {
+                    let pair = items(&[(&format!("a{n}_{k}"), "T")]);
+                    store.register_new_playlist_items(&json, &pair).unwrap();
+                    store.touch_last_activity(&json).unwrap();
+                }
+            })
+        })
+        .collect();
+    for thread in threads {
+        thread.join().unwrap();
+    }
+    for (n, json) in jsons.iter().enumerate() {
+        let known = store.known_ids(json).unwrap();
+        assert_eq!(known.len(), 11, "archive {n}: {known:?}");
+        assert!(known.iter().all(|id| id.starts_with(&format!("a{n}_")) || id == &format!("seed{n}")), "nothing crossed over: {known:?}");
+    }
+}

@@ -6,11 +6,14 @@ use std::path::Path;
 
 use log::warn;
 use soundify_core::Location;
-use soundify_core::cover_art::{self, IMAGE_EXTENSIONS, Thumbnail, ThumbnailFetcher};
+#[cfg(not(target_os = "android"))]
+use soundify_core::cover_art::IMAGE_EXTENSIONS;
+use soundify_core::cover_art::{self, Thumbnail, ThumbnailFetcher};
 use soundify_core::downloader::StopFlag;
 use soundify_core::http::ReqwestHttp;
 use soundify_core::storage::LocalStorage;
 use tauri::{AppHandle, Manager, Runtime, State, WebviewWindow};
+#[cfg(not(target_os = "android"))]
 use tauri_plugin_dialog::DialogExt;
 
 use crate::commands::{AppState, CommandError};
@@ -62,17 +65,27 @@ pub async fn url_thumbnail(state: State<'_, AppState>, url: String, playlist: bo
 /// and pressing «Cambiar portada» again with it open stacked a second one.
 #[tauri::command]
 pub async fn pick_cover_image(app: AppHandle, window: WebviewWindow, title: String, filter: String) -> Option<String> {
-    let dialog = app.dialog().file();
-    // Android has no windows to hang a dialog from.
-    #[cfg(desktop)]
-    let dialog = dialog.set_parent(&window);
-    #[cfg(mobile)]
-    let _ = window;
-    let picked = dialog
-        .set_title(title)
-        .add_filter(filter, &IMAGE_EXTENSIONS)
-        .blocking_pick_file()?;
-    let path = picked.into_path().ok()?;
+    // On the phone the dialog plugin hands back a content:// URI that is no file:
+    // Kotlin picks the image and copies it into the app's cache.
+    #[cfg(target_os = "android")]
+    let path = {
+        let _ = (&window, &title, &filter);
+        let handle = app.clone();
+        let picked = tauri::async_runtime::spawn_blocking(move || crate::mobile::pick_image_now(&handle)).await.ok()?;
+        match picked {
+            Ok(path) => std::path::PathBuf::from(path?),
+            Err(e) => {
+                warn!("Could not pick a cover image: {e}");
+                return None;
+            }
+        }
+    };
+    #[cfg(not(target_os = "android"))]
+    let path = {
+        let dialog = app.dialog().file().set_parent(&window);
+        let picked = dialog.set_title(title).add_filter(filter, &IMAGE_EXTENSIONS).blocking_pick_file()?;
+        picked.into_path().ok()?
+    };
     if let Err(e) = app.asset_protocol_scope().allow_file(&path) {
         warn!("Could not open {} to the webview: {e}", path.display());
     }

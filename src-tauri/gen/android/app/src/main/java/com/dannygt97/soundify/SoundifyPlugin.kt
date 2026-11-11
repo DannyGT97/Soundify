@@ -34,6 +34,13 @@ class PlayerLoadArgs {
   var title: String = ""
   var subtitle: String = ""
   var autoplay: Boolean = false
+  /** The track's thumbnail (a file), for the notification; empty when there is none yet. */
+  var artwork: String = ""
+}
+
+@InvokeArg
+class PathArgs {
+  var path: String = ""
 }
 
 @InvokeArg
@@ -195,6 +202,71 @@ class SoundifyPlugin(private val activity: Activity) : Plugin(activity) {
     invoke.resolve(out)
   }
 
+  /**
+   * The system's picker for a cover. Like the cookies, the chosen image is a
+   * `content://` URI the Rust side cannot read as a file, so it is copied to the
+   * app's cache (each pick with its own name, so the webview never shows an old one)
+   * and the copy's path comes back.
+   */
+  @Command
+  fun pickImage(invoke: Invoke) {
+    val intent = Intent(Intent.ACTION_OPEN_DOCUMENT).addCategory(Intent.CATEGORY_OPENABLE).setType("image/*")
+    startActivityForResult(invoke, intent, "imagePicked")
+  }
+
+  @ActivityCallback
+  fun imagePicked(invoke: Invoke, result: ActivityResult) {
+    val uri = result.data?.data
+    val out = JSObject()
+    if (result.resultCode == Activity.RESULT_OK && uri != null) {
+      try {
+        val mime = activity.contentResolver.getType(uri)
+        val ext = android.webkit.MimeTypeMap.getSingleton().getExtensionFromMimeType(mime) ?: "jpg"
+        activity.cacheDir.listFiles { f -> f.name.startsWith("picked-cover-") }?.forEach { it.delete() }
+        val target = File(activity.cacheDir, "picked-cover-${System.currentTimeMillis()}.$ext")
+        val input = activity.contentResolver.openInputStream(uri) ?: throw java.io.IOException("cannot open $uri")
+        input.use { source -> target.outputStream().use { source.copyTo(it) } }
+        out.put("path", target.absolutePath)
+      } catch (e: Exception) {
+        invoke.reject("image: ${e.message}", e)
+        return
+      }
+    }
+    invoke.resolve(out)
+  }
+
+  /**
+   * Shows a folder of the main storage in the system's file browser. The browser
+   * (DocumentsUI) opens a directory document; if the phone has no app for that,
+   * its folder picker opens at the folder instead.
+   */
+  @Command
+  fun openFolder(invoke: Invoke) {
+    val args = invoke.parseArgs(PathArgs::class.java)
+    val root = Environment.getExternalStorageDirectory().absolutePath
+    if (args.path != root && !args.path.startsWith("$root/")) {
+      invoke.reject("that folder is not in the main storage")
+      return
+    }
+    val docId = "primary:" + args.path.removePrefix(root).trim('/')
+    val authority = "com.android.externalstorage.documents"
+    try {
+      val view = Intent(Intent.ACTION_VIEW)
+        .setDataAndType(DocumentsContract.buildDocumentUri(authority, docId), DocumentsContract.Document.MIME_TYPE_DIR)
+        .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_GRANT_READ_URI_PERMISSION)
+      try {
+        activity.startActivity(view)
+      } catch (e: android.content.ActivityNotFoundException) {
+        val tree = Intent(Intent.ACTION_OPEN_DOCUMENT_TREE)
+          .putExtra(DocumentsContract.EXTRA_INITIAL_URI, DocumentsContract.buildDocumentUri(authority, docId))
+        activity.startActivity(tree)
+      }
+      invoke.resolve()
+    } catch (e: Exception) {
+      invoke.reject("open folder: ${e.message}", e)
+    }
+  }
+
   // === KEEPING THE APP ALIVE ===
 
   /** Starts or stops the foreground notice that keeps Android from killing the app while it downloads. */
@@ -231,7 +303,7 @@ class SoundifyPlugin(private val activity: Activity) : Plugin(activity) {
   fun playerLoad(invoke: Invoke) {
     val args = invoke.parseArgs(PlayerLoadArgs::class.java)
     askForNotifications()
-    player.load(args.path, args.title, args.subtitle, args.autoplay)
+    player.load(args.path, args.title, args.subtitle, args.autoplay, args.artwork)
     invoke.resolve()
   }
 

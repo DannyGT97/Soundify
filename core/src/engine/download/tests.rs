@@ -108,9 +108,20 @@ struct Recorded {
     steps: Vec<(Step, u32)>,
     notices: Vec<(&'static str, String)>,
     downloaded: Vec<String>,
+    /// The app has no second process to lend.
+    no_extra_process: bool,
+    extra_asked: u32,
+    extra_given_back: u32,
 }
 
 impl DownloadEvents for Recorded {
+    fn extra_process(&mut self) -> bool {
+        self.extra_asked += 1;
+        !self.no_extra_process
+    }
+    fn release_extra_process(&mut self) {
+        self.extra_given_back += 1;
+    }
     fn line(&mut self, line: ActivityLine) {
         if let ActivityLine::Message { key, .. } = line {
             self.keys.push(key);
@@ -166,6 +177,12 @@ impl World {
     fn run_with(&self, downloader: &dyn Downloader, job: &Job, stop: &StopFlag) -> Recorded {
         let mut events = Recorded::default();
         self.engine(downloader, stop).run(job, &mut events);
+        events
+    }
+
+    /// A run whose events are given (to say the app cannot lend a second process).
+    fn run_events(&self, downloader: &dyn Downloader, job: &Job, mut events: Recorded) -> Recorded {
+        self.engine(downloader, &StopFlag::new()).run(job, &mut events);
         events
     }
 
@@ -604,4 +621,306 @@ fn creating_it_again_keeps_the_numbering_it_was_given_first() {
 
     assert_eq!(again.number_mode.source, NumberModeSource::SameFormat);
     assert!(again.number_mode.number_files, "immutable once fixed");
+}
+
+// === TWO PROCESSES ON ONE PLAYLIST (ajuste «Dos descargas a la vez») ===
+
+impl World {
+    /// Ajustes → Avanzado → «Dos descargas a la vez en una playlist».
+    fn with_parallel(self) -> Self {
+        let mut settings = settings::load(self.storage.as_ref(), &self.settings_file);
+        settings.parallel_downloads = true;
+        settings::save(self.storage.as_ref(), &self.settings_file, &settings).unwrap();
+        self
+    }
+}
+
+/// «1-3,5,9-10» → [1, 2, 3, 5, 9, 10].
+fn positions(spec: &str) -> Vec<u32> {
+    spec.split(',')
+        .flat_map(|part| match part.split_once('-') {
+            Some((a, b)) => (a.parse::<u32>().unwrap()..=b.parse::<u32>().unwrap()).collect::<Vec<_>>(),
+            None => vec![part.parse::<u32>().unwrap()],
+        })
+        .collect()
+}
+
+fn after<'a>(args: &'a [String], flag: &str) -> Option<&'a str> {
+    args.iter().position(|a| a == flag).map(|at| args[at + 1].as_str())
+}
+
+fn is_retry(args: &[String]) -> bool {
+    args.last().is_some_and(|u| u.contains("watch?v="))
+}
+
+fn numbered_playlist(fake: &FakeYtDlp, count: u32) {
+    let entries: Vec<String> = (1..=count).map(|n| format!("{n}|{}|Canción {n}", long_id(n as usize))).collect();
+    fake.set_entries(&entries.iter().map(String::as_str).collect::<Vec<_>>());
+}
+
+/// The playlist download of the real yt-dlp: it takes the positions it is asked for, numbers
+/// them from `--autonumber-start` and brings down every one except those in `skip`. A retry of
+/// a single video (`watch?v=`) fails, so what is skipped stays pending.
+fn serves_positions(skip: &'static [u32]) -> DownloadReply {
+    Box::new(move |args| {
+        if is_retry(args) {
+            return Some((vec![], 1));
+        }
+        let first: u32 = after(args, "--autonumber-start").and_then(|n| n.parse().ok()).unwrap_or(1);
+        let asked = after(args, "--playlist-items").map(positions).unwrap_or_else(|| (1..=100).collect());
+        let mut lines = Vec::new();
+        for (k, position) in asked.iter().enumerate() {
+            if skip.contains(position) {
+                continue;
+            }
+            let (id, title) = (long_id(*position as usize), format!("Canción {position}"));
+            lines.push(seen(&id, &title));
+            lines.push(moved(&id, &format!("/music/Clásicos (mp3)/{:03} - {title}.mp3", first + k as u32)));
+        }
+        Some((lines, 0))
+    })
+}
+
+fn main_downloads(fake: &FakeYtDlp) -> Vec<Vec<String>> {
+    fake.downloads().into_iter().filter(|d| !is_retry(d)).collect()
+}
+
+#[test]
+fn off_by_default_one_process_takes_the_whole_playlist() {
+    let world = World::new(Some("web"));
+    let fake = FakeYtDlp::new(world.storage.clone(), serves_positions(&[]));
+    numbered_playlist(&fake, 4);
+
+    let events = world.create_and_run(&fake);
+
+    assert_eq!(fake.downloads().len(), 1);
+    assert!(!events.keys.contains(&"activity.workers.two".to_string()));
+}
+
+#[test]
+fn two_processes_split_the_pending_items_with_nothing_in_common() {
+    let world = World::new(Some("web")).with_parallel();
+    let fake = FakeYtDlp::new(world.storage.clone(), serves_positions(&[]));
+    numbered_playlist(&fake, 5);
+
+    let events = world.create_and_run(&fake);
+
+    let downloads = fake.downloads();
+    assert_eq!(downloads.len(), 2, "one request per process");
+    let mut all: Vec<u32> = Vec::new();
+    for request in &downloads {
+        all.extend(positions(after(request, "--playlist-items").expect("each one is told its own items")));
+    }
+    let own: HashSet<u32> = all.iter().copied().collect();
+    assert_eq!(all.len(), own.len(), "no position asked for twice: {all:?}");
+    assert_eq!(own, (1..=5).collect::<HashSet<u32>>(), "together, everything that was pending");
+    assert!(events.keys.contains(&"activity.workers.two".to_string()));
+    assert_eq!(events.steps, [(Step::Download, 5)], "the progress counts the whole run, not each process");
+    // A single commit leaves every file registered in the archive.
+    let json = world.playlist_json();
+    let ids: Vec<String> = (1..=5).map(long_id).collect();
+    assert!(world.store.ids_pending_download(&json, &ids).unwrap().is_empty());
+    let mut told = events.downloaded.clone();
+    told.sort();
+    assert_eq!(told, ids, "each file told once");
+}
+
+#[test]
+fn the_second_process_numbers_on_from_where_the_first_one_ends() {
+    let world = World::new(Some("web")).with_parallel();
+    let fake = FakeYtDlp::new(world.storage.clone(), serves_positions(&[]));
+    numbered_playlist(&fake, 5);
+
+    world.create_and_run(&fake);
+
+    // The processes start on their own threads: which request is logged first is not fixed.
+    let mut downloads = fake.downloads();
+    downloads.sort_by_key(|d| after(d, "--autonumber-start").unwrap().parse::<u32>().unwrap());
+    let count = positions(after(&downloads[0], "--playlist-items").unwrap()).len() as u32;
+    assert_eq!(after(&downloads[0], "--autonumber-start"), Some("1"));
+    assert_eq!(after(&downloads[1], "--autonumber-start"), Some((count + 1).to_string().as_str()), "the numbers of the original order");
+    // The files carry those numbers: 001..005, each exactly once.
+    let files: Vec<String> = (1..=5).map(|n| format!("/music/Clásicos (mp3)/{n:03} - Canción {n}.mp3")).collect();
+    for file in files {
+        assert!(world.storage.exists(&Location::path(&file)).unwrap(), "{file}");
+    }
+}
+
+#[test]
+fn the_second_process_works_on_a_copy_of_the_work_file_that_is_removed_afterwards() {
+    let world = World::new(Some("web")).with_parallel();
+    let fake = FakeYtDlp::new(world.storage.clone(), serves_positions(&[]));
+    numbered_playlist(&fake, 4);
+
+    world.create_and_run(&fake);
+
+    let mut files: Vec<String> = fake.downloads().iter().map(|d| after(d, "--download-archive").unwrap().to_string()).collect();
+    files.sort();
+    let (copy, own) = (files[0].clone(), files[1].clone()); // "archive.lane2.txt" sorts before "archive.txt"
+    assert_ne!(own, copy, "two processes never write to the same file");
+    assert!(own.ends_with("archive.txt"), "{own}");
+    assert!(copy.ends_with("archive.lane2.txt"), "{copy}");
+    assert!(!world.storage.exists(&Location::parse(&copy)).unwrap(), "the copy does not stay behind");
+}
+
+#[test]
+fn the_second_process_gets_its_own_copy_of_the_cookies() {
+    let world = World::new(Some("web")).with_cookies("/cookies.txt").with_parallel();
+    world.storage.write(&Location::path("/cookies.txt"), b"# cookies").unwrap();
+    let fake = FakeYtDlp::new(world.storage.clone(), serves_positions(&[]));
+    numbered_playlist(&fake, 4);
+
+    world.create_and_run(&fake);
+
+    // The processes start on their own threads: which request is logged first is not fixed.
+    let mut cookies: Vec<String> = fake.downloads().iter().map(|d| after(d, "--cookies").unwrap().to_string()).collect();
+    cookies.sort();
+    assert_eq!(cookies.len(), 2);
+    assert_eq!(cookies[1], "/cookies.txt");
+    let copy = cookies[0].as_str();
+    assert!(copy.ends_with("cookies.lane2.txt"), "{copy}");
+    assert!(!world.storage.exists(&Location::parse(copy)).unwrap());
+    assert!(world.storage.exists(&Location::path("/cookies.txt")).unwrap(), "the user's file is never touched");
+}
+
+#[test]
+fn a_single_pending_item_is_not_worth_a_second_process() {
+    let world = World::new(Some("web")).with_parallel();
+    let before = FakeYtDlp::new(world.storage.clone(), serves_positions(&[3]));
+    numbered_playlist(&before, 3);
+    world.create_and_run(&before);
+
+    let fake = FakeYtDlp::new(world.storage.clone(), serves_positions(&[]));
+    numbered_playlist(&fake, 3);
+    let job = Job::update(&world.store, &world.playlist_json()).unwrap();
+    let events = world.run(&fake, &job);
+
+    let downloads = main_downloads(&fake);
+    assert_eq!(downloads.len(), 1);
+    assert_eq!(after(&downloads[0], "--playlist-items"), Some("3"));
+    assert!(!events.keys.contains(&"activity.workers.two".to_string()));
+}
+
+#[test]
+fn a_resumed_run_asks_only_for_what_is_still_pending() {
+    let world = World::new(Some("web")).with_parallel();
+    // Positions 2 and 4 do not come down the first time.
+    let before = FakeYtDlp::new(world.storage.clone(), serves_positions(&[2, 4]));
+    numbered_playlist(&before, 4);
+    world.create_and_run(&before);
+    let json = world.playlist_json();
+    let ids: Vec<String> = (1..=4).map(long_id).collect();
+    assert_eq!(world.store.ids_pending_download(&json, &ids).unwrap(), [long_id(2), long_id(4)]);
+
+    let fake = FakeYtDlp::new(world.storage.clone(), serves_positions(&[]));
+    numbered_playlist(&fake, 4);
+    let job = Job::update(&world.store, &json).unwrap();
+    let events = world.run(&fake, &job);
+
+    let mut asked: Vec<u32> = Vec::new();
+    for request in main_downloads(&fake) {
+        asked.extend(positions(after(&request, "--playlist-items").unwrap()));
+    }
+    asked.sort_unstable();
+    assert_eq!(asked, [2, 4], "what was already down is not asked for again");
+    assert_eq!(events.steps.first(), Some(&(Step::Download, 2)));
+    assert!(world.store.ids_pending_download(&json, &ids).unwrap().is_empty());
+}
+
+#[test]
+fn stopping_stops_both_processes_and_keeps_the_archive() {
+    let world = World::new(Some("web")).with_parallel();
+    let fake = FakeYtDlp::new(world.storage.clone(), Box::new(|_| None));
+    numbered_playlist(&fake, 4);
+
+    let events = world.create_and_run(&fake);
+
+    assert_eq!(fake.downloads().len(), 2, "both were launched");
+    assert!(events.keys.contains(&"activity.stop.download".to_string()));
+    assert!(!events.keys.contains(&"activity.sync.done".to_string()));
+    assert!(!events.steps.iter().any(|(step, _)| *step == Step::Retry), "no second pass after a stop");
+    let ids: Vec<String> = (1..=4).map(long_id).collect();
+    assert_eq!(world.store.ids_pending_download(&world.playlist_json(), &ids).unwrap().len(), 4, "still registered and pending");
+}
+
+#[test]
+fn a_429_in_the_second_process_leaves_its_items_for_the_second_pass() {
+    let world = World::new(Some("web")).with_parallel();
+    let fake = FakeYtDlp::new(
+        world.storage.clone(),
+        Box::new(|args| {
+            if is_retry(args) {
+                let id = args.last().unwrap().rsplit('=').next().unwrap().to_string();
+                return Some((vec![seen(&id, "Rescatada"), moved(&id, &format!("/music/Clásicos (mp3)/{id}.mp3"))], 0));
+            }
+            // The second process is told to slow down before getting anything.
+            if after(args, "--download-archive").is_some_and(|f| f.ends_with("archive.lane2.txt")) {
+                return Some((vec!["ERROR: unable to download video data: HTTP Error 429: Too Many Requests".into()], 1));
+            }
+            serves_positions(&[])(args)
+        }),
+    );
+    numbered_playlist(&fake, 4);
+
+    let events = world.create_and_run(&fake);
+
+    assert!(events.keys.contains(&"activity.workers.backoff".to_string()));
+    assert!(events.steps.contains(&(Step::Retry, 2)), "the two items of the slowed-down process: {:?}", events.steps);
+    let ids: Vec<String> = (1..=4).map(long_id).collect();
+    assert!(world.store.ids_pending_download(&world.playlist_json(), &ids).unwrap().is_empty());
+}
+
+#[test]
+fn a_single_download_never_uses_two_processes() {
+    let world = World::new(Some("web")).with_parallel();
+    let fake = FakeYtDlp::new(world.storage.clone(), Box::new(|_| Some((vec![seen(A, "Canción"), moved(A, "/music/Canción.mp3")], 0))));
+
+    let events = world.run(&fake, &single(&format!("https://www.youtube.com/watch?v={A}")));
+
+    assert_eq!(fake.downloads().len(), 1);
+    assert!(!events.keys.contains(&"activity.workers.two".to_string()));
+}
+
+// === THE APP'S PROCESS LIMIT (several downloads at once) ===
+
+#[test]
+fn the_second_process_is_asked_for_and_given_back() {
+    let world = World::new(Some("web")).with_parallel();
+    let fake = FakeYtDlp::new(world.storage.clone(), serves_positions(&[]));
+    numbered_playlist(&fake, 4);
+
+    let events = world.create_and_run(&fake);
+
+    assert_eq!(fake.downloads().len(), 2);
+    assert_eq!((events.extra_asked, events.extra_given_back), (1, 1), "borrowed once, returned once");
+}
+
+#[test]
+fn without_a_second_process_to_spare_the_playlist_goes_on_with_one() {
+    let world = World::new(Some("web")).with_parallel();
+    let fake = FakeYtDlp::new(world.storage.clone(), serves_positions(&[]));
+    numbered_playlist(&fake, 4);
+    let created = world.create(&fake, true).expect("the fake lists the playlist");
+    let job = Job::update(&world.store, &created.json).unwrap();
+
+    let events = world.run_events(&fake, &job, Recorded { no_extra_process: true, ..Recorded::default() });
+
+    let downloads = main_downloads(&fake);
+    assert_eq!(downloads.len(), 1, "one process takes everything");
+    assert_eq!(after(&downloads[0], "--playlist-items"), None, "the whole playlist, not a share of it");
+    assert!(!events.keys.contains(&"activity.workers.two".to_string()));
+    assert_eq!((events.extra_asked, events.extra_given_back), (1, 0), "nothing to give back");
+    let ids: Vec<String> = (1..=4).map(long_id).collect();
+    assert!(world.store.ids_pending_download(&world.playlist_json(), &ids).unwrap().is_empty());
+}
+
+#[test]
+fn a_playlist_that_does_not_share_does_not_ask_for_the_second_process() {
+    let world = World::new(Some("web"));
+    let fake = FakeYtDlp::new(world.storage.clone(), serves_positions(&[]));
+    numbered_playlist(&fake, 4);
+
+    let events = world.create_and_run(&fake);
+
+    assert_eq!(events.extra_asked, 0, "with the setting off the limit never comes into it");
 }

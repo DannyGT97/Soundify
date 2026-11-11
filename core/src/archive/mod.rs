@@ -19,7 +19,7 @@ pub mod sync;
 use std::collections::{HashMap, HashSet};
 use std::io::Result;
 use std::path::Path;
-use std::sync::Arc;
+use std::sync::{Arc, Mutex, MutexGuard};
 
 use log::info;
 use serde::Serialize;
@@ -59,13 +59,23 @@ pub struct ArchiveStore {
     storage: Arc<dyn Storage>,
     archives: Location,
     clock: Clock,
+    /// One writer at a time: every change here is load → modify → save, and two of them
+    /// on the same file would lose one. Shared by the clones of the store.
+    write_lock: Arc<Mutex<()>>,
 }
 
 impl ArchiveStore {
     // === CONSTRUCTION ===
 
     pub fn new(storage: Arc<dyn Storage>, archives: Location, clock: Clock) -> Self {
-        Self { storage, archives, clock }
+        Self { storage, archives, clock, write_lock: Arc::new(Mutex::new(())) }
+    }
+
+    /// Held while a change is read, made and saved. Never taken twice by one thread: the
+    /// changes below do not call each other. The long passes (startup reconcile, the phone's)
+    /// do not take it: a task already holds its archive through the planner's reservations.
+    fn writing(&self) -> MutexGuard<'_, ()> {
+        self.write_lock.lock().unwrap_or_else(|poisoned| poisoned.into_inner())
     }
 
     pub fn storage(&self) -> &dyn Storage {
@@ -103,6 +113,7 @@ impl ArchiveStore {
     /// Before launching yt-dlp: reconciles the JSON with the disk, regenerates
     /// `archive.txt` and returns the last number used (`--autonumber-start`).
     pub fn prepare(&self, json: &Location, folder: &Location, format: &str) -> Result<i32> {
+        let _writing = self.writing();
         let mut data = self.load(json)?;
         data.folder = Some(sync::stored(folder));
         sync::reconcile_entries(self.storage(), &mut data, folder, &crate::paths::format_extension(format), &self.now());
@@ -125,6 +136,7 @@ impl ArchiveStore {
         format: &str,
         captured: &[(String, Location)],
     ) -> Result<Vec<TitleCollision>> {
+        let _writing = self.writing();
         let mut data = self.load(json)?;
         data.folder = Some(sync::stored(folder));
         let now = self.now();
@@ -145,6 +157,7 @@ impl ArchiveStore {
     /// Persists ONE capture as soon as it happens: if the process dies, only
     /// the file that was halfway is lost, not the whole run.
     pub fn register_single(&self, json: &Location, folder: &Location, id: &str, file: &Location) -> Result<()> {
+        let _writing = self.writing();
         let mut data = self.load(json)?;
         sync::register_captured(self.storage(), &mut data, folder, id, file, &self.now());
         self.save(json, &data)
@@ -195,6 +208,7 @@ impl ArchiveStore {
     /// Gestor shows them while they download (they used to appear all at once,
     /// already green, at the end — reported). Returns how many.
     pub fn register_new_playlist_items(&self, json: &Location, id_to_title: &[(String, String)]) -> Result<usize> {
+        let _writing = self.writing();
         if id_to_title.is_empty() {
             return Ok(0);
         }
@@ -217,6 +231,7 @@ impl ArchiveStore {
     /// Independent of the real download: stopping halfway must not stop
     /// removals being detected. Never deletes a file.
     pub fn sync_playlist_membership(&self, json: &Location, url: Option<&str>, current: &HashSet<String>) -> Result<()> {
+        let _writing = self.writing();
         let mut data = self.load(json)?;
         if let Some(url) = url.filter(|u| !u.trim().is_empty()) {
             data.url = Some(url.to_string());
@@ -234,6 +249,7 @@ impl ArchiveStore {
     /// videos rarely get one of their own). Never creates entries, and never
     /// overwrites the title of a downloaded file (its name is more reliable).
     pub fn refresh_known_titles(&self, json: &Location, id_to_title: &HashMap<String, String>) -> Result<()> {
+        let _writing = self.writing();
         if id_to_title.is_empty() {
             return Ok(());
         }
@@ -265,6 +281,7 @@ impl ArchiveStore {
     /// The position of each KNOWN id in the source playlist, only to list an
     /// unnumbered playlist as YouTube does. Touches no file.
     pub fn refresh_playlist_order(&self, json: &Location, id_to_index: &HashMap<String, i32>) -> Result<()> {
+        let _writing = self.writing();
         if id_to_index.is_empty() {
             return Ok(());
         }
@@ -299,6 +316,7 @@ impl ArchiveStore {
         id_to_title: &[(String, String)],
         number_files_if_new: bool,
     ) -> Result<()> {
+        let _writing = self.writing();
         // Checked BEFORE loading: a missing file loads as a fresh archive.
         let is_new = !self.storage.exists(json)?;
         let mut data = self.load(json)?;
@@ -345,6 +363,7 @@ impl ArchiveStore {
         id_to_title: &[(String, String)],
         number_files_if_new: bool,
     ) -> Result<()> {
+        let _writing = self.writing();
         let is_new = !self.storage.exists(json)?;
         let mut data = self.load(json)?;
         if let Some(url) = url.filter(|u| !u.trim().is_empty()) {
@@ -369,6 +388,7 @@ impl ArchiveStore {
 
     /// The loose downloads sent to a device folder: only where they go.
     pub fn register_device_individual(&self, json: &Location, target: &crate::device::DeviceTarget) -> Result<()> {
+        let _writing = self.writing();
         let mut data = self.load(json)?;
         set_device(&mut data, target);
         self.save(json, &data)?;
@@ -385,6 +405,7 @@ impl ArchiveStore {
         title: Option<&str>,
         number: Option<&str>,
     ) -> Result<()> {
+        let _writing = self.writing();
         let mut data = self.load(json)?;
         if !data.entries.contains_key(id) {
             let entry = self.new_entry();
@@ -432,6 +453,7 @@ impl ArchiveStore {
     /// Stamped when a run TRULY finishes (the Gestor sorts by it), unlike
     /// `last_synced_at`, stamped at the start.
     pub fn touch_last_activity(&self, json: &Location) -> Result<()> {
+        let _writing = self.writing();
         let mut data = self.load(json)?;
         data.last_activity_at = Some(self.now());
         self.save(json, &data)
@@ -489,6 +511,7 @@ impl ArchiveStore {
     /// Permanently unavailable (deleted, private, copyright...): it stops being
     /// proposed as pending. Not for network or client failures — see [`Self::mark_failed`].
     pub fn mark_unavailable(&self, json: &Location, id: &str, reason: &str) -> Result<()> {
+        let _writing = self.writing();
         let mut data = self.load(json)?;
         let now = self.now();
         let entry = data.entries.entry(id.to_string()).or_insert_with(|| self.new_entry());
@@ -502,6 +525,7 @@ impl ArchiveStore {
     /// No client could download it in this run. Not permanent: the next
     /// update tries again on its own.
     pub fn mark_failed(&self, json: &Location, id: &str, title: Option<&str>, reason: &str) -> Result<()> {
+        let _writing = self.writing();
         let mut data = self.load(json)?;
         let now = self.now();
         let entry = data.entries.entry(id.to_string()).or_insert_with(|| self.new_entry());

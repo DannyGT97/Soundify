@@ -4,5 +4,6 @@
 
 pub mod activity;
 pub mod download;
+pub mod resources;
 pub mod safety_net;
 pub mod tasks;

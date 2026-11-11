@@ -5,7 +5,6 @@ import { convertFileSrc, invoke } from '@tauri-apps/api/core';
 import { listen } from '@tauri-apps/api/event';
 import { getCurrentWindow } from '@tauri-apps/api/window';
 import { open } from '@tauri-apps/plugin-dialog';
-import { revealItemInDir } from '@tauri-apps/plugin-opener';
 import type { Api } from '.';
 import type {
   ActivityLine, AppUpdate, AppUpdateProgress, CopyOutcome, CopyProgress, CreatedPlaylist, DeleteResult, DeviceEntry, DeviceImportScan, DevicesView, DownloadNotice, ExportResult,
@@ -20,7 +19,9 @@ export const tauriApi: Api = {
   formats: () => invoke<FormatCatalog>('formats'),
   createPlaylist: (url, format, folder, numbered) => invoke<CreatedPlaylist>('create_playlist', { url, format, folder, numbered }),
   startDownload: request => void invoke('start_download', { request }),
-  stopDownload: () => void invoke('stop_download'),
+  stopDownload: taskId => void invoke('stop_download', { taskId: typeof taskId === 'number' ? taskId : null }),
+  removeQueued: id => void invoke('remove_queued', { id }),
+  clearQueue: () => void invoke('clear_queue'),
   clearTaskHistory: () => void invoke('clear_task_history'),
   watchDownloads: onNotice => {
     // Listening first, asking second, as with the tools' health: what happens
@@ -57,7 +58,7 @@ export const tauriApi: Api = {
   cancelCopy: () => void invoke('cancel_copy'),
   scanImport: folder => invoke<ImportScan>('scan_import', { folder }),
   importPlaylists: folders => invoke<ImportOutcome[]>('import_playlists', { folders }),
-  revealFolder: folder => void revealItemInDir(folder),
+  revealFolder: folder => invoke('open_folder', { folder }),
   deletePlaylistFormat: (blockKey, files) => invoke<DeleteResult | null>('delete_playlist_format', { blockKey, files }),
   listDevices: () => invoke<DevicesView>('list_devices'),
   listDeviceFolder: (deviceId, path) => invoke<DeviceEntry[]>('list_device_folder', { deviceId, path }),

@@ -330,3 +330,17 @@ test.describe('picture in picture', () => {
     await expect(page.locator('.np-pip-here')).toHaveCount(0);
   });
 });
+
+test('the big cover of a playlist shows a pencil on hover and is editable', async ({ page }) => {
+  await page.goto('/#/player?b=pl1:MP3');
+  const cover = page.locator('.hero-cover');
+  const shade = cover.locator('.shade');
+  await expect(cover).toHaveAttribute('role', 'button');
+  await expect(shade).toHaveCSS('opacity', '0');
+  await cover.hover();
+  await expect(shade).toHaveCSS('opacity', '1');
+  await expect(shade.locator('svg')).toBeVisible();
+  // The mock's picker returns no image: the click does nothing but must not break the view.
+  await cover.click();
+  await expect(page.locator('.hero h1')).toBeVisible();
+});

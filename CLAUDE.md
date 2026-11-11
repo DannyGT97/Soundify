@@ -1,6 +1,6 @@
 # CLAUDE.md — Soundify (Tauri)
 
-Port de Soundify (la app Java/JavaFX de `D:\Proyectos\soundifylocal`) a Tauri 2, pensando en
+Port de Soundify (la app Java/JavaFX, repositorio local `soundifylocal`) a Tauri 2, pensando en
 llevarla a Android. Todas las pantallas están hechas; la lógica se está portando por fases según
 [MIGRATION-PLAN.md](MIGRATION-PLAN.md) (hechas: fases 0 a 9). Dentro de Tauri la biblioteca ya es la
 real (los archives de `data/`); lo que aún no ha llegado sale de la API de mentira (`src/api/mock/`),
@@ -17,8 +17,10 @@ Repositorio: https://github.com/DannyGT97/Soundify (GitHub, rama `main`, GPL-3.0
 - **Comprobar: `npm run check`** (tsc + vitest + cargo test + clippy, salida corta: una línea por
   herramienta, o solo lo que falla). Interfaz aparte: `npm run test:ui` (Playwright). Build: `npm run build`
 - **Publicar una release: cuando el usuario lo pida, lo hace Claude entero, SIEMPRE QUE NO MIRE LA CLAVE PRIVADA.**
-  `D:\Project keys\soundify\soundify-signing-key.pem` no se abre, ni se lee, ni se muestra, ni se copia: solo se pasa su
-  ruta al script. Pasos: `npm run tauri build -- --no-bundle` desde el commit de la versión →
+  La clave privada de firma (su ruta está en `CLAUDE.local.md`, que git ignora) no se abre, ni se lee, ni se muestra, ni se copia: solo se pasa su
+  ruta al script. Pasos: `node scripts/release-build.mjs` desde el commit de la versión (mejor en un `git worktree` de esa etiqueta; envuelve
+  `tauri build --no-bundle` con `--remap-path-prefix` para que el .exe NO lleve la carpeta del usuario de Windows: rustc
+  incrusta las rutas de `.cargo`/`.rustup`; comprobar con `grep -a` que no sale el nombre de usuario) →
   `node scripts/package-portable.mjs --key "<ruta>"` (se niega si la clave no es la que acepta la app) →
   `gh release create vX.Y.Z -R DannyGT97/Soundify --target <hash COMPLETO> --title "Soundify X.Y.Z" --notes "..."` con solo
   los tres archivos de `release/` (`-tauri.zip`, `.sha256`, `.sig`) y notas `## Novedades` en español. Comprobar después lo subido
@@ -112,6 +114,8 @@ Repositorio: https://github.com/DannyGT97/Soundify (GitHub, rama `main`, GPL-3.0
   la imagen recién elegida; en `tauri.conf.json` va vacío). Evento `thumbnail-ready`.
   Cerrar la ventana guarda antes el segundo del reproductor (`onCloseRequested` → permiso
   `core:window:allow-destroy`)
+  «Abrir carpeta» (Reproductor y Gestor, `openFolder` de `manager.ts`) llama a `open_folder` (`commands.rs`, `opener().open_path`): abre la carpeta MISMA, no su padre con ella seleccionada (`revealItemInDir`, que ya no se usa ni tiene permiso); si ya no existe, error `manager.openFolder.missing`. **En Android** el plugin opener no abre carpetas: lo hace Kotlin (`SoundifyPlugin.openFolder`, `mobile::open_folder_now`): `ACTION_VIEW` sobre el documento de directorio de DocumentsUI (`primary:<ruta relativa>`) y, si el móvil no tiene app para eso, el selector de carpetas abierto en ella; solo el almacenamiento principal. **Sin comprobar en la tablet**.
+  La imagen de «Cambiar portada» / «Descarga por URL» (`pick_cover_image`) tampoco puede usar el plugin `dialog` en Android (devuelve `content://`, no un archivo): `SoundifyPlugin.pickImage` (`ACTION_OPEN_DOCUMENT`, `image/*`) copia la elegida a `cacheDir/picked-cover-<ms>.<ext>` y devuelve esa ruta (`mobile::pick_image_now`). **Sin comprobar en la tablet**.
   `app_update.rs`: comprobar (8 s tras arrancar), descargar e instalar → eventos `app-update` y
   `app-update-progress`; en desarrollo se niega (`update.devBuild`). `devices.rs`: los comandos de
   dispositivo (listar, explorar, crear playlist, copiar en los dos sentidos, importar; las copias
@@ -124,7 +128,7 @@ Repositorio: https://github.com/DannyGT97/Soundify (GitHub, rama `main`, GPL-3.0
   `tauri icon`. `tauri.android.conf.json` quita de Android el ffmpeg incluido. `app_paths.rs` en Android: la carpeta
   privada, sacada de `/proc/self` porque la necesita el logger antes de que arranque Tauri.
   Además, plugin Kotlin `SoundifyPlugin` (registrado en `mobile.rs`/`lib.rs`) y: `BusyService` (foreground `dataSync` mientras
-  se descarga), `PlaybackService` + `NativePlayer` (Media3: sonido en segundo plano, notificación con anterior/siguiente).
+  se descarga), `PlaybackService` + `NativePlayer` (Media3: sonido en segundo plano, notificación con anterior/siguiente; la portada de la notificación es la miniatura del archivo, recortada a cuadrado en Kotlin (`NativePlayer.coverBytes`) y pasada en `artwork` por `AndroidPlayer`; sin ella Media3 pone el logo de la app. **Sin comprobar en la tablet**).
   **Android usa rutas reales, no SAF:** permiso «Acceso a todos los archivos» (`MANAGE_EXTERNAL_STORAGE`), música por defecto en
   `Music/Soundify`; `pick_phone_folder` convierte el selector de carpetas a ruta (solo el almacenamiento principal). Sin
   permiso el arranque NO concilia y el front (`storage.ts`) avisa con «Dar acceso»; al concederlo se concilia. yt-dlp, Python,
@@ -167,6 +171,55 @@ Repositorio: https://github.com/DannyGT97/Soundify (GitHub, rama `main`, GPL-3.0
   `relativeTime.ts` — el «Descargado» relativo
 - `tasks.ts` — lo que el front deduce de la tarea (porcentaje, origen, marcar como vista, `liveText` y
   `progressLine` del Gestor)
+- **Fragmentos simultáneos (fase 2 de `PLAN-DESCARGA-SIMULTANEA.md`):** `concurrentFragments` en `settings.json` (apagado de serie; Ajustes →
+  Avanzado). Encendido, `BuildConfig.concurrent_fragments` = `fragments_for(true)` = 2 (`MAX_CONCURRENT_FRAGMENTS`, tope duro) y
+  `command.rs` añade `--concurrent-fragments 2`; solo en la descarga principal (`engine/download.rs`), no en la segunda pasada ni en el
+  dispositivo. Solo ayuda con vídeo en fragmentos (DASH/HLS), no con un MP3, y suma peticiones. **Sin probar contra YouTube**
+- **Cola de descargas (fase 1 de `PLAN-DESCARGA-SIMULTANEA.md`, concurrencia 1):** una sola descarga a la vez, las demás esperan en
+  orden (`BackgroundTasks.enqueue/start_ready/remove_queued/clear_queue/is_busy_with`, `core/src/engine/tasks.rs`; la petición real
+  vive en `Downloads.pending`, por id, en `downloads.rs`, cuyo hilo cierra su tarea y pide al planificador lo siguiente BAJO UN MISMO
+  cierre de `tasks`: orden de bloqueos `tasks` y luego `pending`/`stops`). Pedir otra mientras corre una la encola y avisa (`tasks.queue.added`); el mismo
+  archive en marcha o en cola se rechaza (`tasks.queue.duplicate`). Detener para solo la activa; «Quitar» / «Quitar todas»
+  (`remove_queued`, `clear_queue`) no deshacen el registro de una playlist recién creada. La vista lleva `queued` y el front
+  `ui.queue` (Tareas: sección «En cola» con posición; píldora «+N en cola»; Gestor y «Ver archivos»: insignia «En cola» y «Quitar
+  de la cola» en lugar de Sincronizar; los hermanos del bloque activo ya no se atenúan ni se desactivan). Las copias a dispositivo
+  MTP pasan por la misma cola. Probado con el mock (`e2e/manager.spec.ts`) y los tests de `tasks.rs`; **sin probar contra
+  YouTube ni en la tablet**
+- **Tareas con id y reservas (fase 3 de `PLAN-DESCARGA-SIMULTANEA.md`; la concurrencia de serie sigue siendo 1, `MAX_RUNNING`; la fase 5 la sube a 2 si el usuario lo activa):** cada tarea
+  tiene un `TaskId` desde que se encola; `BackgroundTasks` guarda una lista de en marcha (`TasksView.running` es un array, el front
+  enseña la primera: `ui.task`) y todo lo que cambia una tarea (título, bloque, paso, progreso, parada, aviso, cierre) lleva su id. Lo que
+  una tarea necesita para sí son `ResourceKey`s (`core/src/engine/resources.rs`): el `data.json` de su archive, su carpeta de música
+  (normalizadas, sin tocar el disco; ante la duda cuentan como iguales) y «el teléfono» (una copia a la vez). `start_ready()` es el
+  planificador: arranca en orden lo que cabe y no comparte nada con lo que corre NI con una tarea anterior que sigue esperando (nadie
+  adelanta). En `downloads.rs`: un hilo y un `StopFlag` por tarea (`stops`), `stop_download(taskId?)` (sin id, todas), los eventos
+  `activity` y `notice` llevan `taskId`, y `set_busy` de Android refleja si queda algo en marcha. `ArchiveStore` tiene un candado de
+  escritura compartido (`write_lock`) en cada cambio «leer → modificar → guardar» (los pases largos —conciliación, teléfono— no lo toman: ya
+  los cubre la reserva del archive). No se tocó el JSON ni `archive.txt` (sigue siendo de UN proceso a la vez). Probado con `tasks.rs`,
+  `resources.rs`, `archive/tests.rs` (cambios concurrentes sin pérdidas) y `java_compat.rs`; **sin probar con más de una descarga real**
+- **Dos procesos en una playlist (fase 4 de `PLAN-DESCARGA-SIMULTANEA.md`):** `parallelDownloads` en `settings.json` (apagado de serie; Ajustes →
+  Avanzado). Encendido y con ≥2 elementos pendientes, `engine/download/lanes.rs` reparte la tanda en dos (numerada: mitades contiguas, la segunda
+  con `--autonumber-start` = desfase + los de la primera; sin numerar: grupos por `cleaned_title`) y lanza dos `Downloader.run` (hilos con
+  `thread::scope`, líneas por un canal al hilo llamante, que es el único que escribe archive y UI). El segundo trabaja sobre
+  `archive.lane2.txt` y `cookies.lane2.txt` (copias en la carpeta del archive, borradas al acabar). Detener / bot-check paran los dos; un
+  429 para el segundo y sus elementos van a la segunda pasada (`activity.workers.backoff`). Una descarga suelta, una playlist con un solo
+  pendiente o el reintento no se reparten. Máximo 2 procesos (`MAX_WORKERS`). Tests: `lanes.rs`, `engine/download/tests.rs`. **Sin probar contra
+  YouTube ni en la tablet** (la prueba real de 8 vídeos tardó 97 s seguidos y 51 s con dos; no vale para las +700)
+- **Un solo interruptor para lo rápido (10/11/2026):** Ajustes → Avanzado → «Descargar más rápido (experimental)» (`settings.advanced.faster`, apagado de serie) sustituye a los tres de las fases 2, 4 y 5 (`views/settings.ts`, `fasterSwitch`): al cambiarlo guarda a la vez `concurrentFragments`, `parallelDownloads` y `parallelBlocks`, y se ve encendido si CUALQUIERA lo está (un `settings.json` viejo sigue mostrando lo que de verdad hace). El texto es sin jerga a propósito. Los tres campos siguen existiendo en el core con su significado de abajo.
+- **Dos bloques a la vez (fase 5 de `PLAN-DESCARGA-SIMULTANEA.md`, EXPERIMENTAL):** `parallelBlocks` en `settings.json` (apagado de serie; Ajustes →
+  Avanzado, «Descargar más rápido (experimental)»; la de la fase 4 también lleva «(experimental)»). Apagado, el comportamiento es el de siempre: UNA descarga y
+  las demás en cola. Encendido, `BackgroundTasks.set_limit` sube el tope de tareas en marcha de `MAX_RUNNING` (1) a `MAX_RUNNING_PARALLEL` (2);
+  el teléfono (MTP) sigue siendo de uno en uno y el mismo archive o la misma carpeta nunca corren dos veces (reservas de la fase 3). **Presupuesto
+  global de procesos de yt-dlp = `MAX_PROCESSES` (2)**: cada tarea tiene uno y puede PEDIR prestado el segundo para los carriles de la fase 4
+  (`claim_extra_process` / `release_extra_process`; se niega si el total pasaría de 2 o si una tarea en espera cabe en el hueco), así que las
+  fases 4 y 5 no se multiplican. El motor lo pide por `DownloadEvents::extra_process()` / `release_extra_process()` (de serie, sí) alrededor de
+  `lanes::run`. Puente (`downloads.rs`): `run_limit` lee el ajuste, `replan` (también tras `save_preferences` y al soltar el segundo proceso)
+  arranca lo que ahora cabe; `begin_run` solo vacía la actividad si no corre otra tarea; el directorio temporal de cada ejecución es único.
+  Front: `ui.running` (todas las tareas en marcha; `ui.task` = la primera), `runningFor(blockKey)` y `overallPercent` (`tasks.ts`); lo vivo
+  lleva `data-task` y `patchLive` actualiza cada pieza con SU tarea; el Gestor ilumina los dos bloques, Tareas lleva una tarjeta por tarea
+  con «Detener todas», y la píldora dice «N descargas · %». El mock lo imita con un temporizador por tarea. Límites conocidos: `last_finished`
+  solo deja corregir con un aviso tardío a la ÚLTIMA tarea cerrada; el registro de Actividad mezcla las líneas de las dos; `sync_busy` enseña
+  solo el título de la primera. Tests: `engine/tasks.rs`, `engine/download/tests.rs`, `settings.rs`, `tasks.test.ts` y `e2e/manager.spec.ts` /
+  `settings.spec.ts`. **Sin probar contra YouTube ni en la tablet** (duplica la carga: riesgo de bot-check en listas largas)
 - Gestor con una descarga en marcha (`views/manager.ts`): el bloque que descarga lleva contorno con un
   brillo que lo recorre, insignia «Descargando», «Archivo X de Y» y Detener en lugar de Sincronizar; sus
   hermanos se atenúan y no se pueden sincronizar; la fila padre lleva un chip en vivo y, plegada, una barra
@@ -203,7 +256,7 @@ Repositorio: https://github.com/DannyGT97/Soundify (GitHub, rama `main`, GPL-3.0
 - `dom.ts` — `h()` para construir nodos (nunca HTML en cadenas: los títulos vienen de YouTube)
 - `icons.ts` — TODOS los iconos, de Lucide (`lucide`, ISC): SVG con `currentColor`, nítidos a cualquier
   escala. Se importan por nombre (solo los usados entran en el build). Icono nuevo = una línea en `ICONS`.
-  La S ancha de Inicio se dibuja como SVG inline con el acento; el icono de la app sigue siendo verde.
+  La S ancha de Inicio se dibuja como SVG inline con el acento; el icono de la app es esa misma S (verde `#1ed760` sobre `#3a3a3a`, el tema Oscuro): se generó con `tauri icon` desde un PNG de 1024 y en Android el primer plano adaptativo es solo la S sobre el color `ic_launcher_background`; el PNG de Ajustes → Acerca de y el favicon están en `public/icons/`.
 - `scale.ts` — la escala de la interfaz: en la app es el zoom NATIVO del webview (`setZoom`, permiso
   `core:webview:allow-set-webview-zoom`), que recoloca todo; un `zoom` de CSS en la raíz hacía crecer
   la pantalla por debajo de la ventana. En el navegador, `zoom` sobre `#app` (alto en %, no `vh`).
@@ -249,6 +302,7 @@ Repositorio: https://github.com/DannyGT97/Soundify (GitHub, rama `main`, GPL-3.0
   Interfaz) y vuelve solo al entrar (`ui.pipAuto` distingue el panel abierto solo del abierto a mano, que se queda). En el hueco
   de Reproduciendo (`.np-pip-here`) se puede arrastrar el panel para devolverlo (`.dock-over`) o usar «Traerlo aquí». También
   funciona en móvil y tableta (solo el botón del reproductor de la barra sigue oculto en móvil)
+- **Portada editable en el Reproductor:** la portada grande del detalle (`.hero-cover` en `views/player.ts`) lleva un lápiz al pasar el ratón (o foco), como las filas del Gestor, y abre el mismo `changeCover`; en pantallas táctiles (`hover: none`) el lápiz es una insignia siempre visible. **Sin ver en la tablet**
 - **Buscadores con «x» para borrar:** todos son `type="search"` (Gestor, Reproductor y su búsqueda de archivos, Ver archivos, Ajustes, filtro del explorador de dispositivos) y la «x» es el botón nativo (`::-webkit-search-cancel-button`, dibujado con máscara en `app.css`; más grande en Android, `phone.css`). Un buscador nuevo = `attrs: { type: 'search' }`; `keys.ts` ya lo trata como campo de texto. **Sin ver en la tablet**
 - `components/themePicker.ts` — rejilla reutilizada por el botón del menú y Ajustes → Interfaz.
 - `components/toasts.ts` — `notify({ tone, text })`, avisos apilados que caducan individualmente y viven

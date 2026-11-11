@@ -17,7 +17,7 @@ export function homeView(): HTMLElement {
   const content = h('div', { class: 'stack-14' });
   let liveKey = '';
   let playKey = '';
-  const currentLive = () => (ui.task ? `${ui.task.blockKey ?? ''}|${ui.task.step}` : '');
+  const currentLive = () => ui.running.map(task => `${task.id}:${task.blockKey ?? ''}:${task.step}`).join(',');
   const currentPlay = () => `${ui.nowPlaying?.blockKey}|${ui.nowPlaying?.track.id}|${ui.playing}`;
   const render = () => {
     liveKey = currentLive();
@@ -87,8 +87,7 @@ function healthCard(): HTMLElement {
     dot.style.background = `var(${color})`;
     return h('span', {}, dot, h('b', { text: String(n) }), h('span', { text }));
   };
-  const task = ui.task;
-  const running = task?.blockKey ? findBlock(task.blockKey) : null;
+  const tasks = ui.running;
   return h('div', { class: 'health' },
     h('div', { class: 'health-bar', attrs: { role: 'img', 'aria-label': t('home.health.summary', files, pending, off) } },
       part(files, '--sp-success'), part(pending, '--sp-warn'), part(off, '--sp-error')),
@@ -96,15 +95,20 @@ function healthCard(): HTMLElement {
       legend(files, '--sp-success', t('home.health.files')),
       legend(pending, '--sp-warn', t('home.health.pending')),
       legend(off, '--sp-error', t('home.health.off')),
-      pending && !task ? h('button', { class: 'link-button', text: t('home.seePending'), onclick: () => navigate('manager', { filter: 'pending' }) }) : null),
-    task ? h('div', { class: 'row center gap-8 min0' },
-      liveChip(task, running?.block.format ?? ''),
-      h('span', { class: 'ellipsis muted grow', text: running?.playlist.title ?? task.title }),
-      h('button', { class: 'link-button', text: t('tasks.goTo'), onclick: () => {
-        if (running) navigate('manager', { open: running.playlist.id, focus: running.block.key });
-        else navigate('download');
-      } })) : null,
-    task ? liveBar(task) : null);
+      pending && !tasks.length ? h('button', { class: 'link-button', text: t('home.seePending'), onclick: () => navigate('manager', { filter: 'pending' }) }) : null),
+    ...tasks.flatMap(task => {
+      const running = task.blockKey ? findBlock(task.blockKey) : null;
+      return [
+        h('div', { class: 'row center gap-8 min0' },
+          liveChip(task, running?.block.format ?? ''),
+          h('span', { class: 'ellipsis muted grow', text: running?.playlist.title ?? task.title }),
+          h('button', { class: 'link-button', text: t('tasks.goTo'), onclick: () => {
+            if (running) navigate('manager', { open: running.playlist.id, focus: running.block.key });
+            else navigate('download');
+          } })),
+        liveBar(task),
+      ];
+    }));
 }
 
 /** Only these two: Descarga por URL has its place in the menu. */

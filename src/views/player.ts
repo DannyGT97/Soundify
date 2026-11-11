@@ -352,10 +352,25 @@ function detailView(key: string): HTMLElement {
   window.addEventListener('keydown', onKey);
   onLeave(() => window.removeEventListener('keydown', onKey));
 
+  // The big cover is editable: a pencil over it on hover, like the Gestor's rows.
+  const heroCover = h('span', {
+    class: 'hero-cover',
+    title: t('manager.menu.cover'),
+    attrs: { role: 'button', tabindex: '0', 'aria-label': t('manager.menu.cover') },
+  },
+    cover(playlist.title, block.video, 168, playlistPicture(playlist)),
+    h('span', { class: 'shade' }, icon('pencil', 28)));
+  heroCover.addEventListener('click', () => void changeCover(playlist));
+  heroCover.addEventListener('keydown', event => {
+    if (event.key !== 'Enter') return;
+    event.preventDefault();
+    void changeCover(playlist);
+  });
+
   const hero = h('div', { class: 'ambient' },
     backButton(' back'),
     h('div', { class: 'hero' },
-      cover(playlist.title, block.video, 168, playlistPicture(playlist)),
+      heroCover,
       h('div', { class: 'grow min0' },
         h('div', { class: 'eyebrow', text: t(block.video ? 'player.kind.video' : 'player.kind.audio') }),
         h('h1', { text: playlist.title, title: playlist.title }),

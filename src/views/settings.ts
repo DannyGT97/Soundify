@@ -114,6 +114,17 @@ function checkbox(field: 'includeIdInTitleName' | 'appUpdateCheckEnabled' | 'aut
   return box;
 }
 
+/** One switch for everything that makes downloads faster by doing more at once: it sets the three
+ * settings together (pieces of a video, two videos of a playlist, two playlists). It shows as on
+ * if any of them is on, so an older settings.json keeps showing what it really does. */
+function fasterSwitch(): HTMLInputElement {
+  const box = h('input', { class: 'switch', attrs: { type: 'checkbox' } });
+  const p = preferences();
+  box.checked = p.concurrentFragments || p.parallelDownloads || p.parallelBlocks;
+  box.addEventListener('change', () => save({ concurrentFragments: box.checked, parallelDownloads: box.checked, parallelBlocks: box.checked }));
+  return box;
+}
+
 function select(options: [string, string][], value: string, changed?: (v: string) => void): HTMLSelectElement {
   const el = h('select', { class: 'input select-fit' }, ...options.map(([v, label]) => h('option', { text: label, attrs: { value: v } })));
   el.value = value;
@@ -332,6 +343,7 @@ function advanced(): HTMLElement[] {
   if (onAndroid) cookies.querySelector('.subtitle')?.replaceChildren(t('settings.advanced.cookies.androidHelp'));
   return [
     cookies,
+    setting('settings.advanced.faster', fasterSwitch()),
     setting('settings.advanced.reset', h('button', { class: 'danger-button', text: t('settings.advanced.reset.button'), onclick: () =>
       confirmDialog(t('settings.advanced.reset.confirm.title'), t('settings.advanced.reset.confirm.header'), t('settings.advanced.reset.confirm.body'), [
         // Like the Java app: a reset is applied on the spot (theme, language,

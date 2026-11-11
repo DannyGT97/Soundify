@@ -59,7 +59,8 @@ export class AndroidPlayer implements PlayerBackend {
       return;
     }
     if (!track.file) return;
-    this.send('playerLoad', { path: track.file, title: track.title, subtitle: hint?.playlist ?? '', autoplay: hint?.autoplay ?? false });
+    const { file, title, id } = track;
+    this.send('playerLoad', async () => ({ path: file, title, subtitle: hint?.playlist ?? '', autoplay: hint?.autoplay ?? false, artwork: await this.artwork(id) }));
   }
 
   play(): void {
@@ -160,9 +161,23 @@ export class AndroidPlayer implements PlayerBackend {
     });
   }
 
-  private send(action: string, args?: Record<string, unknown>): void {
+  /**
+   * The track's thumbnail for the notification, or '' when it does not arrive in time (the player then
+   * shows what the file carries, or the app's logo). The back fetches a missing one in the background, so
+   * it is asked again a moment later; it never holds the playback for long.
+   */
+  private async artwork(videoId: string): Promise<string> {
+    for (let attempt = 0; attempt < 3; attempt++) {
+      const path = await invoke<string | null>('thumbnail', { id: videoId }).catch(() => null);
+      if (path) return path;
+      await new Promise(resolve => setTimeout(resolve, 400));
+    }
+    return '';
+  }
+
+  private send(action: string, args?: Record<string, unknown> | (() => Promise<Record<string, unknown>>)): void {
     this.chain = this.chain
-      .then(() => invoke('native_player', { action, args }))
+      .then(async () => invoke('native_player', { action, args: typeof args === 'function' ? await args() : args }))
       .catch(error => {
         console.warn('player: native command failed', action, error);
         if (action === 'playerLoad') this.errorListeners.forEach(listener => listener());
