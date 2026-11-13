@@ -11,6 +11,7 @@
 
 import { execFileSync, spawnSync } from 'node:child_process';
 import { existsSync, readdirSync, rmSync } from 'node:fs';
+import { homedir } from 'node:os';
 import { join } from 'node:path';
 
 const ROOT = join(import.meta.dirname, '..');
@@ -24,8 +25,17 @@ const apkFolder = join(ROOT, 'src-tauri', 'gen', 'android', 'app', 'build', 'out
 // A previous build (debug included) must not be mistaken for this one.
 rmSync(apkFolder, { recursive: true, force: true });
 
+// rustc leaves the paths of the sources it compiles inside the binary (the cargo registry, the standard
+// library and this repository), and they carry the Windows user's name: remapped to generic ones, as in
+// scripts/release-build.mjs. Changing RUSTFLAGS makes cargo build everything again.
+const cargoHome = process.env.CARGO_HOME || join(homedir(), '.cargo');
+const rustupHome = process.env.RUSTUP_HOME || join(homedir(), '.rustup');
+const remaps = [[homedir(), '/home'], [cargoHome, '/cargo'], [rustupHome, '/rustup'], [ROOT, '/src']]
+  .map(([from, to]) => `--remap-path-prefix=${from}=${to}`);
+const rustflags = [process.env.RUSTFLAGS, ...remaps].filter(Boolean).join(' ');
+
 const built = spawnSync('npx', ['tauri', 'android', 'build', '--apk', ...(targets.length ? targets : ['aarch64', 'x86_64']).flatMap(t => ['--target', t])], {
-  cwd: ROOT, stdio: 'inherit', shell: true, env: { ...process.env, SOUNDIFY_ANDROID_KEYSTORE_PROPS: props },
+  cwd: ROOT, stdio: 'inherit', shell: true, env: { ...process.env, RUSTFLAGS: rustflags, SOUNDIFY_ANDROID_KEYSTORE_PROPS: props },
 });
 if (built.status !== 0) throw new Error('The Android build failed');
 
