@@ -4,6 +4,10 @@
 //! controller shows the token and needs no PIN. Only the token's SHA-256 stays on
 //! the player's side, so a copy of its file cannot be used to control it.
 //!
+//! That is the strict way. By default a device is OPEN: any device on the network may pair
+//! with it without a PIN (what Spotify feels like: it just shows up), because what a
+//! controller can do is only play, pause and the like. `set_open(false)` asks for the PIN again.
+//!
 //! The PIN is short, so it is guarded: it lasts two minutes, works once, and five
 //! wrong tries lock every attempt for a minute (and throw the PIN away).
 
@@ -52,8 +56,9 @@ pub struct Trusted {
     pub token_hash: String,
 }
 
-#[derive(Default)]
 struct State {
+    /// Pairing needs no PIN.
+    open: bool,
     pin: Option<(String, Instant)>,
     failures: u32,
     locked_until: Option<Instant>,
@@ -71,7 +76,17 @@ impl Pairing {
     /// Reads the trusted controllers from `file` (none if it is missing or damaged).
     pub fn load(storage: Arc<dyn Storage>, file: Location) -> Self {
         let trusted = storage.read(&file).ok().and_then(|bytes| serde_json::from_slice(&bytes).ok()).unwrap_or_default();
-        Self { storage, file, state: Mutex::new(State { trusted, ..State::default() }) }
+        let state = State { open: true, pin: None, failures: 0, locked_until: None, trusted };
+        Self { storage, file, state: Mutex::new(state) }
+    }
+
+    /// Open (no PIN to pair) or strict (the PIN is asked for).
+    pub fn set_open(&self, open: bool) {
+        self.state.lock().unwrap().open = open;
+    }
+
+    pub fn is_open(&self) -> bool {
+        self.state.lock().unwrap().open
     }
 
     /// A new PIN, replacing the one there was. The user reads it off this device's screen.
@@ -101,19 +116,20 @@ impl Pairing {
             state.locked_until = None;
             state.failures = 0;
         }
-        let Some((pin, until)) = state.pin.clone().filter(|(_, until)| *until > now) else {
-            state.pin = None;
-            return Err(PairError::NoPin);
-        };
-        let _ = until;
-        if !same(pin.as_bytes(), request.pin.trim().as_bytes()) {
-            state.failures += 1;
-            if state.failures >= MAX_FAILURES {
+        if !state.open {
+            let Some((pin, _)) = state.pin.clone().filter(|(_, until)| *until > now) else {
                 state.pin = None;
-                state.locked_until = Some(now + LOCK_TIME);
-                return Err(PairError::Locked(LOCK_TIME.as_secs()));
+                return Err(PairError::NoPin);
+            };
+            if !same(pin.as_bytes(), request.pin.trim().as_bytes()) {
+                state.failures += 1;
+                if state.failures >= MAX_FAILURES {
+                    state.pin = None;
+                    state.locked_until = Some(now + LOCK_TIME);
+                    return Err(PairError::Locked(LOCK_TIME.as_secs()));
+                }
+                return Err(PairError::WrongPin);
             }
-            return Err(PairError::WrongPin);
         }
         // Good: the PIN is used up, and this controller gets a token of its own (a second pairing replaces the first).
         state.pin = None;
@@ -244,15 +260,30 @@ mod tests {
     use super::*;
     use crate::storage::MemoryStorage;
 
+    /// A strict one: the PIN is asked for (the open way has its own tests).
     fn pairing() -> (Arc<MemoryStorage>, Pairing) {
         let storage = Arc::new(MemoryStorage::default());
         let file = Location::path("/data/connect-trusted.json");
         storage.create_dir_all(&Location::path("/data")).unwrap();
-        (storage.clone(), Pairing::load(storage, file))
+        let pairing = Pairing::load(storage.clone(), file);
+        pairing.set_open(false);
+        (storage, pairing)
     }
 
     fn request(pin: &str) -> PairRequest {
         PairRequest { controller_id: "phone-1".into(), name: "Móvil".into(), pin: pin.into() }
+    }
+
+    #[test]
+    fn an_open_device_pairs_without_a_pin_and_a_strict_one_does_not() {
+        let storage = Arc::new(MemoryStorage::default());
+        storage.create_dir_all(&Location::path("/data")).unwrap();
+        let pairing = Pairing::load(storage, Location::path("/data/connect-trusted.json"));
+        assert!(pairing.is_open(), "open is the default");
+        let token = pairing.pair(&request(""), Instant::now()).unwrap();
+        assert!(pairing.authenticate(&token).is_some());
+        pairing.set_open(false);
+        assert_eq!(pairing.pair(&request(""), Instant::now()), Err(PairError::NoPin));
     }
 
     #[test]

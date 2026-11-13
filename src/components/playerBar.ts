@@ -9,6 +9,7 @@ import { isPhone } from '../platform';
 import { navigate } from '../router';
 import { subscribeWhile, ui } from '../state';
 import { cover } from './cover';
+import { devicesButton } from './devicesButton';
 import { pipButton } from './pip';
 import { buildTransport, buildVolume, control } from './transport';
 
@@ -28,6 +29,7 @@ export function buildPlayerBar(): HTMLElement {
     buildTransport(),
     h('div', { class: 'player-right' },
       buildVolume(),
+      devicesButton(),
       pipButton(),
       control('close', 'player.close', player.close)));
 

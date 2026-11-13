@@ -19,7 +19,17 @@ let ownPin: string | null = null;
 
 export function openDevicesOverlay(): void {
   const body = h('div', { class: 'stack-12 cx' });
-  const refresh = () => body.replaceChildren(...content());
+  // It redraws now and then (the list, the PIN): what is being typed must survive it, focus and caret included.
+  const refresh = () => {
+    const active = document.activeElement as HTMLInputElement | null;
+    const keep = active && body.contains(active) ? active.dataset.keep : undefined;
+    const caret = keep ? active?.selectionStart ?? null : null;
+    body.replaceChildren(...content());
+    if (!keep) return;
+    const input = body.querySelector<HTMLInputElement>(`[data-keep="${keep}"]`);
+    input?.focus();
+    if (input && caret !== null) input.setSelectionRange(caret, caret);
+  };
   const unsubscribe = subscribe('connect', refresh);
   const reload = () => void loadConnect().then(() => refreshPin().then(refresh));
   reload();
@@ -54,7 +64,13 @@ function content(): Node[] {
       h('div', { class: 'subtitle', text: ui.remote ? t('connect.controlling', ui.remote.name) : t('connect.soundsHere') })),
     ui.remote ? h('button', { class: 'primary-button', text: t('connect.bringHere'), onclick: () => void bringHere() }) : null));
 
-  nodes.push(pinCard());
+  nodes.push(h('div', { class: 'cx-switch row center gap-10' },
+    h('div', { class: 'grow' },
+      h('div', { class: 'section-title', text: t('connect.strict') }),
+      h('p', { class: 'subtitle', text: t('connect.strict.desc') })),
+    strictSwitch()));
+  // Only a strict device shows a PIN: an open one needs nothing to be typed anywhere.
+  if (!status.open) nodes.push(pinCard());
 
   nodes.push(h('div', { class: 'section-label', text: t('connect.others') }));
   const list = connect.devices;
@@ -85,16 +101,22 @@ function pinCard(): HTMLElement {
 }
 
 function deviceRow(device: ConnectDevice): HTMLElement {
-  const state = device.connected ? t('connect.state.controlled') : device.online ? t(device.paired ? 'connect.state.paired' : 'connect.state.new') : t('connect.state.offline');
+  // What it plays is the first thing to know about a device (as in Spotify's list); otherwise how it stands.
+  const state = device.playing && device.nowPlaying ? t('connect.playing', device.nowPlaying.title)
+    : device.connected ? t('connect.state.controlled')
+    : !device.online ? t('connect.state.offline')
+    : device.ready ? t('connect.state.ready')
+    : device.needsPin ? t('connect.state.new')
+    : t('connect.state.connecting');
   const actions = h('div', { class: 'row wrap gap-8 cx-actions' });
   if (device.connected) {
     actions.append(h('button', { class: 'secondary-button', text: t('connect.stop'), onclick: () => void stopControlling() }));
-  } else if (device.online && device.paired) {
+  } else if (device.online && device.ready) {
     actions.append(
       h('button', { class: 'primary-button', text: t('connect.control'), onclick: () => void controlDevice(device).then(ok => ok && closeOverlay()) }),
       h('button', { class: 'secondary-button', text: t('connect.handOver'), onclick: () => void transferTo(device).then(() => closeOverlay()) }));
-  } else if (device.online) {
-    const pin = h('input', { class: 'input cx-pin-input', attrs: { inputmode: 'numeric', maxlength: '8', placeholder: t('connect.pair.placeholder'), 'aria-label': t('connect.pair.placeholder') } });
+  } else if (device.online && device.needsPin) {
+    const pin = h('input', { class: 'input cx-pin-input', attrs: { 'data-keep': `pin-${device.id}`, inputmode: 'numeric', maxlength: '8', placeholder: t('connect.pair.placeholder'), 'aria-label': t('connect.pair.placeholder') } });
     pin.value = typed.get(device.id) ?? '';
     const pair = () => {
       const code = pin.value.replace(/\D/g, '');
@@ -106,7 +128,7 @@ function deviceRow(device: ConnectDevice): HTMLElement {
     actions.append(pin, h('button', { class: 'primary-button', text: t('connect.pair'), onclick: pair }));
   }
   if (device.paired) actions.append(h('button', { class: 'text-button danger-text', text: t('connect.forget'), onclick: () => void run(api.connectForget(device.id)) }));
-  return h('div', { class: `card cx-device${device.connected ? ' connected' : ''}${device.online ? '' : ' offline'}`, attrs: { 'data-device': device.id } },
+  return h('div', { class: `card cx-device${device.connected ? ' connected' : ''}${device.online ? '' : ' offline'}${device.playing ? ' playing' : ''}`, attrs: { 'data-device': device.id } },
     icon(KIND_ICON[device.kind] ?? 'device', 20),
     h('div', { class: 'grow min0' },
       h('div', { class: 'row-title ellipsis', text: device.name }),
@@ -116,10 +138,12 @@ function deviceRow(device: ConnectDevice): HTMLElement {
 
 /** When the devices do not find each other (some routers block mDNS): the address the other one shows. */
 function addByAddress(): HTMLElement {
-  const input = h('input', { class: 'input', attrs: { placeholder: t('connect.add.placeholder'), 'aria-label': t('connect.add.placeholder') } });
+  const input = h('input', { class: 'input', attrs: { 'data-keep': 'address', placeholder: t('connect.add.placeholder'), 'aria-label': t('connect.add.placeholder') } });
+  input.value = typed.get('address') ?? '';
+  input.addEventListener('input', () => typed.set('address', input.value));
   const add = () => {
     const address = input.value.trim();
-    if (address) void run(api.connectAdd(address).then(() => { input.value = ''; }));
+    if (address) void run(api.connectAdd(address).then(() => { input.value = ''; typed.delete('address'); }));
   };
   input.addEventListener('keydown', event => event.key === 'Enter' && add());
   return h('div', { class: 'cx-add' },
@@ -135,6 +159,16 @@ async function run(call: Promise<unknown>): Promise<void> {
     notify({ tone: 'error', text: errorText(error) });
   }
   void loadConnect();
+}
+
+/** «Pedir un PIN»: devices stop pairing by themselves and need the PIN this one shows. */
+function strictSwitch(): HTMLInputElement {
+  const box = h('input', { class: 'switch', attrs: { type: 'checkbox' } });
+  box.checked = !(connect.status?.open ?? true);
+  box.addEventListener('change', () => {
+    void api.connectSetOpen(!box.checked).then(() => loadConnect()).then(() => refreshPin());
+  });
+  return box;
 }
 
 /** The switch that turns Soundify Connect on or off (the same in Ajustes and in this window). */

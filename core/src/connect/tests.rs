@@ -24,7 +24,7 @@ struct FakeHost {
 
 impl Host for FakeHost {
     fn info(&self) -> DeviceInfo {
-        DeviceInfo { v: PROTOCOL, device_id: "player-1".into(), name: "Salón".into(), kind: "desktop".into() }
+        DeviceInfo { v: PROTOCOL, device_id: "player-1".into(), name: "Salón".into(), kind: "desktop".into(), open: false }
     }
 
     fn state(&self) -> PlayerState {
@@ -51,6 +51,8 @@ fn rig() -> Rig {
     let storage: Arc<dyn Storage> = Arc::new(MemoryStorage::default());
     storage.create_dir_all(&Location::path("/data")).unwrap();
     let pairing = Arc::new(Pairing::load(storage, Location::path("/data/trusted.json")));
+    // These tests are about the PIN: the strict way (the open one is tested on its own).
+    pairing.set_open(false);
     let host = Arc::new(FakeHost::default());
     let server = Server::start(0, host.clone(), pairing.clone()).unwrap();
     let addr = SocketAddr::from((Ipv4Addr::LOCALHOST, server.port()));
@@ -90,6 +92,15 @@ fn wait_for(events: &Receiver<Event>, wanted: impl Fn(&ServerMessage) -> bool) -
         }
     }
     panic!("the message did not come");
+}
+
+#[test]
+fn an_open_device_gives_a_token_without_a_pin_over_the_network_and_says_so_in_its_info() {
+    let rig = rig();
+    assert!(client::pair(rig.addr, "c", "C", "").is_err());
+    rig.pairing.set_open(true);
+    let token = client::pair(rig.addr, "phone-1", "Móvil", "").unwrap();
+    assert!(Session::open(rig.addr, &token, |_| {}).is_ok());
 }
 
 #[test]

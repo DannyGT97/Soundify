@@ -169,6 +169,8 @@ export interface Api {
   connectStatus(): Promise<ConnectStatus>;
   /** On or off (and remembered). Rejects with an `ApiError`. */
   connectSetEnabled(enabled: boolean): Promise<void>;
+  /** Devices pair by themselves (true, the default) or only with a PIN. */
+  connectSetOpen(open: boolean): Promise<void>;
   /** The name the others see; applied the next time it is turned on. */
   connectSetName(name: string): Promise<void>;
   connectDevices(): Promise<ConnectDevice[]>;
@@ -181,8 +183,8 @@ export interface Api {
   connectPair(deviceId: string, pin: string): Promise<void>;
   connectForget(deviceId: string): Promise<void>;
   connectForgetController(controllerId: string): Promise<void>;
-  /** Starts controlling a paired device. */
-  connectSelect(deviceId: string): Promise<void>;
+  /** Starts controlling a device; what it is doing right now comes back (null if it has not said). */
+  connectSelect(deviceId: string): Promise<ConnectPlayerState | null>;
   connectDeselect(): Promise<void>;
   /** An order for the device being controlled. */
   connectSend(command: ConnectCommand): Promise<void>;

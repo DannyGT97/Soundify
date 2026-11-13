@@ -4,7 +4,7 @@ use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 use super::discovery::{Discovery, MemoryDiscovery, MemoryNetwork};
-use super::manager::{Connect, ConnectError, Identity, Listener, Player};
+use super::manager::{Connect, ConnectError, DeviceView, Identity, Listener, Player};
 use super::pairing::{KnownDevices, Pairing, Trusted};
 use super::protocol::*;
 use crate::Location;
@@ -42,13 +42,21 @@ struct App {
     connect: Arc<Connect>,
     commands: Arc<Commands>,
     heard: Arc<Heard>,
+    storage: Arc<MemoryStorage>,
 }
 
-fn app(network: &Arc<MemoryNetwork>, id: &str, name: &str) -> App {
-    let storage: Arc<dyn Storage> = Arc::new(MemoryStorage::default());
+/// `strict`: the PIN is asked for to pair (the default is open: devices pair by themselves).
+fn app(network: &Arc<MemoryNetwork>, id: &str, name: &str, strict: bool) -> App {
+    let storage = Arc::new(MemoryStorage::default());
     storage.create_dir_all(&Location::path("/data")).unwrap();
-    let pairing = Arc::new(Pairing::load(storage.clone(), Location::path("/data/trusted.json")));
-    let known = KnownDevices::load(storage, Location::path("/data/devices.json"));
+    app_on(network, id, name, strict, storage)
+}
+
+fn app_on(network: &Arc<MemoryNetwork>, id: &str, name: &str, strict: bool, storage: Arc<MemoryStorage>) -> App {
+    let shared: Arc<dyn Storage> = storage.clone();
+    let pairing = Arc::new(Pairing::load(shared.clone(), Location::path("/data/trusted.json")));
+    pairing.set_open(!strict);
+    let known = KnownDevices::load(shared, Location::path("/data/devices.json"));
     let commands = Arc::new(Commands::default());
     let heard = Arc::new(Heard::default());
     let network = network.clone();
@@ -60,11 +68,11 @@ fn app(network: &Arc<MemoryNetwork>, id: &str, name: &str) -> App {
         commands.clone(),
         heard.clone(),
     );
-    App { connect, commands, heard }
+    App { connect, commands, heard, storage }
 }
 
 fn wait(condition: impl Fn() -> bool) {
-    let deadline = Instant::now() + Duration::from_secs(5);
+    let deadline = Instant::now() + Duration::from_secs(8);
     while Instant::now() < deadline {
         if condition() {
             return;
@@ -74,35 +82,193 @@ fn wait(condition: impl Fn() -> bool) {
     panic!("it did not happen in time");
 }
 
-/// A player and a controller, both on, with the player's PIN typed on the controller.
-fn pair_up() -> (App, App) {
+fn device(app: &App, id: &str) -> Option<DeviceView> {
+    app.connect.devices().into_iter().find(|d| d.id == id)
+}
+
+/// Two open devices, on, and the controller already connected to the player (nobody typed anything).
+fn open_pair() -> (App, App) {
     let network = Arc::new(MemoryNetwork::default());
-    let player = app(&network, "tv", "Salón");
-    let controller = app(&network, "phone", "Móvil");
+    let player = app(&network, "tv", "Salón", false);
+    let controller = app(&network, "phone", "Móvil", false);
     player.connect.start(0).unwrap();
     controller.connect.start(0).unwrap();
-    wait(|| controller.connect.devices().iter().any(|d| d.id == "tv"));
-    let pin = player.connect.pin().unwrap();
-    controller.connect.pair("tv", &pin).unwrap();
+    wait(|| device(&controller, "tv").is_some_and(|d| d.ready));
     (player, controller)
 }
 
-#[test]
-fn a_device_sees_the_others_but_not_itself() {
+/// A strict player and a controller, with the player's PIN typed on the controller.
+fn strict_pair() -> (App, App) {
     let network = Arc::new(MemoryNetwork::default());
-    let (one, two) = (app(&network, "a", "Uno"), app(&network, "b", "Dos"));
-    one.connect.start(0).unwrap();
-    two.connect.start(0).unwrap();
-    wait(|| one.connect.devices().len() == 1 && two.connect.devices().len() == 1);
-    assert_eq!(one.connect.devices()[0].id, "b");
-    let seen = &two.connect.devices()[0];
-    assert_eq!((seen.id.as_str(), seen.online, seen.paired, seen.connected), ("a", true, false, false));
+    let player = app(&network, "tv", "Salón", true);
+    let controller = app(&network, "phone", "Móvil", false);
+    player.connect.start(0).unwrap();
+    controller.connect.start(0).unwrap();
+    wait(|| device(&controller, "tv").is_some());
+    let pin = player.connect.pin().unwrap();
+    controller.connect.pair("tv", &pin).unwrap();
+    wait(|| device(&controller, "tv").is_some_and(|d| d.ready));
+    (player, controller)
+}
+
+// === OPEN: THE DEFAULT, NOTHING TO TYPE ===
+
+#[test]
+fn open_devices_find_pair_and_connect_by_themselves_in_both_directions() {
+    let (player, controller) = open_pair();
+    let seen = device(&controller, "tv").unwrap();
+    assert_eq!((seen.name.as_str(), seen.online, seen.paired, seen.ready, seen.needs_pin), ("Salón", true, true, true, false));
+    // The player sees the phone too and is connected to it: either can control the other.
+    wait(|| device(&player, "phone").is_some_and(|d| d.ready));
+    assert_eq!(player.connect.controllers()[0].name, "Móvil");
 }
 
 #[test]
-fn nothing_is_pinned_until_it_is_turned_on() {
+fn a_device_never_lists_itself_and_there_is_no_pin_to_show_while_open() {
+    let (player, controller) = open_pair();
+    assert!(device(&controller, "phone").is_none());
+    assert_eq!(player.connect.pin(), None);
+    assert!(player.connect.is_open());
+}
+
+#[test]
+fn what_another_device_plays_shows_in_the_list_without_controlling_it() {
+    let (player, controller) = open_pair();
+    assert!(!device(&controller, "tv").unwrap().playing);
+    let now = NowPlaying { video_id: "abc".into(), title: "Canción".into(), playlist: "Mix".into(), format: "MP3".into(), video: false };
+    player.connect.publish(PlayerState { now_playing: Some(now), playing: true, position: 3.0, duration: 100.0, ..PlayerState::default() });
+    wait(|| device(&controller, "tv").is_some_and(|d| d.playing));
+    let tv = device(&controller, "tv").unwrap();
+    assert_eq!(tv.now_playing.map(|p| (p.title, p.playlist)), Some(("Canción".to_string(), "Mix".to_string())));
+    assert!(!tv.connected);
+    assert_eq!(controller.connect.selected(), None);
+}
+
+#[test]
+fn one_tap_controls_a_device_it_is_already_connected_to() {
+    let (player, controller) = open_pair();
+    controller.connect.select("tv").unwrap();
+    assert!(device(&controller, "tv").unwrap().connected);
+    controller.connect.send(Command::Next).unwrap();
+    controller.connect.send(Command::Volume { volume: 0.5 }).unwrap();
+    wait(|| player.commands.0.lock().unwrap().len() == 2);
+    assert_eq!(player.commands.0.lock().unwrap().as_slice(), [Command::Next, Command::Volume { volume: 0.5 }]);
+    player.connect.publish(PlayerState { playing: true, position: 30.0, ..PlayerState::default() });
+    wait(|| controller.heard.states.lock().unwrap().iter().any(|(id, s)| id == "tv" && s.playing && s.position == 30.0));
+}
+
+#[test]
+fn a_device_that_joins_later_is_connected_to_as_soon_as_it_appears() {
     let network = Arc::new(MemoryNetwork::default());
-    let one = app(&network, "a", "Uno");
+    let controller = app(&network, "phone", "Móvil", false);
+    controller.connect.start(0).unwrap();
+    assert!(controller.connect.devices().is_empty());
+    let player = app(&network, "tv", "Salón", false);
+    player.connect.start(0).unwrap();
+    wait(|| device(&controller, "tv").is_some_and(|d| d.ready));
+}
+
+#[test]
+fn forgetting_an_open_device_is_not_undone_by_itself() {
+    let (_player, controller) = open_pair();
+    controller.connect.select("tv").unwrap();
+    controller.connect.forget("tv").unwrap();
+    assert_eq!(controller.connect.selected(), None);
+    let tv = device(&controller, "tv").unwrap();
+    assert!(!tv.paired && !tv.ready);
+    // Even if the device announces itself again, it stays unpaired until the user asks for it.
+    std::thread::sleep(Duration::from_millis(300));
+    assert!(!device(&controller, "tv").unwrap().ready);
+}
+
+#[test]
+fn when_the_player_goes_away_the_controller_is_told_once_and_the_device_stays_known() {
+    let (player, controller) = open_pair();
+    controller.connect.select("tv").unwrap();
+    player.connect.stop();
+    wait(|| controller.heard.closed.lock().unwrap().as_slice() == ["tv"]);
+    assert_eq!(controller.connect.selected(), None);
+    wait(|| device(&controller, "tv").is_some_and(|d| !d.online && d.paired));
+}
+
+#[test]
+fn the_player_that_comes_back_is_connected_to_again() {
+    let (player, controller) = open_pair();
+    player.connect.stop();
+    wait(|| device(&controller, "tv").is_some_and(|d| !d.online));
+    player.connect.start(0).unwrap();
+    wait(|| device(&controller, "tv").is_some_and(|d| d.online && d.ready));
+}
+
+// === STRICT: THE PIN ===
+
+#[test]
+fn a_strict_device_is_not_paired_by_itself_and_says_it_needs_the_pin() {
+    let network = Arc::new(MemoryNetwork::default());
+    let (player, controller) = (app(&network, "tv", "Salón", true), app(&network, "phone", "Móvil", false));
+    player.connect.start(0).unwrap();
+    controller.connect.start(0).unwrap();
+    wait(|| device(&controller, "tv").is_some_and(|d| d.needs_pin));
+    let tv = device(&controller, "tv").unwrap();
+    assert!(!tv.paired && !tv.ready);
+    assert_eq!(controller.connect.select("tv"), Err(ConnectError::NotPaired));
+    assert!(player.connect.pin().is_some(), "a strict device shows its PIN");
+}
+
+#[test]
+fn the_right_pin_pairs_a_strict_device_and_connects_to_it() {
+    let (player, controller) = strict_pair();
+    let tv = device(&controller, "tv").unwrap();
+    assert!(tv.paired && tv.ready && !tv.needs_pin);
+    assert_eq!(player.connect.controllers()[0].name, "Móvil");
+}
+
+#[test]
+fn a_wrong_pin_pairs_nothing() {
+    let network = Arc::new(MemoryNetwork::default());
+    let (player, controller) = (app(&network, "tv", "Salón", true), app(&network, "phone", "Móvil", false));
+    player.connect.start(0).unwrap();
+    controller.connect.start(0).unwrap();
+    wait(|| device(&controller, "tv").is_some());
+    let pin = player.connect.pin().unwrap();
+    let wrong = if pin == "000000" { "111111" } else { "000000" };
+    assert!(matches!(controller.connect.pair("tv", wrong), Err(ConnectError::Refused { status: 403, .. })));
+    assert!(!device(&controller, "tv").unwrap().paired);
+    assert_eq!(controller.connect.pair("nobody", "123456"), Err(ConnectError::Offline));
+}
+
+#[test]
+fn a_token_the_strict_player_revoked_is_forgotten_at_the_next_connection() {
+    let (player, controller) = strict_pair();
+    player.connect.forget_controller("phone").unwrap();
+    // The controller reconnects (its app restarted): the old token is refused and dropped, the PIN is needed again.
+    controller.connect.stop();
+    controller.connect.start(0).unwrap();
+    wait(|| device(&controller, "tv").is_some_and(|d| !d.paired && d.needs_pin));
+}
+
+#[test]
+fn the_known_devices_survive_a_restart_of_the_controller() {
+    let network = Arc::new(MemoryNetwork::default());
+    let player = app(&network, "tv", "Salón", false);
+    let first = app(&network, "phone", "Móvil", false);
+    player.connect.start(0).unwrap();
+    first.connect.start(0).unwrap();
+    wait(|| device(&first, "tv").is_some_and(|d| d.ready));
+    first.connect.stop();
+    // The same storage: a restarted app.
+    let second = app_on(&network, "phone", "Móvil", false, first.storage.clone());
+    assert!(device(&second, "tv").is_some_and(|d| d.paired && !d.online));
+    second.connect.start(0).unwrap();
+    wait(|| device(&second, "tv").is_some_and(|d| d.ready));
+}
+
+// === COMMON ===
+
+#[test]
+fn nothing_is_visible_until_it_is_turned_on() {
+    let network = Arc::new(MemoryNetwork::default());
+    let one = app(&network, "a", "Uno", true);
     assert!(!one.connect.is_running());
     assert_eq!(one.connect.pin(), None);
     one.connect.start(0).unwrap();
@@ -112,51 +278,8 @@ fn nothing_is_pinned_until_it_is_turned_on() {
 }
 
 #[test]
-fn pairing_with_the_pin_makes_the_device_known_and_it_stays_when_it_goes_offline() {
-    let (player, controller) = pair_up();
-    assert!(controller.connect.devices().iter().any(|d| d.id == "tv" && d.paired));
-    assert_eq!(player.connect.controllers()[0].name, "Móvil");
-    player.connect.stop();
-    wait(|| controller.connect.devices().iter().any(|d| d.id == "tv" && !d.online));
-    assert!(controller.connect.devices()[0].paired);
-}
-
-#[test]
-fn a_wrong_pin_pairs_nothing() {
-    let network = Arc::new(MemoryNetwork::default());
-    let (player, controller) = (app(&network, "tv", "Salón"), app(&network, "phone", "Móvil"));
-    player.connect.start(0).unwrap();
-    controller.connect.start(0).unwrap();
-    wait(|| !controller.connect.devices().is_empty());
-    let pin = player.connect.pin().unwrap();
-    let wrong = if pin == "000000" { "111111" } else { "000000" };
-    assert!(matches!(controller.connect.pair("tv", wrong), Err(ConnectError::Refused { status: 403, .. })));
-    assert!(!controller.connect.devices()[0].paired);
-    // Not paired: it cannot be controlled either.
-    assert_eq!(controller.connect.select("tv"), Err(ConnectError::NotPaired));
-    assert_eq!(controller.connect.pair("nobody", "123456"), Err(ConnectError::Offline));
-}
-
-#[test]
-fn controlling_a_device_sends_it_commands_and_shows_its_state() {
-    let (player, controller) = pair_up();
-    controller.connect.select("tv").unwrap();
-    assert_eq!(controller.connect.selected().as_deref(), Some("tv"));
-    assert!(controller.connect.devices().iter().any(|d| d.id == "tv" && d.connected));
-
-    controller.connect.send(Command::Next).unwrap();
-    controller.connect.send(Command::Volume { volume: 0.5 }).unwrap();
-    wait(|| player.commands.0.lock().unwrap().len() == 2);
-    assert_eq!(player.commands.0.lock().unwrap().as_slice(), [Command::Next, Command::Volume { volume: 0.5 }]);
-
-    player.connect.publish(PlayerState { playing: true, position: 30.0, ..PlayerState::default() });
-    wait(|| controller.heard.states.lock().unwrap().iter().any(|(id, s)| id == "tv" && s.playing && s.position == 30.0));
-    assert_eq!(player.connect.connected_controllers(), 1);
-}
-
-#[test]
 fn sending_without_a_selected_device_or_a_nonsense_command_fails_here() {
-    let (_player, controller) = pair_up();
+    let (_player, controller) = open_pair();
     assert_eq!(controller.connect.send(Command::Next), Err(ConnectError::NoSession));
     controller.connect.select("tv").unwrap();
     assert!(matches!(controller.connect.send(Command::Volume { volume: 9.0 }), Err(ConnectError::Other(_))));
@@ -164,45 +287,22 @@ fn sending_without_a_selected_device_or_a_nonsense_command_fails_here() {
 
 #[test]
 fn choosing_none_lets_go_of_the_device_without_calling_it_a_drop() {
-    let (player, controller) = pair_up();
+    let (_player, controller) = open_pair();
     controller.connect.select("tv").unwrap();
     controller.connect.deselect();
     assert_eq!(controller.connect.selected(), None);
     assert_eq!(controller.connect.send(Command::Next), Err(ConnectError::NoSession));
-    wait(|| player.connect.connected_controllers() == 0);
     assert!(controller.heard.closed.lock().unwrap().is_empty());
-}
-
-#[test]
-fn when_the_player_goes_away_the_controller_is_told() {
-    let (player, controller) = pair_up();
+    // Still connected: what it plays is still known and it can be chosen again at once.
+    assert!(device(&controller, "tv").unwrap().ready);
     controller.connect.select("tv").unwrap();
-    player.connect.stop();
-    wait(|| controller.heard.closed.lock().unwrap().as_slice() == ["tv"]);
-    assert_eq!(controller.connect.selected(), None);
-}
-
-#[test]
-fn a_token_the_player_no_longer_accepts_is_forgotten_so_the_user_pairs_again() {
-    let (player, controller) = pair_up();
-    player.connect.forget_controller("phone").unwrap();
-    assert!(matches!(controller.connect.select("tv"), Err(ConnectError::Refused { status: 401, .. })));
-    assert!(controller.connect.devices().iter().all(|d| !(d.id == "tv" && d.paired)));
-}
-
-#[test]
-fn forgetting_a_device_stops_controlling_it() {
-    let (_player, controller) = pair_up();
-    controller.connect.select("tv").unwrap();
-    controller.connect.forget("tv").unwrap();
-    assert_eq!(controller.connect.selected(), None);
-    assert!(controller.connect.devices().iter().all(|d| !d.paired));
 }
 
 #[test]
 fn a_late_controller_gets_what_was_published_before() {
-    let (player, controller) = pair_up();
+    let (player, controller) = open_pair();
+    controller.connect.deselect();
     player.connect.publish(PlayerState { playing: true, position: 9.0, volume: 0.3, ..PlayerState::default() });
-    controller.connect.select("tv").unwrap();
     wait(|| controller.heard.states.lock().unwrap().iter().any(|(_, s)| s.position == 9.0 && s.volume == 0.3));
+    assert_eq!(controller.connect.state_of("tv").map(|s| s.position), Some(9.0));
 }

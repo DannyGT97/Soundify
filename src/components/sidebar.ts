@@ -7,6 +7,7 @@ import { subscribeWhile, ui } from '../state';
 import { overallPercent, percent, pillResult, statusMark } from '../tasks';
 import { openTasksOverlay } from '../overlays/tasks';
 import { openOverlay } from './overlay';
+import { devicesButton } from './devicesButton';
 import { themePicker } from './themePicker';
 import { cover } from './cover';
 import { homeLogo } from './logo';
@@ -57,6 +58,7 @@ export function buildSidebar(): HTMLElement {
     h('div', { class: 'sidebar-separator' }),
     navButton('settings', 'nav.settings', 'settings'),
     h('div', { class: 'sidebar-version' }, h('span', { class: 'sidebar-version-text grow', text: `${t('nav.version')} ${appVersion()}` }),
+      devicesButton('side-devices'),
       h('button', { class: 'theme-button', title: t('settings.interface.theme'), onclick: () => openOverlay(t('settings.interface.theme'), [themePicker()]) }, icon('palette', 17))));
   sidebar.append(h('div', { class: 'sidebar-header' }, wordmark, toggle), nav, h('div', { class: 'grow' }), footer);
   sidebar.classList.toggle('collapsed', ui.sidebarCollapsed);

@@ -344,6 +344,15 @@ Repositorio: https://github.com/DannyGT97/Soundify (GitHub, rama `main`, GPL-3.0
   si no es válida.
 
 ## Pendiente
+- **Soundify Connect, sin PIN por defecto (13/11/2026, a petición del usuario: «en Spotify simplemente detecta el otro dispositivo»).** Cada
+  dispositivo es **abierto** de serie (`Pairing::set_open`, `connect.json` → `open`, `/info` lo dice en `open`): el que controla se empareja SOLO, sin PIN
+  (`Connect::attach`/`pair_by_itself`) y mantiene un WebSocket con cada dispositivo emparejado que ve (`sessions`), así que sabe qué suena en cada uno
+  (`DeviceView.playing/nowPlaying/ready`); elegirlo es un toque (`select` devuelve su estado al momento). Un aviso («X está reproduciendo Y» + «Controlar»,
+  `connect.ts` `announcePlaying`) salta cuando otro empieza a sonar y este no; el botón de dispositivos (`components/devicesButton.ts`, barra y menú lateral)
+  se enciende al controlar y lleva un punto si otro suena. El modo **estricto** (interruptor «Pedir un PIN», `connectSetOpen`) vuelve al PIN. Activado de serie
+  en instalaciones nuevas (las que ya tenían `connect.json` con `enabled:false` siguen apagadas). Un dispositivo olvidado no se vuelve a emparejar solo
+  (`forgotten`) hasta que el usuario lo pide. **Riesgo asumido:** en modo abierto cualquiera de tu red puede controlar la reproducción. La explicación de abajo
+  del PIN vale para el modo estricto.
 - **Soundify Connect (13/11/2026, fases 1 y 2 hechas; SIN probar entre dos aparatos reales).** Control entre dispositivos como Spotify Connect, sin nube:
   el plan completo y cómo lo hace Spotify están en `PLAN-CONNECT.md` (no va a git). Resumen: cada Soundify anuncia `_soundify-connect._tcp` por mDNS y
   sirve `GET /connect/v1/info`, `POST /connect/v1/pair` (PIN de 6 cifras que enseña el destino: 2 min, un uso, 5 fallos = bloqueo de 60 s → token de

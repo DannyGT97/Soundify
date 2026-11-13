@@ -25,6 +25,13 @@ struct Config {
     device_id: String,
     name: String,
     enabled: bool,
+    /// Any device on the network may pair without a PIN (like Spotify: they just show up). Off = a PIN is asked for.
+    #[serde(default = "yes")]
+    open: bool,
+}
+
+fn yes() -> bool {
+    true
 }
 
 pub struct ConnectState {
@@ -94,6 +101,7 @@ pub fn init(app: &AppHandle, paths: &AppPaths) {
     let storage: Arc<dyn Storage> = Arc::new(LocalStorage);
     let pairing = Arc::new(Pairing::load(storage.clone(), Location::path(dir.join("trusted.json"))));
     let known = KnownDevices::load(storage, Location::path(dir.join("devices.json")));
+    pairing.set_open(config.open);
     let identity = Identity { device_id: config.device_id.clone(), name: config.name.clone(), kind: device_kind().into() };
     let handle = app.clone();
     let connect = Connect::new(
@@ -132,7 +140,8 @@ fn load_config(file: &Location) -> Config {
     if let Some(config) = storage.read(file).ok().and_then(|bytes| serde_json::from_slice::<Config>(&bytes).ok()) {
         return config;
     }
-    let config = Config { device_id: new_device_id(), name: default_name(), enabled: false };
+    // On from the start: it is what makes the other devices just show up. Off in Ajustes, one switch.
+    let config = Config { device_id: new_device_id(), name: default_name(), enabled: true, open: true };
     save_config(file, &config);
     config
 }
@@ -189,6 +198,8 @@ pub struct ControllerView {
 #[serde(rename_all = "camelCase")]
 pub struct Status {
     enabled: bool,
+    /// Pairs without a PIN.
+    open: bool,
     running: bool,
     port: Option<u16>,
     name: String,
@@ -205,6 +216,7 @@ pub fn connect_status(state: State<'_, ConnectState>) -> Status {
     let config = state.config.lock().unwrap().clone();
     Status {
         enabled: config.enabled,
+        open: config.open,
         running: state.connect.is_running(),
         port: state.connect.port(),
         name: config.name,
@@ -235,6 +247,15 @@ pub async fn connect_set_enabled(app: AppHandle, state: State<'_, ConnectState>,
     save_config(&state.file, &config);
     info!("Soundify Connect {}", if enabled { "on" } else { "off" });
     Ok(())
+}
+
+/// Open (devices pair by themselves) or strict (the PIN is asked for).
+#[tauri::command]
+pub fn connect_set_open(state: State<'_, ConnectState>, open: bool) {
+    state.connect.set_open(open);
+    let mut config = state.config.lock().unwrap();
+    config.open = open;
+    save_config(&state.file, &config);
 }
 
 /// The name the others see. Applied the next time Connect is turned on.
@@ -295,11 +316,14 @@ pub fn connect_forget_controller(state: State<'_, ConnectState>, controller_id: 
     state.connect.forget_controller(&controller_id).map_err(error)
 }
 
-/// Starts controlling a paired device.
+/// Starts controlling a device; what it is doing right now comes back, to show it at once.
 #[tauri::command]
-pub async fn connect_select(state: State<'_, ConnectState>, device_id: String) -> Result<(), CommandError> {
+pub async fn connect_select(state: State<'_, ConnectState>, device_id: String) -> Result<Option<PlayerState>, CommandError> {
     let connect = state.connect.clone();
-    tauri::async_runtime::spawn_blocking(move || connect.select(&device_id)).await.map_err(CommandError::io)?.map_err(error)
+    tauri::async_runtime::spawn_blocking(move || connect.select(&device_id).map(|()| connect.state_of(&device_id)))
+        .await
+        .map_err(CommandError::io)?
+        .map_err(error)
 }
 
 #[tauri::command]

@@ -140,6 +140,7 @@ pub fn run() {
       connect::connect_status,
       connect::connect_set_enabled,
       connect::connect_set_name,
+      connect::connect_set_open,
       connect::connect_devices,
       connect::connect_add,
       connect::connect_pin,

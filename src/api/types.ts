@@ -286,11 +286,20 @@ export interface ConnectDevice {
   paired: boolean;
   /** It answers on the network now. */
   online: boolean;
+  /** It can be controlled this instant: paired, and the connection to it is open. */
+  ready: boolean;
   /** It is the one being controlled. */
   connected: boolean;
+  /** It is strict: it only pairs with the PIN it shows. */
+  needsPin: boolean;
+  /** It is playing right now, and what. */
+  playing: boolean;
+  nowPlaying: { title: string; playlist: string } | null;
 }
 export interface ConnectStatus {
   enabled: boolean;
+  /** Any device may pair without a PIN (the default). Off = the PIN is asked for. */
+  open: boolean;
   running: boolean;
   port: number | null;
   name: string;

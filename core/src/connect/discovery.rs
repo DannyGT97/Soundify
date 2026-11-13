@@ -121,6 +121,8 @@ fn device_of(service: &mdns_sd::ResolvedService) -> Option<DeviceInfo> {
         device_id: unescape(id),
         name: service.get_property_val_str("name")?.to_string(),
         kind: service.get_property_val_str("kind").unwrap_or("desktop").to_string(),
+        // What the announcement carries may be old: `GET /info` has the truth.
+        open: false,
     })
 }
 
@@ -195,7 +197,7 @@ mod tests {
     use super::*;
 
     fn info(id: &str) -> DeviceInfo {
-        DeviceInfo { v: PROTOCOL, device_id: id.into(), name: format!("Equipo {id}"), kind: "desktop".into() }
+        DeviceInfo { v: PROTOCOL, device_id: id.into(), name: format!("Equipo {id}"), kind: "desktop".into(), open: false }
     }
 
     #[test]

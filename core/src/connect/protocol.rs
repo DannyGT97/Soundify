@@ -22,6 +22,10 @@ pub struct DeviceInfo {
     pub name: String,
     /// `desktop`, `phone` or `tablet`.
     pub kind: String,
+    /// It lets any device on the network pair without a PIN (the default: like Spotify, it just shows up).
+    /// Off = «ask for a PIN», the stricter way. Only `GET /info` says it truthfully: it can change while the app runs.
+    #[serde(default)]
+    pub open: bool,
 }
 
 /// What a player is playing. The video id, not a path: it means the same on every device.

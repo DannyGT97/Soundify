@@ -34,7 +34,35 @@ export async function loadConnect(): Promise<void> {
   }
   // Turned on just now (or a controller is waiting for the first state): say what is playing.
   publishIfWorth(true);
+  announcePlaying();
   emit('connect');
+}
+
+// === ANOTHER DEVICE STARTS PLAYING ===
+
+/** Which file each device was last announced playing, so it is said once and not at every refresh. */
+const announced = new Map<string, string>();
+
+/**
+ * Like Spotify noticing you listen somewhere else: when a device starts playing and this one is not
+ * playing or controlling anything, a notice offers to control it with one tap.
+ */
+function announcePlaying(): void {
+  for (const device of connect.devices) {
+    const title = device.playing ? device.nowPlaying?.title : undefined;
+    if (!title) {
+      announced.delete(device.id);
+      continue;
+    }
+    if (announced.get(device.id) === title) continue;
+    announced.set(device.id, title);
+    if (ui.remote || ui.playing || !device.ready) continue;
+    notify({
+      tone: 'neutral',
+      text: t('connect.autoDetected', device.name, title),
+      action: { label: t('connect.control'), run: () => void controlDevice(device) },
+    });
+  }
 }
 
 export function startConnect(): void {
@@ -102,8 +130,9 @@ const route = (command: Parameters<typeof actionsFor>[0]): void => {
 /** Starts controlling a paired device: from now on the player shows and drives it. */
 export async function controlDevice(device: ConnectDevice): Promise<boolean> {
   if (ui.remote?.deviceId === device.id) return true;
+  let current: ConnectPlayerState | null;
   try {
-    await api.connectSelect(device.id);
+    current = await api.connectSelect(device.id);
   } catch (error) {
     notify({ tone: 'error', text: errorText(error) });
     void loadConnect();
@@ -111,11 +140,14 @@ export async function controlDevice(device: ConnectDevice): Promise<boolean> {
   }
   if (!ui.remote) snapshot = player.enterRemote(route);
   ui.remote = { deviceId: device.id, name: device.name };
-  remoteState = null;
   window.clearInterval(ticker);
   ticker = window.setInterval(moveClock, 500);
+  // What it is doing right now, at once: it is already connected and has been saying it all along.
+  remoteState = current;
+  receivedAt = Date.now();
+  if (current) show(current, current.position);
+  else emit('player');
   void loadConnect();
-  emit('player');
   return true;
 }
 

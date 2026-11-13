@@ -486,14 +486,14 @@ button.dev-row:hover { background: var(--sp-nav-hover); }
 [data-theme$="neutral"] .mini { background: var(--sp-card); }
 
 /* === SOUNDIFY CONNECT === the list of devices (overlays/devices.ts) */
-.cx .cx-device { display: flex; align-items: flex-start; gap: 12px; padding: 12px 14px; }
-.cx .cx-device > .icon { flex: none; margin-top: 2px; color: var(--sp-muted); }
-.cx .cx-device.connected { border-color: var(--sp-live); box-shadow: 0 0 0 1px var(--sp-live) inset; }
-.cx .cx-device.connected > .icon { color: var(--sp-live); }
-.cx .cx-device.offline { opacity: .6; }
+.cx .card.cx-device { display: flex; flex-direction: row; align-items: flex-start; gap: 12px; padding: 12px 14px; }
+.cx .card.cx-device > .icon { flex: none; margin-top: 2px; color: var(--sp-muted); }
+.cx .card.cx-device.connected { border-color: var(--sp-live); box-shadow: 0 0 0 1px var(--sp-live) inset; }
+.cx .card.cx-device.connected > .icon { color: var(--sp-live); }
+.cx .card.cx-device.offline { opacity: .6; }
 .cx .cx-actions { margin-top: 8px; align-items: center; }
-.cx .cx-pin-input { width: 130px; letter-spacing: 2px; text-align: center; }
-.cx .cx-pin { display: flex; align-items: center; gap: 14px; padding: 12px 14px; }
+.cx .cx-pin-input { width: 150px; letter-spacing: 2px; text-align: center; }
+.cx .card.cx-pin { display: flex; flex-direction: row; align-items: center; gap: 14px; padding: 12px 14px; }
 .cx .cx-pin-code { font-size: 26px; font-weight: 800; letter-spacing: 3px; color: var(--sp-text-strong); font-variant-numeric: tabular-nums; }
 .cx .cx-add .input { flex: 1; min-width: 0; }
 .cx .cx-switch { padding: 4px 2px; }

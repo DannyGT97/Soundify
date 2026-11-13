@@ -430,3 +430,10 @@ select.input { cursor: pointer; }
 .tools-chip-ok { color: var(--sp-success); }
 .tools-chip-warn { color: var(--sp-warn); }
 .tools-chip-error { color: var(--sp-error); }
+
+/* The way into «Dispositivos»: lit while another device is controlled, a dot while one plays elsewhere. */
+.devices-button { position: relative; }
+.devices-button.on { color: var(--sp-accent); }
+.devices-button.has-dot::after { content: ""; position: absolute; top: 6px; right: 6px; width: 7px; height: 7px; border-radius: 50%; background: var(--sp-accent); }
+.sidebar-version .devices-button { padding: 6px; }
+.sidebar.collapsed .sidebar-version .devices-button { display: none; }

@@ -93,7 +93,7 @@
     background-size: 100% 3px; background-repeat: no-repeat; background-position: center; background-color: transparent;
   }
   .player-right { width: auto; min-width: 0; flex: none; gap: 0; }
-  .player-right .player-volume, .player-right .pip-button { display: none; }
+  .player-right .player-volume, .player-right .pip-button, .player-right .devices-button { display: none; }
   .player-bar .player-progress .player-slider::-webkit-slider-thumb { opacity: 0; width: 14px; height: 14px; }
   .player-bar .player-progress .player-slider:active::-webkit-slider-thumb { opacity: 1; }
   .player-control { padding: 10px; }
