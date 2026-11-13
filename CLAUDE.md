@@ -13,7 +13,8 @@ Repositorio: https://github.com/DannyGT97/Soundify (GitHub, rama `main`, GPL-3.0
 - Dev: `npm run tauri dev` · solo el navegador: `npm run dev` (puerto 5180)
 - APK de prueba: `npx tauri android build --debug --apk --target aarch64 --target x86_64` (con `ANDROID_HOME`,
   `NDK_HOME` y `CARGO_PROFILE_DEV_DEBUG=0`, si no pesa 420 MB; ~100 MB las dos arquitecturas. Borra antes el APK anterior: Gradle lo reescribe encima y conserva su tamaño; sale en `src-tauri/gen/android/app/build/outputs/apk/`).
-  Firmado con la clave de depuración: para publicarlo hace falta un keystore propio
+  Firmado con la clave de depuración y con otro nombre de paquete (`com.dannygt97.soundify.debug`): NO es la app de las releases y convive con ella en el mismo aparato.
+  El APK que se publica es el de RELEASE, firmado con el keystore propio (ver «Actualizar la app en Android»)
 - **Comprobar: `npm run check`** (tsc + vitest + cargo test + clippy, salida corta: una línea por
   herramienta, o solo lo que falla). Interfaz aparte: `npm run test:ui` (Playwright). Build: `npm run build`
 - **Actualizar la app en Android (11/11/2026, SIN comprobar en la tablet):** Ajustes → Actualizaciones también está en Android (sin el interruptor
@@ -21,10 +22,25 @@ Repositorio: https://github.com/DannyGT97/Soundify (GitHub, rama `main`, GPL-3.0
   pero en lugar de `stage`/`hand_over` entrega el APK al instalador del sistema: `SoundifyPlugin.installApk` (FileProvider + `ACTION_VIEW`;
   solo acepta `.apk` dentro de `filesDir/updates`, `file_paths.xml`) tras `REQUEST_INSTALL_PACKAGES`. Antes de bajar nada se comprueba el permiso «Instalar
   aplicaciones desconocidas» (`allowInstall`/`mayInstall`; si falta abre su pantalla y el error es `update.android.allowInstall`). Android pide confirmar y no
-  se hace `app.exit(0)`. La build de depuración SÍ se actualiza sola en Android (en escritorio se niega). **Para que instale por encima hace falta que el APK nuevo vaya firmado
-  con la MISMA clave que el instalado (hoy la de depuración; publicar de verdad pide un keystore propio) y un `versionCode` mayor.** Ninguna release publicada
-  lleva APK todavía: hasta entonces Android dice «al día». Publicarlo: `npx tauri android build --debug --apk --target aarch64 --target x86_64`
-  y `node scripts/package-apk.mjs --key "<ruta>"` (mismas reglas con la clave que el ZIP) → los tres archivos `-tauri.apk*` se suben a la MISMA release de GitHub.
+  se hace `app.exit(0)`. **Para que instale por encima hace falta el MISMO paquete, la MISMA clave de firma que el instalado y un `versionCode` mayor**
+  (`tauri.properties`: 1.1.5 → 1001005, 1.1.6 → 1001006). Por eso la build de depuración (`.debug`, clave de depuración) NO se actualiza con
+  un APK de release: para probar la actualización hay que instalar la build de RELEASE de la versión anterior. Ninguna release publicada
+  lleva APK todavía: hasta entonces Android dice «al día».
+  **Keystore propio** (creado el 11/11/2026): `soundify-android.jks` + `soundify-android.properties` (contraseñas; `storeFile`, `alias`, `storePassword`,
+  `keyPassword`) fuera de git, en la carpeta de claves (ruta en `CLAUDE.local.md`). No se abren ni se muestran: solo se pasa la ruta del `.properties`
+  (`SOUNDIFY_ANDROID_KEYSTORE_PROPS`; `app/build.gradle.kts` lo lee, o un `keystore.properties` junto a él, ignorado por git; sin ninguno el APK de release sale SIN firmar).
+  **Perder el keystore = ninguna copia instalada podrá volver a actualizarse** (hay que desinstalar e instalar de cero): tener copia de seguridad.
+  Publicar el APK: con `ANDROID_HOME` y `NDK_HOME`, `node scripts/android-release-build.mjs --keystore-props "<ruta>"` (borra los APK
+  anteriores, compila release con R8 para aarch64 y x86_64 y comprueba con `apksigner` que está firmado y NO con la clave de depuración) →
+  `node scripts/package-apk.mjs --key "<ruta clave de actualización>"` → los tres `-tauri.apk*` de `release/` se suben a la MISMA release que el ZIP (seis archivos).
+  El release usa R8: **comprobar en el aparato que arranca, descarga y suena** antes de publicar (reflexión de Tauri, youtubedl-android y Media3).
+  Ya rompió una vez (11/11/2026): youtubedl-android desempaqueta Python con `commons-compress`, que crea clases por nombre, y R8 las quitaba
+  (`ExceptionInInitializerError … AsiExtraField is not a concrete class`): las herramientas se quedaban en «Preparando…» para siempre y
+  Ajustes mostraba la insignia amarilla «3» (= yt-dlp, ffmpeg y motor JS sin desempaquetar). Arreglado con las reglas `-keep` de
+  `proguard-rules.pro` (`com.yausername.**`, jackson, `org.apache.commons.compress.**`); en Ajustes → Herramientas debe salir yt-dlp con su
+  versión. Si vuelve a pasar algo así en release: añadir un instante `isDebuggable = true` al buildType release, instalar y leer
+  `adb shell run-as com.dannygt97.soundify cat files/data/logs/soundify-0.log` (la tablet HONOR no deja ver logcat); quitarlo antes de publicar.
+  La descarga real y el sonido con la pantalla apagada **siguen sin comprobarse en la build de release**.
 - **Publicar una release: cuando el usuario lo pida, lo hace Claude entero, SIEMPRE QUE NO MIRE LA CLAVE PRIVADA.**
   La clave privada de firma (su ruta está en `CLAUDE.local.md`, que git ignora) no se abre, ni se lee, ni se muestra, ni se copia: solo se pasa su
   ruta al script. Pasos: `node scripts/release-build.mjs` desde el commit de la versión (mejor en un `git worktree` de esa etiqueta; envuelve
@@ -32,7 +48,8 @@ Repositorio: https://github.com/DannyGT97/Soundify (GitHub, rama `main`, GPL-3.0
   incrusta las rutas de `.cargo`/`.rustup`; comprobar con `grep -a` que no sale el nombre de usuario) →
   `node scripts/package-portable.mjs --key "<ruta>"` (se niega si la clave no es la que acepta la app) →
   `gh release create vX.Y.Z -R DannyGT97/Soundify --target <hash COMPLETO> --title "Soundify X.Y.Z" --notes "..."` con solo
-  los tres archivos de `release/` (`-tauri.zip`, `.sha256`, `.sig`) y notas `## Novedades` en español. Comprobar después lo subido
+  los tres archivos de `release/` (`-tauri.zip`, `.sha256`, `.sig`) —más los tres `-tauri.apk*` si la release lleva Android (ver arriba)— y notas
+  `## Novedades` en español. Comprobar después lo subido
 
 ## Estructura (raíz)
 - `core/` — crate `soundify-core`: la lógica, **sin Tauri y sin plataforma** (se prueba con `cargo test`
@@ -118,7 +135,10 @@ Repositorio: https://github.com/DannyGT97/Soundify (GitHub, rama `main`, GPL-3.0
   `Downloads::start`, `create_playlist` y `create_device_playlist` con `tools.error.missing`; en el front, `canDownload` (`tools.ts`).
   Las tres pantallas enseñan el mismo aviso (`components/toolsNotice.ts`).
   «Crear Playlist» es su propio comando (`create_playlist` → `Engine::create_playlist`): REGISTRA antes
-  de descargar nada, y «Crear y descargar» lanza después un `update` normal. Una descarga suelta va a la
+  de descargar nada, y «Crear y descargar» lanza después un `update` normal. Si esa playlist ya está registrada en esa carpeta y formato (mismo `data.json`, hash de título+carpeta), el motor NO la reutiliza
+  en silencio: devuelve `CreateError::AlreadyExists` → error `newPlaylist.alreadyExists` (args: título y clave del bloque) y el front
+  (`views/newPlaylist.ts`) pregunta «Abrir en el Gestor» / «Continuar igualmente»; esto último repite con `reuseExisting` (= el comportamiento
+  heredado de Java: suma los vídeos que falten y conserva la numeración). Test e2e en `e2e/newPlaylist.spec.ts`. **Sin ver en la app real**. Una descarga suelta va a la
   carpeta elegida tal cual (sin subcarpeta, sin numerar) y su limpieza solo toca restos de lo que bajó
   `covers.rs`: comandos de portadas y el ámbito del protocolo `asset`, que se abre EN MARCHA
   (`allow_folder`: caché de miniaturas, archives, cada carpeta de música que lista `list_playlists` y
@@ -323,6 +343,35 @@ Repositorio: https://github.com/DannyGT97/Soundify (GitHub, rama `main`, GPL-3.0
   si no es válida.
 
 ## Pendiente
+- **Idea (12/11/2026, sin empezar): control entre dispositivos, tipo Spotify Connect.** Tres niveles: (1) Soundify ↔ Soundify en la misma red (mDNS
+  para descubrirse, canal WebSocket con emparejamiento para play/pausa/siguiente/volumen/cola; el que reproduce pide los archivos por HTTP al que los
+  tiene; el hueco en la interfaz ya existe: el «dispositivo» de Reproduciendo, `api.playbackDevice`); (2) reproducir en tele/altavoces por DLNA/UPnP o
+  Chromecast, sirviendo los archivos por HTTP; (3) controlar Spotify solo vía su API web (Premium + app registrada), Connect es cerrado. En Android,
+  controlar las sesiones de otras apps del mismo móvil necesitaría el permiso de acceso a notificaciones.
+- **Hecho el 12/11/2026 (tests en verde, sin ver en el móvil):** la flecha atrás está arriba a la derecha en el detalle de playlist del Reproductor
+  (`.ambient > .icon-button.back`; en la barra fija `.mini` va al final) y en Reproduciendo (`.np-head`), y la de Reproduciendo lleva a la playlist que suena en
+  el Reproductor (`navigate('player', { b })`, no `history.back()`); la tarjeta «Sonando ahora» de Inicio abre Reproduciendo y su botón redondo
+  pausa/reproduce. En móvil la píldora de tareas flota arriba a la derecha: las pantallas ya empiezan 54 px más abajo mientras se ve (`phone.css`).
+  Las miniaturas en Android ya funcionan (confirmado por el usuario).
+- **Hecho el 12/11/2026, SIN ver en la app real ni en el móvil** (tests en verde; el Kotlin solo se ha compilado):
+  - **Carpetas movidas o renombradas, detección inmediata.** Antes solo corría `reconcile_all` al arrancar. Ahora el comando `refresh_library`
+    (`commands.rs`: espera si hay una descarga en marcha o en cola y, en Android, si no hay acceso a archivos) la repite, y `checkDisk()`
+    (`library.ts`, como mucho cada 2 s, solo redibuja si cambió algo) se llama al volver a la ventana (`focus`/`visibilitychange`) y al entrar en Gestor,
+    Reproductor y Reproduciendo (`main.ts`). Una carpeta que se renombra sigue sin enlazarse sola (el archive guarda la ruta vieja): se ve como
+    inaccesible/pendiente, no se reubica.
+  - **Barra del reproductor arrastrable en móvil** (`phone.css`): franja de 28 px, línea fina, el pomo sale al sujetar.
+  - **Notificación de descarga/sincronización** (`BusyService.kt`): título con el estado y el porcentaje («Sincronizando · 45 %», «Descargando», «Segunda pasada»,
+    «N tareas»), debajo la playlist y «+N en cola», y barra de progreso (indeterminada mientras se prepara). Los textos salen de `busy_notice`
+    (`downloads.rs`, es/en/ca según el ajuste) y se refresca en cada cambio de la tarea.
+  - **Reproduciendo:** sin título; flecha atrás (`history.back()`, o el Reproductor) en lugar de «Ver la playlist»; y el dispositivo de salida
+    (`api.playbackDevice`: en Android `SoundifyPlugin.playerOutputDevice` = auriculares/Bluetooth con el nombre que anuncian, si no el nombre del
+    teléfono; en escritorio «Este dispositivo»). Se pregunta cada 3 s con la pantalla abierta. Para reproducir en otro aparato de la red (plan futuro) este es el hueco.
+  - **Notificación multimedia** (`PlaybackService.kt`): botones de aleatorio (izquierda) y repetir (derecha) como `customLayout` de Media3 1.5.1
+    (el estado es de la página: `PlayerBackend.setModes` / `onRemoteMode`, comandos de sesión `soundify.*`); pulsarla abre la app en Reproduciendo
+    (`setSessionActivity` → `MainActivity.onNewIntent` → `SoundifyPlugin.openFrom` → `playerPendingOpen`). **Que no aparecía a veces:** causa probable,
+    no reproducida: al acabar un archivo Media3 sacaba el servicio de primer plano y el siguiente, lanzado por la página con la app en segundo plano,
+    no podía volver a ponerlo (Android lo prohíbe), así que sonaba sin notificación. Ahora `onUpdateNotification` lo mantiene mientras haya archivo y
+    `playWhenReady`, y 20 s después del final de la cola pausa para soltarlo. Si vuelve a pasar: `adb logcat` con la app en segundo plano.
 - **Hecho el 11/11/2026, sin ver en la app real** (tests en verde):
   - **ZIP de actualización limitados.** `updater/download.rs`: tras descargar y verificar, `prune_old_zips` deja en `data/updates/` solo
     los `KEPT_ZIPS` (2) `Soundify-*-tauri.zip` más recientes por fecha de modificación (el recién bajado siempre se queda) y borra el
@@ -366,6 +415,11 @@ Repositorio: https://github.com/DannyGT97/Soundify (GitHub, rama `main`, GPL-3.0
     recuperaron 0: 217 vídeos × 3 clientes (web_safari, mweb, android) = ~1.080 peticiones inútiles. YouTube corta tras
     ~100–230 descargas (~15 s por vídeo) y NO se recupera en horas, así que el corte rápido (5 seguidos) es lo correcto.
     Probado solo con yt-dlp simulado, nunca contra YouTube.
+- **Sin pausa entre descargas (11/11/2026, medido en escritorio contra la playlist real, sin cookies, yt-dlp 2026.10.26):** `command.rs` ya no
+  lleva `--sleep-requests` / `--min-sleep-interval` / `--max-sleep-interval`. 254 vídeos seguidos sin pausa, ~5,8 s cada uno (con la pausa, ~10 s),
+  ni un 403; YouTube cortó con «Sign in to confirm you're not a bot» a los ~300 vídeos en ~1 h, una cuota por hora y no un asunto de ritmo (la
+  pausa no la evitaba, solo tardaba más en llegar). Si vuelven los 403 en ráfagas, `--sleep-requests 1` es la palanca. **Sin probar con cookies
+  ni en el móvil**. OJO al probar `player_client=web` a mano: sin PO token solo da imágenes («Requested format is not available»); sirve el cliente por defecto.
 - **La migración de la lógica sigue [MIGRATION-PLAN.md](MIGRATION-PLAN.md)** (fases 1–10), y cada
   test portado se apunta en [TEST-MAP.md](TEST-MAP.md)
 - **Android: la playlist «Canciones» de YouTube, de +700 vídeos, en el móvil (tablet) solo enseñaba 100** (anotado el 09/11/2026 por el

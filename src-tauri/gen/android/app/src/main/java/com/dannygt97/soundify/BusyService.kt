@@ -21,6 +21,7 @@ class BusyService : Service() {
   override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
     val title = intent?.getStringExtra("title") ?: "Soundify"
     val text = intent?.getStringExtra("text") ?: ""
+    val progress = intent?.getIntExtra("progress", -1) ?: -1
     val manager = getSystemService(NOTIFICATION_SERVICE) as NotificationManager
     if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
       manager.createNotificationChannel(NotificationChannel(CHANNEL, "Soundify", NotificationManager.IMPORTANCE_LOW))
@@ -36,6 +37,10 @@ class BusyService : Service() {
       .setContentText(text)
       .setContentIntent(open)
       .setOngoing(true)
+      // Each change of progress re-posts it: it must not buzz or pop up again every time.
+      .setOnlyAlertOnce(true)
+      // How far it is, or a bar that goes back and forth while that is not known.
+      .setProgress(100, progress.coerceIn(0, 100), progress < 0)
       .build()
     if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
       startForeground(ID, notice, ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC)

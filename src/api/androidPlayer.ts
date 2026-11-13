@@ -29,7 +29,9 @@ export type NativeEvent =
   | { kind: 'error'; message?: string }
   | { kind: 'playing'; playing: boolean }
   | { kind: 'volume'; volume: number }
-  | { kind: 'skip'; direction: 'next' | 'previous' };
+  | { kind: 'skip'; direction: 'next' | 'previous' }
+  | { kind: 'mode'; mode: 'shuffle' | 'repeat' }
+  | { kind: 'open' };
 
 type Engine = 'native' | 'html';
 
@@ -119,6 +121,27 @@ export class AndroidPlayer implements PlayerBackend {
     void this.listen(event => event.kind === 'skip' && listener(event.direction));
   }
 
+  /** Shuffle or repeat pressed in the notification. */
+  onRemoteMode(listener: (mode: 'shuffle' | 'repeat') => void): void {
+    void this.listen(event => event.kind === 'mode' && listener(event.mode));
+  }
+
+  /** The app was opened from the music notification: the screen it asked for, now and whenever it is asked again. */
+  onRemoteOpen(listener: () => void): void {
+    // Kept on the Kotlin side until asked for: at a cold start the page is not listening yet.
+    const pull = () =>
+      invoke<{ target?: string }>('native_player', { action: 'playerPendingOpen' })
+        .then(answer => answer?.target && listener())
+        .catch(() => {});
+    void this.listen(event => event.kind === 'open' && void pull(), true).then(pull);
+    document.addEventListener('visibilitychange', () => document.visibilityState === 'visible' && void pull());
+  }
+
+  /** The notification's shuffle and repeat buttons draw the page's state. */
+  setModes(shuffle: boolean, repeat: 'off' | 'all' | 'one'): void {
+    this.send('playerSetModes', { shuffle, repeat });
+  }
+
   /** Where the device's volume is, now and each time the buttons (or the slider) move it. */
   onVolume(listener: (volume: number) => void): void {
     // Asking is the truth; the events are only the quick way. A transient 0 (switching headphones, a
@@ -157,7 +180,7 @@ export class AndroidPlayer implements PlayerBackend {
   private listen(handle: (event: NativeEvent) => unknown, always = false): Promise<unknown> {
     return listen<NativeEvent>('native-player', event => {
       // A video's events come from its own element; the native ones are only for audio.
-      if (always || this.active === 'native' || event.payload.kind === 'skip') handle(event.payload);
+      if (always || this.active === 'native' || event.payload.kind === 'skip' || event.payload.kind === 'mode' || event.payload.kind === 'open') handle(event.payload);
     });
   }
 

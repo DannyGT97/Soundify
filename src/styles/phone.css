@@ -52,6 +52,9 @@
   }
   .sidebar .tasks-pill-text { display: block; }
   .tasks-pill-sub { display: none; }
+  /* The pill floats over the top right corner: while it shows, the screens start below it
+     instead of letting it cover their first row (the Descargar/Crear Playlist switch, a title). */
+  #app:has(.tasks-pill:not([hidden])) .screen { padding-top: 54px; }
 
   .screen { padding: 12px 12px 16px; }
   .page-title { font-size: 22px; }
@@ -80,13 +83,19 @@
   .player-bar .player-controls > :nth-child(1),
   .player-bar .player-controls > :nth-child(2),
   .player-bar .player-controls > :nth-child(5) { display: none; }
-  /* The line along its top edge shows how far it is; seeking is in Reproduciendo. */
-  .player-bar .player-progress { position: absolute; left: 0; right: 0; top: -1px; height: 3px; pointer-events: none; }
+  /* The line along its top edge shows how far it is, and it can be dragged: the strip is a finger
+     tall, the line drawn in it stays thin, and the knob shows while it is held. */
+  .player-bar .player-progress { position: absolute; left: 0; right: 0; top: -14px; height: 28px; gap: 0; }
   .player-bar .player-time { display: none; }
-  .player-bar .player-progress input { margin: 0; height: 3px; width: 100%; }
+  .player-bar .player-progress input {
+    margin: 0; height: 28px; width: 100%; border-radius: 0; touch-action: none;
+    background-image: linear-gradient(to right, var(--sp-accent) var(--filled), var(--sp-field) var(--filled));
+    background-size: 100% 3px; background-repeat: no-repeat; background-position: center; background-color: transparent;
+  }
   .player-right { width: auto; min-width: 0; flex: none; gap: 0; }
   .player-right .player-volume, .player-right .pip-button { display: none; }
-  .player-bar .player-progress .player-slider::-webkit-slider-thumb { opacity: 0; }
+  .player-bar .player-progress .player-slider::-webkit-slider-thumb { opacity: 0; width: 14px; height: 14px; }
+  .player-bar .player-progress .player-slider:active::-webkit-slider-thumb { opacity: 1; }
   .player-control { padding: 10px; }
   .player-play { width: 42px; height: 42px; border-radius: 21px; }
 
@@ -121,7 +130,7 @@
 /* A phone on its side: every line of height counts. */
 @media (max-height: 500px) {
   .sidebar .nav-button, .sidebar.collapsed .nav-button { min-height: 40px; flex-direction: row; gap: 6px; padding: 2px; }
-  .np-head, .pip-auto, .np-pip-here .pip-here-hint { display: none; }
+  .pip-auto, .np-pip-here .pip-here-hint { display: none; }
   .np-content { padding: 6px 16px; gap: 6px; }
   .np-art .cover { width: auto !important; height: 100% !important; aspect-ratio: 1; }
 }

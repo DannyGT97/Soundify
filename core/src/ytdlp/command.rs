@@ -159,13 +159,14 @@ fn add_common(cmd: &mut Vec<String>, cfg: &BuildConfig) {
             push(cmd, &["--playlist-items", items]);
         }
 
-        // A pause between items: without it, YouTube answers HTTP 403 on bursts
-        // of back-to-back requests (the more items the playlist has, the likelier
-        // it is). Cut from 2-5s to 1-3s (from ~3.5s to ~2s average per item): it
-        // still gives random slack, but for big playlists (100s of items) the
-        // difference in total time is considerable. If 403s show up again on very
-        // long playlists, raising these values back is the first lever to pull.
-        push(cmd, &["--sleep-requests", "1", "--min-sleep-interval", "1", "--max-sleep-interval", "3"]);
+        // No pause between items (11/11/2026, measured against the real playlist, desktop,
+        // yt-dlp 2026.10.26, no cookies): 254 videos in a row without any sleep, ~5.8 s
+        // each against ~10 s with `--sleep-requests 1 --min-sleep-interval 1
+        // --max-sleep-interval 3`, with not one HTTP 403. What YouTube did was cut with
+        // «Sign in to confirm you're not a bot» after ~300 videos in about an hour, and
+        // that is a quota per hour, not a matter of pace: the pauses did not avoid it,
+        // they only made reaching it take longer (the bot-check stop in `download.rs`
+        // handles it). If 403s show up on bursts, `--sleep-requests 1` is the lever.
     }
 
     let cookies = non_blank(&cfg.cookies_file);
@@ -349,16 +350,17 @@ mod tests {
     }
 
     #[test]
-    fn playlist_items_and_the_sleeps_only_go_with_a_playlist() {
+    fn playlist_items_only_go_with_a_playlist_and_nothing_sleeps() {
         let mut cfg = config(true, 0, false, None, None);
         cfg.playlist_items = Some("3,5".into());
         let cmd = build("MP3", &cfg);
         assert_eq!(after(&cmd, "--playlist-items"), "3,5");
-        assert!(has(&cmd, "--sleep-requests"));
+        // Measured: the pauses only slowed it down (see `add_common`).
+        assert!(!has(&cmd, "--sleep-requests") && !has(&cmd, "--min-sleep-interval"));
 
         cfg.is_playlist = false;
         let cmd = build("MP3", &cfg);
-        assert!(!has(&cmd, "--playlist-items") && !has(&cmd, "--sleep-requests"));
+        assert!(!has(&cmd, "--playlist-items"));
     }
 
     #[test]

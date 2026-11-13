@@ -267,12 +267,12 @@ mod tests {
     #[test]
     fn regression_normalises_the_url_of_a_video_inside_a_playlist() {
         assert_eq!(
-            normalize_playlist_url("https://www.youtube.com/watch?v=Cu5q3FSSX-A&list=PLawelMNQGqk7X3ND"),
-            "https://www.youtube.com/playlist?list=PLawelMNQGqk7X3ND"
+            normalize_playlist_url("https://www.youtube.com/watch?v=aaaaaaaaaaa&list=PLxxxxxxxxxxxxxxxxx"),
+            "https://www.youtube.com/playlist?list=PLxxxxxxxxxxxxxxxxx"
         );
-        let clean = "https://www.youtube.com/playlist?list=PLawelMNQGqk7X3ND";
+        let clean = "https://www.youtube.com/playlist?list=PLxxxxxxxxxxxxxxxxx";
         assert_eq!(normalize_playlist_url(clean), clean);
-        let video = "https://www.youtube.com/watch?v=Cu5q3FSSX-A";
+        let video = "https://www.youtube.com/watch?v=aaaaaaaaaaa";
         assert_eq!(normalize_playlist_url(video), video);
         assert_eq!(
             normalize_playlist_url("https://www.youtube.com/watch?v=abc&list=PL123&index=4"),
@@ -348,7 +348,7 @@ mod tests {
         assert_eq!(extract_video_id("https://www.youtube.com/watch?v=dQw4w9WgXcQ").as_deref(), Some("dQw4w9WgXcQ"));
         assert_eq!(extract_video_id("https://youtu.be/dQw4w9WgXcQ").as_deref(), Some("dQw4w9WgXcQ"));
         assert_eq!(extract_video_id("https://www.youtube.com/shorts/dQw4w9WgXcQ").as_deref(), Some("dQw4w9WgXcQ"));
-        assert_eq!(extract_video_id("https://www.youtube.com/playlist?list=PLawelMNQGqk7X3NDMsCe-emAmUk03woC4"), None);
+        assert_eq!(extract_video_id("https://www.youtube.com/playlist?list=PLxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"), None);
     }
 
     #[test]

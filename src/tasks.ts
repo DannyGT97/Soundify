@@ -13,6 +13,15 @@ export function markSeen(): void {
   emit('tasks');
 }
 
+/**
+ * What the tasks pill shows when nothing runs: the result nobody has opened yet or, once it has been
+ * seen, that of the latest finished task. It goes away only when there is no history left, so closing
+ * the window never makes the finished tasks unreachable.
+ */
+export function pillResult(state: Pick<typeof ui, 'unseenResult' | 'history'> = ui): TaskStatus | null {
+  return state.unseenResult ?? state.history[0]?.status ?? null;
+}
+
 /** 0–100, or null while still preparing (the ring spins instead). */
 export function percent(task: RunningTask | null = ui.task): number | null {
   if (!task || task.step === 'prepare' || task.fraction === null) return null;

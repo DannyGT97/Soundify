@@ -58,6 +58,37 @@ test('the bar: duration once opened, next moves on, repeat cycles and previous r
   await expect(bar.locator('.player-now .row-title')).toHaveText(titles[1] ?? '');
 });
 
+test('the «Sonando ahora» card of the Reproductor opens Reproduciendo, not the playlist', async ({ page }) => {
+  await page.goto('/#/player?b=pl1:MP3');
+  await page.locator('.track-row').first().click();
+  await page.goto('/#/player');
+  await page.locator('.resume').click();
+  await expect(page).toHaveURL(/#\/now-playing/);
+});
+
+test('the back arrow of Reproduciendo (top right) goes to the playlist that is playing', async ({ page }) => {
+  await page.goto('/#/player?b=pl1:MP3');
+  await page.locator('.track-row').first().click();
+  await page.goto('/#/manager');
+  await page.goto('/#/now-playing');
+  const back = page.locator('.np-head .np-back');
+  const box = await back.boundingBox();
+  const width = page.viewportSize()?.width ?? 0;
+  expect(box && box.x > width / 2).toBe(true);
+  await back.click();
+  await expect(page).toHaveURL(/#\/player\?b=pl1/);
+});
+
+test('Inicio: the «Sonando» card opens Reproduciendo and its round button only plays or pauses', async ({ page }) => {
+  await page.goto('/#/player?b=pl1:MP3');
+  await page.locator('.track-row').first().click();
+  await page.goto('/#/home');
+  await page.locator('.resume .round-play').click();
+  await expect(page).toHaveURL(/#\/home/);
+  await page.locator('.resume').click();
+  await expect(page).toHaveURL(/#\/now-playing/);
+});
+
 test('a download from the URL screen shows in the menu indicator', async ({ page }) => {
   await page.clock.install();
   await page.goto('/#/download');
@@ -67,6 +98,26 @@ test('a download from the URL screen shows in the menu indicator', async ({ page
   await expect(page.locator('.tasks-pill')).toBeVisible();
   await page.clock.runFor(10_000);
   await expect(page.locator('.tasks-pill-title')).toHaveText('Terminada');
+});
+
+test('the tasks pill stays after closing its window and only goes when the finished ones are cleared', async ({ page }) => {
+  await page.clock.install();
+  await page.goto('/#/download');
+  await page.locator('input.input').first().fill('https://www.youtube.com/watch?v=abc');
+  await page.locator('.dest', { hasText: 'Carpeta local' }).click();
+  await page.getByRole('button', { name: 'Descargar', exact: true }).click();
+  await page.clock.runFor(10_000);
+  const pill = page.locator('.tasks-pill');
+  await expect(pill).toBeVisible();
+
+  await pill.click();
+  await page.keyboard.press('Escape');
+  await expect(pill).toBeVisible();
+
+  await pill.click();
+  await page.getByRole('button', { name: 'Borrar terminadas' }).click();
+  await page.keyboard.press('Escape');
+  await expect(pill).toBeHidden();
 });
 
 test('Descarga por URL refuses a list, even a video opened from inside one, and points to Crear Playlist', async ({ page }) => {

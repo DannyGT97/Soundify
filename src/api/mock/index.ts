@@ -33,8 +33,9 @@ function mockWindowControls(): WindowControls | null {
 
 export const mockApi: Api = {
   listPlaylists: async () => playlists,
+  refreshLibrary: async () => {},
   formats: async () => ({ audio: AUDIO_FORMATS, video: VIDEO_FORMATS }),
-  createPlaylist,
+  createPlaylist: (url, format, folder, numbered, reuseExisting) => createPlaylist(url, format, folder, numbered, undefined, reuseExisting),
   startDownload,
   stopDownload: taskId => {
     const ids = typeof taskId === 'number' ? [taskId] : ui.running.map(task => task.id);
@@ -103,8 +104,8 @@ export const mockApi: Api = {
     return true;
   },
   openDeviceFolder: async () => {},
-  createDevicePlaylist: (url, format, target, numbered) =>
-    createPlaylist(url, format, [target.deviceName, target.path].filter(Boolean).join(' / '), numbered, target),
+  createDevicePlaylist: (url, format, target, numbered, reuseExisting) =>
+    createPlaylist(url, format, [target.deviceName, target.path].filter(Boolean).join(' / '), numbered, target, reuseExisting),
   copyToDevice: async (blockKey, _target, onProgress) => (await walkFiles(blockKey, onProgress)).result,
   copyFromDevice: copyPlaylist,
   scanDeviceImport: async (deviceId, deviceName, root) => ({
@@ -167,6 +168,7 @@ export const mockApi: Api = {
   pickCookiesFile: async () => 'C:\\Users\\Example\\cookies.txt',
   // The made-up cookies file is there; any other path is not.
   fileExists: async path => path.endsWith('cookies.txt'),
+  playbackDevice: async () => ({ kind: 'this', name: null }),
   // A plain browser has no window to resize: the page's own full screen stands in.
   setFullscreen: on => {
     if (on && !document.fullscreenElement) void document.documentElement.requestFullscreen().catch(() => {});
@@ -264,17 +266,30 @@ async function deletePlaylistFormat(blockKey: string, files: boolean): Promise<D
   return files ? { deleted: block.tracks.filter(tr => tr.status === 'ok').length, unregistered: 0, leftOver: 0 } : null;
 }
 
-/** Registers an empty playlist with a made-up title, as if YouTube had listed 12 videos. */
-async function createPlaylist(_url: string, format: string, folder: string, numbered: boolean, device?: DeviceTarget): Promise<CreatedPlaylist> {
+/**
+ * Registers an empty playlist with a made-up title, as if YouTube had listed 12 videos. One that
+ * is already there (same title, folder and format) is refused like the back does, unless reusing it is asked for.
+ */
+async function createPlaylist(
+  _url: string, format: string, folder: string, numbered: boolean, device?: DeviceTarget, reuseExisting = false,
+): Promise<CreatedPlaylist> {
   if (!mockCanDownload()) throw { key: 'tools.error.missing', args: [] };
   await new Promise(resolve => window.setTimeout(resolve, 600));
+  const title = 'Playlist nueva';
+  const where = `${folder}\${title} (${format.toLowerCase()})`;
+  const existing = playlists.find(p => p.folder === where);
+  const existingBlock = existing?.formats.find(b => b.format === format);
+  if (existingBlock) {
+    if (!reuseExisting) throw { key: 'newPlaylist.alreadyExists', args: [title, existingBlock.key] };
+    return { blockKey: existingBlock.key, title, count: 12, genericTitle: false, numberMode: { numberFiles: existingBlock.numbered, source: 'sameFormat' } };
+  }
   const id = `created-${playlists.length}`;
   const blockKey = `${id}/${format.toLowerCase()}`;
   playlists.push({
-    id, title: 'Playlist nueva', folder: `${folder}\\Playlist nueva (${format.toLowerCase()})`,
+    id, title, folder: where,
     formats: [{ key: blockKey, playlistId: id, format, video: VIDEO_FORMATS.includes(format), numbered, sync: false, lastSync: '', device, tracks: [] }],
   });
-  return { blockKey, title: 'Playlist nueva', count: 12, genericTitle: false, numberMode: { numberFiles: numbered, source: 'requested' } };
+  return { blockKey, title, count: 12, genericTitle: false, numberMode: { numberFiles: numbered, source: 'requested' } };
 }
 
 function startDownload(request: DownloadRequest): void {

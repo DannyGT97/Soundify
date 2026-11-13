@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { activityText, fileNumber, liveText, noticeTone, overallPercent, percent, pointsToSettings, progressLine, shortStamp, summaryText, toTasksState } from './tasks';
+import { activityText, fileNumber, liveText, noticeTone, overallPercent, percent, pillResult, pointsToSettings, progressLine, shortStamp, summaryText, toTasksState } from './tasks';
 import type { FinishedTask, RunningTask } from './state';
 
 const NOW = new Date(2026, 10, 3, 20, 0);
@@ -7,6 +7,19 @@ const NOW = new Date(2026, 10, 3, 20, 0);
 function running(fraction: number | null, total = 4): RunningTask {
   return { id: 1, title: 'Lo-fi', origin: 'manager', step: fraction === null ? 'prepare' : 'download', fraction, total, blockKey: null };
 }
+
+describe('pillResult', () => {
+  const done = (status: FinishedTask['status']): FinishedTask => ({ title: 'X', origin: 'url', status, summary: null, summaryArgs: [], finishedAt: '18:42' });
+
+  it('shows the unseen result first, then the latest finished task once it has been seen', () => {
+    expect(pillResult({ unseenResult: 'failed', history: [done('ok')] })).toBe('failed');
+    expect(pillResult({ unseenResult: null, history: [done('warning'), done('ok')] })).toBe('warning');
+  });
+
+  it('only disappears when no finished task is left', () => {
+    expect(pillResult({ unseenResult: null, history: [] })).toBeNull();
+  });
+});
 
 describe('toTasksState', () => {
   it('maps the running task, its origin key and the history', () => {

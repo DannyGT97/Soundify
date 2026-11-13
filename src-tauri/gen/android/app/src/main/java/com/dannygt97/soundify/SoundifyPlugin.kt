@@ -26,6 +26,15 @@ class BusyArgs {
   var busy: Boolean = false
   var title: String = ""
   var text: String = ""
+  /** 0–100, or -1 while the progress is not known. */
+  var progress: Int = -1
+}
+
+@InvokeArg
+class ModesArgs {
+  var shuffle: Boolean = false
+  /** off, all or one. */
+  var repeat: String = "off"
 }
 
 @InvokeArg
@@ -79,7 +88,9 @@ class SoundifyPlugin(private val activity: Activity) : Plugin(activity) {
         FFmpeg.getInstance().init(context)
         invoke.resolve(runtimeDescription(context))
       } catch (e: Throwable) {
-        invoke.reject("runtime: ${e.message}", e as? Exception)
+        // Some exceptions carry no message: the type and the top of the stack say what failed.
+        val where = e.stackTrace.take(6).joinToString(" <- ") { "${it.className}.${it.methodName}:${it.lineNumber}" }
+        invoke.reject("runtime: $e (cause: ${e.cause}) at $where", e as? Exception)
       }
     }.start()
   }
@@ -333,7 +344,7 @@ class SoundifyPlugin(private val activity: Activity) : Plugin(activity) {
     val intent = Intent(context, BusyService::class.java)
     try {
       if (args.busy) {
-        intent.putExtra("title", args.title).putExtra("text", args.text)
+        intent.putExtra("title", args.title).putExtra("text", args.text).putExtra("progress", args.progress)
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) context.startForegroundService(intent) else context.startService(intent)
       } else {
         context.stopService(intent)
@@ -387,6 +398,53 @@ class SoundifyPlugin(private val activity: Activity) : Plugin(activity) {
     invoke.resolve()
   }
 
+  /** The screen the music notification asked for, once: the page goes there and it is forgotten. */
+  @Command
+  fun playerPendingOpen(invoke: Invoke) {
+    val target = pendingOpen
+    pendingOpen = null
+    invoke.resolve(JSObject().put("target", target ?: ""))
+  }
+
+  /** What the notification's shuffle and repeat buttons should show (the page's state). */
+  @Command
+  fun playerSetModes(invoke: Invoke) {
+    val args = invoke.parseArgs(ModesArgs::class.java)
+    player.setModes(args.shuffle, args.repeat)
+    invoke.resolve()
+  }
+
+  /**
+   * Where the sound goes now: headphones or a Bluetooth speaker if one is connected (with the name it
+   * announces, "AirPods de Dani"), otherwise this phone's own speaker (with the name the user gave it).
+   */
+  @Command
+  fun playerOutputDevice(invoke: Invoke) {
+    val audio = activity.getSystemService(Context.AUDIO_SERVICE) as android.media.AudioManager
+    val outputs = audio.getDevices(android.media.AudioManager.GET_DEVICES_OUTPUTS)
+    val bluetooth = intArrayOf(
+      android.media.AudioDeviceInfo.TYPE_BLUETOOTH_A2DP, android.media.AudioDeviceInfo.TYPE_BLE_HEADSET,
+      android.media.AudioDeviceInfo.TYPE_BLE_SPEAKER, android.media.AudioDeviceInfo.TYPE_HEARING_AID,
+    )
+    val wired = intArrayOf(
+      android.media.AudioDeviceInfo.TYPE_WIRED_HEADSET, android.media.AudioDeviceInfo.TYPE_WIRED_HEADPHONES,
+      android.media.AudioDeviceInfo.TYPE_USB_HEADSET, android.media.AudioDeviceInfo.TYPE_USB_DEVICE,
+      android.media.AudioDeviceInfo.TYPE_HDMI,
+    )
+    val out = JSObject()
+    val bt = outputs.firstOrNull { it.type in bluetooth }
+    val cable = outputs.firstOrNull { it.type in wired }
+    when {
+      bt != null -> out.put("kind", "bluetooth").put("name", bt.productName?.toString() ?: "")
+      cable != null -> out.put("kind", "headphones").put("name", cable.productName?.toString() ?: "")
+      else -> {
+        val given = try { android.provider.Settings.Global.getString(activity.contentResolver, "device_name") } catch (e: Exception) { null }
+        out.put("kind", "this").put("name", given?.takeIf { it.isNotBlank() } ?: Build.MODEL)
+      }
+    }
+    invoke.resolve(out)
+  }
+
   /** The phone's music volume (0..1), as it is now. */
   @Command
   fun playerGetVolume(invoke: Invoke) {
@@ -426,6 +484,27 @@ class SoundifyPlugin(private val activity: Activity) : Plugin(activity) {
     /** «Next» / «previous» from the notification or the lock screen: the queue is the page's, so it decides. */
     fun skip(direction: String) {
       current?.trigger("player", JSObject().put("kind", "skip").put("direction", direction))
+    }
+
+    const val EXTRA_OPEN = "soundify_open"
+
+    @Volatile
+    private var pendingOpen: String? = null
+
+    /**
+     * The app was opened (or brought forward) from the music notification: `EXTRA_OPEN` says which
+     * screen. The page may not be there yet (a cold start), so it is kept until the page asks for it.
+     */
+    fun openFrom(intent: Intent?) {
+      val target = intent?.getStringExtra(EXTRA_OPEN) ?: return
+      intent.removeExtra(EXTRA_OPEN)
+      pendingOpen = target
+      current?.trigger("player", JSObject().put("kind", "open"))
+    }
+
+    /** Shuffle / repeat pressed in the notification: the page owns both, so it toggles them. */
+    fun remote(mode: String) {
+      current?.trigger("player", JSObject().put("kind", "mode").put("mode", mode))
     }
 
     /** `Music/Soundify` in the phone's shared storage. */

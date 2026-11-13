@@ -64,32 +64,36 @@ pub async fn url_thumbnail(state: State<'_, AppState>, url: String, playlist: bo
 /// It belongs to the app's window: without a parent it was a loose window,
 /// and pressing «Cambiar portada» again with it open stacked a second one.
 #[tauri::command]
-pub async fn pick_cover_image(app: AppHandle, window: WebviewWindow, title: String, filter: String) -> Option<String> {
+pub async fn pick_cover_image(app: AppHandle, window: WebviewWindow, title: String, filter: String) -> Result<Option<String>, CommandError> {
     // On the phone the dialog plugin hands back a content:// URI that is no file:
     // Kotlin picks the image and copies it into the app's cache.
     #[cfg(target_os = "android")]
     let path = {
         let _ = (&window, &title, &filter);
         let handle = app.clone();
-        let picked = tauri::async_runtime::spawn_blocking(move || crate::mobile::pick_image_now(&handle)).await.ok()?;
+        let picked = tauri::async_runtime::spawn_blocking(move || crate::mobile::pick_image_now(&handle)).await.map_err(CommandError::io)?;
         match picked {
-            Ok(path) => std::path::PathBuf::from(path?),
+            // Nothing picked (the user backed out): not an error.
+            Ok(None) => return Ok(None),
+            Ok(Some(path)) => std::path::PathBuf::from(path),
+            // A failure must not look like backing out: the screen says so.
             Err(e) => {
                 warn!("Could not pick a cover image: {e}");
-                return None;
+                return Err(CommandError::key("cover.choose.failed"));
             }
         }
     };
     #[cfg(not(target_os = "android"))]
     let path = {
         let dialog = app.dialog().file().set_parent(&window);
-        let picked = dialog.set_title(title).add_filter(filter, &IMAGE_EXTENSIONS).blocking_pick_file()?;
-        picked.into_path().ok()?
+        let Some(picked) = dialog.set_title(title).add_filter(filter, &IMAGE_EXTENSIONS).blocking_pick_file() else { return Ok(None) };
+        let Ok(path) = picked.into_path() else { return Ok(None) };
+        path
     };
     if let Err(e) = app.asset_protocol_scope().allow_file(&path) {
         warn!("Could not open {} to the webview: {e}", path.display());
     }
-    Some(path.display().to_string())
+    Ok(Some(path.display().to_string()))
 }
 
 /// Makes `image` the cover of the playlist `block_key` belongs to (every

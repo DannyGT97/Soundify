@@ -7,7 +7,7 @@ import {
   Activity, AudioLines, Check, ChevronRight, Clock, ChevronsLeft, ChevronsRight, CloudDownload, Ellipsis,
   Copy, Eye, Maximize2, Minus, PictureInPicture2, Film, Folder, FolderInput, FolderOpen, House, Info, Link, List, ListMusic, ListOrdered, ListPlus, Menu, Palette, PanelLeftClose, Trash2, TriangleAlert, CircleX,
   Maximize, Minimize, Pause, Play, Wrench, RefreshCw, Repeat, Repeat1, Search, Settings, Shuffle, SkipBack, SkipForward,
-  SlidersHorizontal, Smartphone, Square, Volume2, VolumeX, X, ImagePlus, Image, Unplug, FileJson, FileMusic, ChevronDown, ArrowDownToLine, Music, ArrowLeft, ArrowUp, FolderPlus, LibraryBig, Pencil, Usb, LayoutGrid, LoaderCircle, createElement, type IconNode,
+  SlidersHorizontal, Smartphone, Square, Volume2, VolumeX, X, ImagePlus, Image, Unplug, FileJson, FileMusic, ChevronDown, ArrowDownToLine, Music, ArrowLeft, ArrowUp, FolderPlus, LibraryBig, Pencil, Usb, LayoutGrid, LoaderCircle, Headphones, Bluetooth, Monitor, createElement, type IconNode,
 } from 'lucide';
 
 const ICONS = {
@@ -88,6 +88,9 @@ const ICONS = {
   usb: Usb,
   grid: LayoutGrid,
   loader: LoaderCircle,
+  headphones: Headphones,
+  bluetooth: Bluetooth,
+  monitor: Monitor,
 } satisfies Record<string, IconNode>;
 
 export type IconName = keyof typeof ICONS;

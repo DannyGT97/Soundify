@@ -107,6 +107,29 @@ pub fn list_playlists(app: AppHandle, state: State<'_, AppState>) -> Vec<Playlis
     playlists
 }
 
+/// Looks at the disk again (the startup reconciliation): a folder or a file moved,
+/// renamed or deleted outside the app shows up now, not at the next start. It
+/// waits while something downloads (the task keeps its own archive up to date and
+/// the disk is changing under it) and, on Android, until the storage can be
+/// read (without access every file would look gone). The front reads the library
+/// again when it returns.
+#[tauri::command]
+pub async fn refresh_library(app: AppHandle, state: State<'_, AppState>) -> Result<(), CommandError> {
+    let view = state.downloads.view();
+    if !view.running.is_empty() || !view.queued.is_empty() {
+        return Ok(());
+    }
+    let archives = state.archives.clone();
+    tauri::async_runtime::spawn_blocking(move || {
+        if !crate::mobile::storage_info_now(&app).map(|info| info.all_files).unwrap_or(false) {
+            return;
+        }
+        archives.reconcile_all();
+    })
+    .await
+    .map_err(CommandError::io)
+}
+
 /// Only what this yt-dlp supports: a format a future yt-dlp drops disappears
 /// on its own. Everything while it could not be asked.
 #[tauri::command]
@@ -304,6 +327,10 @@ impl From<Created> for CreatedView {
     }
 }
 
+/// The key the front tells «that playlist is already registered here» by; its arguments are the
+/// title and the block key (the archive) to open it in the Gestor.
+pub const ALREADY_EXISTS: &str = "newPlaylist.alreadyExists";
+
 /// «Crear Playlist»: asks YouTube for the playlist and registers it, without
 /// downloading; «Crear y descargar» then starts an update of `blockKey`. Off
 /// the main thread: the two queries take seconds.
@@ -314,6 +341,7 @@ pub async fn create_playlist(
     format: String,
     folder: String,
     numbered: bool,
+    reuse_existing: Option<bool>,
 ) -> Result<CreatedView, CommandError> {
     if !soundify_core::tools::status::can_download(&state.tools) {
         return Err(CommandError::key(downloads::TOOLS_MISSING));
@@ -323,7 +351,7 @@ pub async fn create_playlist(
     let settings_file = state.paths.settings();
     tauri::async_runtime::spawn_blocking(move || {
         downloads::with_engine(&archives, &tools, &settings_file, &StopFlag::new(), |engine| {
-            engine.create_playlist(&url, &format, &Location::parse(&folder), numbered)
+            engine.create_playlist(&url, &format, &Location::parse(&folder), numbered, reuse_existing.unwrap_or(false))
         })
     })
     .await
@@ -332,6 +360,7 @@ pub async fn create_playlist(
     .map_err(|e| match e {
         CreateError::CookiesExpired => CommandError::key("newPlaylist.cookiesExpired"),
         CreateError::QueryFailed => CommandError::key("newPlaylist.queryFailed"),
+        CreateError::AlreadyExists { title, json } => CommandError::with_args(ALREADY_EXISTS, vec![title, json.to_string()]),
         CreateError::Io(e) => {
             warn!("Could not register the playlist: {e}");
             CommandError::with_args("newPlaylist.registerFailed", vec![e.to_string()])

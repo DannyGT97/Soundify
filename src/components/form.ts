@@ -7,6 +7,7 @@ import { t } from '../i18n';
 import { api, type DeviceTarget } from '../api';
 import { showPicture, type Picture } from '../covers';
 import { cover } from './cover';
+import { notify } from './toasts';
 import { library } from '../library';
 import { isPlayable } from '../player';
 import { canDownload, tools } from '../tools';
@@ -150,7 +151,13 @@ export function urlCover(playlist: boolean, emptyKey: string, changed: () => voi
 
   const art = cover('', false, 104);
   const tile = h('button', { class: 'url-cover', onclick: async () => {
-    const image = await api.pickCoverImage(t('newPlaylist.cover.title'), t('cover.choose.filter'));
+    let image: string | null = null;
+    try {
+      image = await api.pickCoverImage(t('newPlaylist.cover.title'), t('cover.choose.filter'));
+    } catch (error) {
+      console.warn('cover: could not pick it', error);
+      notify({ tone: 'error', text: t('cover.choose.failed') });
+    }
     if (!image) return;
     picked = image;
     paint();

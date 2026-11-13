@@ -14,8 +14,29 @@ val tauriProperties = Properties().apply {
     }
 }
 
+// The release key lives OUTSIDE the repository: SOUNDIFY_ANDROID_KEYSTORE_PROPS points to a
+// properties file (storeFile, alias, storePassword, keyPassword), or `keystore.properties` next
+// to this file (git ignores it). Without either, the release APK is simply left unsigned.
+val keystoreProperties = Properties().apply {
+    val path = System.getenv("SOUNDIFY_ANDROID_KEYSTORE_PROPS")
+    val propFile = if (!path.isNullOrBlank()) file(path) else file("keystore.properties")
+    if (propFile.exists()) {
+        propFile.inputStream().use { load(it) }
+    }
+}
+
 android {
     compileSdk = 37
+    signingConfigs {
+        if (keystoreProperties.containsKey("storeFile")) {
+            create("release") {
+                storeFile = file(keystoreProperties.getProperty("storeFile"))
+                storePassword = keystoreProperties.getProperty("storePassword")
+                keyAlias = keystoreProperties.getProperty("alias")
+                keyPassword = keystoreProperties.getProperty("keyPassword")
+            }
+        }
+    }
     namespace = "com.dannygt97.soundify"
     defaultConfig {
         manifestPlaceholders["usesCleartextTraffic"] = "false"
@@ -40,6 +61,7 @@ android {
             }
         }
         getByName("release") {
+            signingConfigs.findByName("release")?.let { signingConfig = it }
             optimization {
                enable = true
             }

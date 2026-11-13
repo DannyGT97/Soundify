@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { canCreateFrom, createdNotice } from './createPlaylist';
+import { canCreateFrom, createdNotice, existingPlaylist } from './createPlaylist';
 import type { CreatedPlaylist } from './api/types';
 
 const CREATED: CreatedPlaylist = {
@@ -33,5 +33,18 @@ describe('createdNotice', () => {
     expect(notice.text).toContain('se mantiene su modo (sin numerar)');
     expect(createdNotice({ ...CREATED, numberMode: { numberFiles: true, source: 'otherFormat' } }).text)
       .toContain('otros formatos ya registrados de esta misma playlist y carpeta (numerada)');
+  });
+});
+
+describe('existingPlaylist', () => {
+  it('reads the title and the block key of the already-registered refusal', () => {
+    expect(existingPlaylist({ key: 'newPlaylist.alreadyExists', args: ['Lo-fi', 'pl_Lo-fi_abc/mp3/data.json'] }))
+      .toEqual({ title: 'Lo-fi', blockKey: 'pl_Lo-fi_abc/mp3/data.json' });
+  });
+
+  it('is null for any other error', () => {
+    expect(existingPlaylist({ key: 'newPlaylist.queryFailed', args: [] })).toBeNull();
+    expect(existingPlaylist(new Error('boom'))).toBeNull();
+    expect(existingPlaylist(null)).toBeNull();
   });
 });

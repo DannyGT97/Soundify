@@ -223,6 +223,12 @@ export interface PlayerBackend {
   onPlayState?(listener: (playing: boolean) => void): void;
   /** Same: «next» / «previous» pressed outside the app. */
   onRemoteSkip?(listener: (direction: 'next' | 'previous') => void): void;
+  /** Same: shuffle or repeat pressed in the notification (the page owns both and toggles them). */
+  onRemoteMode?(listener: (mode: 'shuffle' | 'repeat') => void): void;
+  /** Same: the app was opened from the notification, to see what is playing. */
+  onRemoteOpen?(listener: () => void): void;
+  /** Tells such an engine which state its shuffle and repeat buttons should draw. */
+  setModes?(shuffle: boolean, repeat: 'off' | 'all' | 'one'): void;
   /**
    * The loudness is the device's (the phone's buttons), not the app's: the slider
    * moves the device and `onVolume` tells where it is, at startup and on every change.

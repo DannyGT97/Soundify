@@ -43,6 +43,9 @@ pub enum CreateError {
     CookiesExpired,
     /// Bad URL, no connection, a private playlist without cookies...
     QueryFailed,
+    /// That playlist, in that format and place, is already registered, and the caller did not
+    /// say to reuse it. `json` is its archive (the block key the Gestor goes by).
+    AlreadyExists { title: String, json: Location },
     Io(io::Error),
 }
 
@@ -55,13 +58,26 @@ impl From<io::Error> for CreateError {
 // === PUBLIC API ===
 
 impl Engine<'_> {
-    pub fn create_playlist(&self, raw_url: &str, format: &str, base: &Location, numbered: bool) -> Result<Created, CreateError> {
+    /// With `reuse_existing` false, a playlist already registered for that title, format and
+    /// folder is refused (`AlreadyExists`) before anything is written; true is the old
+    /// behaviour: it is reused, gaining the videos it lacks.
+    pub fn create_playlist(
+        &self,
+        raw_url: &str,
+        format: &str,
+        base: &Location,
+        numbered: bool,
+        reuse_existing: bool,
+    ) -> Result<Created, CreateError> {
         let storage = self.archives.storage();
         let NewPlaylist { url, title, generic_title, entries } = self.look_up_new_playlist(raw_url, format)?;
 
         let dir = paths::playlist_archive_dir(storage, self.archives.archives(), &title, base, format)?;
-        storage.create_dir_all(&dir)?;
         let json = storage.child(&dir, archive_io::DATA_JSON)?;
+        if !reuse_existing && storage.exists(&json)? {
+            return Err(CreateError::AlreadyExists { title, json });
+        }
+        storage.create_dir_all(&dir)?;
         // Immutable once fixed: an existing playlist+folder keeps its own mode
         // and the checkbox is ignored (said in the message, not silently).
         let number_mode = self.archives.resolve_number_mode(&json, numbered);

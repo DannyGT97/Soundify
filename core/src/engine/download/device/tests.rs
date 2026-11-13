@@ -145,7 +145,7 @@ impl World {
 
     fn create(&self, downloader: &dyn Downloader, numbered: bool) -> Created {
         self.engine(downloader, &StopFlag::new())
-            .create_device_playlist(&self.side(), PLAYLIST_URL, "MP3", &Self::target(), numbered)
+            .create_device_playlist(&self.side(), PLAYLIST_URL, "MP3", &Self::target(), numbered, false)
             .expect("the fake lists the playlist")
     }
 

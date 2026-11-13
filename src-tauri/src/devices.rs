@@ -75,6 +75,7 @@ pub async fn create_device_playlist(
     format: String,
     target: DeviceTarget,
     numbered: bool,
+    reuse_existing: Option<bool>,
 ) -> Result<CreatedView, CommandError> {
     if !soundify_core::tools::status::can_download(&state.tools) {
         return Err(CommandError::key(downloads::TOOLS_MISSING));
@@ -87,7 +88,7 @@ pub async fn create_device_playlist(
     tauri::async_runtime::spawn_blocking(move || {
         let side = DeviceSide { phone: phone.as_ref(), staging_root };
         downloads::with_engine(&archives, &tools, &settings_file, &StopFlag::new(), |engine| {
-            engine.create_device_playlist(&side, &url, &format, &target, numbered)
+            engine.create_device_playlist(&side, &url, &format, &target, numbered, reuse_existing.unwrap_or(false))
         })
     })
     .await
@@ -96,6 +97,9 @@ pub async fn create_device_playlist(
     .map_err(|e| match e {
         CreateError::CookiesExpired => CommandError::key("newPlaylist.cookiesExpired"),
         CreateError::QueryFailed => CommandError::key("newPlaylist.queryFailed"),
+        CreateError::AlreadyExists { title, json } => {
+            CommandError::with_args(crate::commands::ALREADY_EXISTS, vec![title, json.to_string()])
+        }
         CreateError::Io(e) => {
             warn!("Could not register the device playlist: {e}");
             CommandError::with_args("newPlaylist.registerFailed", vec![e.to_string()])

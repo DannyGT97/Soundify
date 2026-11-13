@@ -16,8 +16,10 @@ import { applyTasksView } from '../tasks';
 
 export const tauriApi: Api = {
   listPlaylists: () => invoke<Playlist[]>('list_playlists'),
+  refreshLibrary: () => invoke('refresh_library'),
   formats: () => invoke<FormatCatalog>('formats'),
-  createPlaylist: (url, format, folder, numbered) => invoke<CreatedPlaylist>('create_playlist', { url, format, folder, numbered }),
+  createPlaylist: (url, format, folder, numbered, reuseExisting) =>
+    invoke<CreatedPlaylist>('create_playlist', { url, format, folder, numbered, reuseExisting: reuseExisting ?? false }),
   startDownload: request => void invoke('start_download', { request }),
   stopDownload: taskId => void invoke('stop_download', { taskId: typeof taskId === 'number' ? taskId : null }),
   removeQueued: id => void invoke('remove_queued', { id }),
@@ -64,7 +66,8 @@ export const tauriApi: Api = {
   listDeviceFolder: (deviceId, path) => invoke<DeviceEntry[]>('list_device_folder', { deviceId, path }),
   createDeviceFolder: (deviceId, path) => invoke<boolean>('create_device_folder', { deviceId, path }),
   openDeviceFolder: (deviceId, path) => invoke('open_device_folder', { deviceId, path }),
-  createDevicePlaylist: (url, format, target, numbered) => invoke<CreatedPlaylist>('create_device_playlist', { url, format, target, numbered }),
+  createDevicePlaylist: (url, format, target, numbered, reuseExisting) =>
+    invoke<CreatedPlaylist>('create_device_playlist', { url, format, target, numbered, reuseExisting: reuseExisting ?? false }),
   copyToDevice: (blockKey, target, onProgress) =>
     withCopyProgress(onProgress, () => invoke<ExportResult>('copy_to_device', { blockKey, target })),
   copyFromDevice: (blockKey, destination, register, onProgress) =>
@@ -115,6 +118,12 @@ export const tauriApi: Api = {
   resetPreferences: () => invoke<Preferences>('reset_preferences'),
   pickCookiesFile: (title, filter) => invoke<string | null>('pick_cookies_file', { title, filter }),
   fileExists: path => invoke<boolean>('file_exists', { path }),
+  playbackDevice: async () => {
+    if (!onAndroid) return { kind: 'this', name: null };
+    const answer = await invoke<{ kind?: string; name?: string }>('native_player', { action: 'playerOutputDevice' }).catch(() => null);
+    const kind = answer?.kind === 'bluetooth' || answer?.kind === 'headphones' ? answer.kind : 'this';
+    return { kind, name: answer?.name || null };
+  },
   // Android may refuse: the screen still covers the app, under the system's bars.
   setFullscreen: on => void getCurrentWindow().setFullscreen(on).catch(() => {}),
   windowControls: onAndroid ? null : {

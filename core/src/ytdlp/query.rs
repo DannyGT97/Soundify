@@ -66,7 +66,7 @@ pub fn video_thumbnail_args(url: &str, cookies_file: Option<&str>) -> Vec<String
 ///
 /// The position is what lets the caller hand yt-dlp only the pending items
 /// through `--playlist-items` — so a large playlist with just 1 pending item
-/// does not have to walk (and wait out the sleep-interval of) every other one.
+/// does not have to walk every other one.
 pub fn playlist_entries_args(url: &str, cookies_file: Option<&str>) -> Vec<String> {
     with_cookies_and_url(
         // No `--no-warnings`, on purpose: when YouTube cuts the list short (a page of the

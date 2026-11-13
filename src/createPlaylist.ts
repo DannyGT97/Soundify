@@ -27,3 +27,14 @@ export function createdNotice(created: CreatedPlaylist): { tone: 'success' | 'wa
     : '';
   return { tone: created.genericTitle ? 'warning' : 'success', text: note ? `${head} ${note}` : head };
 }
+
+/**
+ * What the back says when the playlist is already registered in that folder and format
+ * (`newPlaylist.alreadyExists`: its title and its block key), or null for any other error.
+ */
+export function existingPlaylist(error: unknown): { title: string; blockKey: string } | null {
+  if (typeof error !== 'object' || error === null) return null;
+  const { key, args } = error as { key?: unknown; args?: unknown };
+  if (key !== 'newPlaylist.alreadyExists' || !Array.isArray(args)) return null;
+  return { title: String(args[0] ?? ''), blockKey: String(args[1] ?? '') };
+}

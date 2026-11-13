@@ -134,6 +134,7 @@ pub fn run() {
       mobile::pick_phone_folder,
       mobile::native_player,
       commands::list_playlists,
+      commands::refresh_library,
       commands::formats,
       commands::tool_health,
       commands::tool_downloads,

@@ -287,7 +287,7 @@ impl Engine<'_> {
                     return Ok(());
                 }
                 // Only what is missing: a large playlist with one pending item
-                // does not walk (and wait out the sleep-interval of) the rest.
+                // does not walk the rest.
                 if pending.len() < entries.len() {
                     let mut positions: Vec<u32> = pending.iter().filter_map(|id| entries.get(id)).map(|e| e.position).collect();
                     positions.sort_unstable();

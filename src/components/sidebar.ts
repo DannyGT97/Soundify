@@ -4,7 +4,7 @@ import { t } from '../i18n';
 import { icon, type IconName } from '../icons';
 import { navigate, type Route } from '../router';
 import { subscribeWhile, ui } from '../state';
-import { overallPercent, percent, statusMark } from '../tasks';
+import { overallPercent, percent, pillResult, statusMark } from '../tasks';
 import { openTasksOverlay } from '../overlays/tasks';
 import { openOverlay } from './overlay';
 import { themePicker } from './themePicker';
@@ -81,7 +81,7 @@ function buildTasksPill(): HTMLElement {
   const sub = h('div', { class: 'tasks-pill-sub' });
   const pill = h('button', { class: 'tasks-pill', title: t('tasks.title'), onclick: openTasksOverlay }, ring, h('div', { class: 'tasks-pill-text' }, title, sub));
   const refresh = () => {
-    const task = ui.task; pill.hidden = !task && !ui.unseenResult;
+    const task = ui.task, result = pillResult(); pill.hidden = !task && !result;
     if (task) {
       // Two at once: one ring for both, and both titles.
       const several = ui.running.length > 1;
@@ -91,7 +91,7 @@ function buildTasksPill(): HTMLElement {
       const names = ui.running.map(running => running.title).join(' · ');
       sub.textContent = ui.queue.length ? `${names} · ${t('tasks.pill.more', ui.queue.length)}` : names;
     }
-    else if (ui.unseenResult) { const status = ui.unseenResult, mark = statusMark(status); ring.replaceChildren(h('span', { class: `mark-${status}` }, icon(mark.icon, 18))); title.textContent = t(`tasks.pill.${status}`); sub.textContent = ui.history[0]?.title ?? ''; }
+    else if (result) { const status = result, mark = statusMark(status); ring.replaceChildren(h('span', { class: `mark-${status}` }, icon(mark.icon, 18))); title.textContent = t(`tasks.pill.${status}`); sub.textContent = ui.history[0]?.title ?? ''; }
   };
   subscribeWhile(pill, 'tasks', refresh); refresh(); return pill;
 }

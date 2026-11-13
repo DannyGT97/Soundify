@@ -50,21 +50,24 @@ function emptyHome(): HTMLElement {
       h('button', { class: 'secondary-button', onclick: openImportHelp }, icon('import', 16), h('span', { text: t('manager.import') }))));
 }
 
-/** «Sigue donde lo dejaste»: pressing it plays or pauses, without leaving Inicio. */
+/** «Sigue donde lo dejaste»: the card opens Reproduciendo on what is loaded; its round button plays or pauses, without leaving Inicio. */
 function resumeCard(): HTMLElement | null {
   const now = ui.nowPlaying;
   const found = now ? findBlock(now.blockKey) : null;
   if (!now || !found) return null;
-  const card = h('div', { class: 'resume', attrs: { role: 'button', tabindex: '0' }, onclick: () => player.togglePlay() },
+  const card = h('div', { class: 'resume', attrs: { role: 'button', tabindex: '0' }, onclick: () => navigate('now-playing') },
     cover(now.track.title, found.block.video, 56, { kind: 'thumbnail', id: now.track.id }),
     h('div', { class: 'grow min0' },
       h('div', { class: 'eyebrow', text: t(ui.playing ? 'home.resume.playing' : 'home.resume.last') }),
       h('b', { class: 'ellipsis', text: now.track.title }),
       h('div', { class: 'muted ellipsis', text: `${found.playlist.title} · ${found.block.format.toUpperCase()}` })),
-    h('span', { class: 'round-play' }, icon(ui.playing ? 'pause' : 'play', 18, true)));
+    h('button', { class: 'round-play', title: t(ui.playing ? 'player.pause' : 'player.play'), onclick: event => {
+      event.stopPropagation();
+      player.togglePlay();
+    } }, icon(ui.playing ? 'pause' : 'play', 18, true)));
   card.style.setProperty('--h', String(hueOf(found.playlist.title)));
   card.addEventListener('keydown', event => {
-    if (event.key === 'Enter') { event.preventDefault(); player.togglePlay(); }
+    if (event.key === 'Enter' && event.target === card) { event.preventDefault(); navigate('now-playing'); }
   });
   return card;
 }

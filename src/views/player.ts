@@ -114,7 +114,7 @@ function libraryView(): HTMLElement {
     }
     time = h('span');
     meter = h('div', { class: 'meter' }, h('i'));
-    const card = h('div', { class: 'resume', attrs: { role: 'button', tabindex: '0' }, onclick: () => navigate('player', { b: now.blockKey }) },
+    const card = h('div', { class: 'resume', attrs: { role: 'button', tabindex: '0' }, onclick: () => navigate('now-playing') },
       cover(now.track.title, found.block.video, 64, { kind: 'thumbnail', id: now.track.id }),
       h('div', { class: 'grow min0' },
         h('div', { class: 'eyebrow', text: t(ui.playing ? 'home.resume.playing' : 'home.resume.last') }),
@@ -127,7 +127,7 @@ function libraryView(): HTMLElement {
       } }, icon(ui.playing ? 'pause' : 'play', 20, true)));
     card.style.setProperty('--h', String(hueOf(found.playlist.title)));
     card.addEventListener('keydown', event => {
-      if (event.key === 'Enter' && event.target === card) navigate('player', { b: now.blockKey });
+      if (event.key === 'Enter' && event.target === card) navigate('now-playing');
     });
     resumeSlot.replaceChildren(card);
     patchResume();
@@ -414,11 +414,11 @@ function detailView(key: string): HTMLElement {
   const scroller = h('div', { class: 'scroller' }, hero, notice, cols, tracks, none, footNote);
   const detail = h('div', { class: 'detail' },
     h('div', { class: 'mini' },
-      backButton(),
       miniPlay,
       cover(playlist.title, block.video, 36, playlistPicture(playlist)),
       h('b', { class: 'ellipsis grow', text: playlist.title }),
-      h('span', { class: 'fmt', text: block.format.toUpperCase() })),
+      h('span', { class: 'fmt', text: block.format.toUpperCase() }),
+      backButton()),
     scroller);
   detail.style.setProperty('--h', String(hueOf(playlist.title)));
   scroller.addEventListener('scroll', () => detail.classList.toggle('stuck', scroller.scrollTop > hero.offsetHeight - 56));

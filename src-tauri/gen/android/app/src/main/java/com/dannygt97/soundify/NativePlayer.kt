@@ -5,6 +5,7 @@ import android.content.Context
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import android.net.Uri
+import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
 import androidx.media3.common.C
@@ -13,6 +14,7 @@ import androidx.media3.common.MediaMetadata
 import androidx.media3.common.PlaybackException
 import androidx.media3.common.Player
 import androidx.media3.session.MediaController
+import androidx.media3.session.SessionCommand
 import androidx.media3.session.SessionToken
 import app.tauri.plugin.JSObject
 import java.io.ByteArrayOutputStream
@@ -103,6 +105,15 @@ class NativePlayer(private val context: Context, private val emit: (JSObject) ->
     } catch (e: Exception) {
       null
     }
+  }
+
+  /** Tells the service which state the notification's shuffle and repeat buttons draw. */
+  fun setModes(shuffle: Boolean, repeat: String) = withController { c ->
+    val extras = Bundle().apply {
+      putBoolean("shuffle", shuffle)
+      putString("repeat", repeat)
+    }
+    c.sendCustomCommand(SessionCommand(PlaybackService.ACTION_MODES, Bundle.EMPTY), extras)
   }
 
   fun play() = withController { it.play() }

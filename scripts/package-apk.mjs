@@ -6,13 +6,14 @@
 //   Soundify-<version>-tauri.apk.sha256  its SHA-256, as `sha256sum` writes it
 //   Soundify-<version>-tauri.apk.sig     Ed25519 signature of the APK, in base64
 //
-//   npx tauri android build --debug --apk --target aarch64 --target x86_64
+//   node scripts/android-release-build.mjs --keystore-props <soundify-android.properties>
 //   node scripts/package-apk.mjs --key <private key .pem> [--apk <file.apk>] [--out <folder>]
 //
 // They go in the same release as the Windows zip. Android only installs an
-// update over the installed app when BOTH carry the same signing key (today the
-// debug key) and the new versionCode is higher; the APK's own signature is not
-// this one, which is the app's update key (core/keys/update-signing.pub).
+// update over the installed app when BOTH are the same package and carry the same
+// signing key (the project's own keystore) and the new versionCode is higher; the
+// APK's own signature is not the one made here, which is the app's update key
+// (core/keys/update-signing.pub).
 //
 // The key can also come from SOUNDIFY_SIGNING_KEY. It is only read here: never
 // printed, never copied. Before signing, the signature is checked against the
@@ -57,21 +58,15 @@ function argument(flag) {
   return at === -1 ? undefined : process.argv[at + 1];
 }
 
-/** The newest .apk under Gradle's output folder. */
+/**
+ * The signed RELEASE apk (scripts/android-release-build.mjs). A debug or unsigned one is never
+ * picked on its own: its package name or its key differs and the installed apps would not
+ * take it as an update. `--apk <file>` overrides this.
+ */
 function findApk() {
-  const base = join(ROOT, 'src-tauri', 'gen', 'android', 'app', 'build', 'outputs', 'apk');
-  const found = [];
-  const walk = folder => {
-    if (!existsSync(folder)) return;
-    for (const entry of readdirSync(folder, { withFileTypes: true })) {
-      const path = join(folder, entry.name);
-      if (entry.isDirectory()) walk(path);
-      else if (entry.name.endsWith('.apk')) found.push(path);
-    }
-  };
-  walk(base);
-  if (!found.length) throw new Error(`No .apk under ${base}: build it or pass --apk <file>`);
-  return found.sort((a, b) => statSync(b).mtimeMs - statSync(a).mtimeMs)[0];
+  const apk = join(ROOT, 'src-tauri', 'gen', 'android', 'app', 'build', 'outputs', 'apk', 'universal', 'release', 'app-universal-release.apk');
+  if (!existsSync(apk)) throw new Error(`${apk} does not exist: run scripts/android-release-build.mjs first (or pass --apk <file>)`);
+  return apk;
 }
 
 /** The app's public key: base64 DER, or PEM, whichever the file holds. */

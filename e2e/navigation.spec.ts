@@ -22,7 +22,9 @@ for (const { route, title } of SCREENS) {
   test(`the ${route} screen loads with its title`, async ({ page }) => {
     failOnPageErrors(page);
     await page.goto(`/#/${route}`);
-    await expect(page.locator('#page .page-title').first()).toHaveText(title);
+    // Reproduciendo has no title: it has the way back instead.
+    if (route === 'now-playing') await expect(page.locator('#page .np-back')).toBeVisible();
+    else await expect(page.locator('#page .page-title').first()).toHaveText(title);
   });
 }
 

@@ -22,6 +22,7 @@ use soundify_core::engine::download::{DeviceJob, DeviceSide, DownloadEvents, Eng
 use soundify_core::engine::resources::{self, ResourceKey};
 use soundify_core::engine::safety_net::{Patience, RetryProgress};
 use soundify_core::engine::tasks::{BackgroundTasks, MAX_RUNNING, MAX_RUNNING_PARALLEL, ORIGIN_MANAGER, ORIGIN_URL, Step, TaskId, TasksView};
+use soundify_core::settings;
 use soundify_core::storage::LocalStorage;
 use soundify_core::task_history;
 use soundify_core::tools::ToolPaths;
@@ -300,12 +301,15 @@ impl Downloads {
     /// anything runs. It always says what is true when it is called, whoever called last.
     fn sync_busy(&self, app: &AppHandle) {
         let _gate = self.busy_gate.lock().unwrap();
-        let (running, title) = {
-            let tasks = self.tasks.lock().unwrap();
-            let title = tasks.view().running.first().map(|r| r.title.clone()).unwrap_or_default();
-            (tasks.is_running(), title)
+        let view = self.tasks.lock().unwrap().view();
+        let running = !view.running.is_empty();
+        let language = if cfg!(target_os = "android") {
+            let state = app.state::<AppState>();
+            settings::load(&LocalStorage, &state.paths.settings()).language
+        } else {
+            String::new()
         };
-        crate::mobile::set_busy(app, running, &title);
+        crate::mobile::set_busy(app, running, &busy_notice(&view, &language));
     }
 
     /// A fresh Activity for the task that just started. When another one is already running its
@@ -339,6 +343,51 @@ impl Downloads {
     fn emit_view(&self, app: &AppHandle) {
         let _ = app.emit("tasks", self.view());
     }
+}
+
+/// What the notification kept while something runs says: the state, how far it is and
+/// what it works on, in the app's language (the page may be frozen in the background, so
+/// the words come from here, not from the front).
+pub(crate) fn busy_notice(view: &TasksView, language: &str) -> crate::mobile::BusyNotice {
+    let pick = |es: &'static str, en: &'static str, ca: &'static str| match language {
+        "en" => en,
+        "ca" => ca,
+        _ => es,
+    };
+    let Some(first) = view.running.first() else {
+        return crate::mobile::BusyNotice { title: "Soundify".into(), text: String::new(), percent: None };
+    };
+    let known: Vec<f64> = view.running.iter().filter(|t| t.step != Step::Prepare).filter_map(|t| t.fraction).collect();
+    let percent = (!known.is_empty()).then(|| ((known.iter().sum::<f64>() / known.len() as f64).clamp(0.0, 1.0) * 100.0).round() as u8);
+    let what = if view.running.len() > 1 {
+        let n = view.running.len();
+        match language {
+            "en" => format!("{n} tasks"),
+            "ca" => format!("{n} tasques"),
+            _ => format!("{n} tareas"),
+        }
+    } else if first.step == Step::Retry {
+        pick("Segunda pasada", "Second pass", "Segona passada").to_string()
+    } else if first.origin == ORIGIN_MANAGER {
+        pick("Sincronizando", "Syncing", "Sincronitzant").to_string()
+    } else {
+        pick("Descargando", "Downloading", "Baixant").to_string()
+    };
+    let title = match percent {
+        Some(p) => format!("{what} · {p}%"),
+        None => format!("{what} · {}…", pick("preparando", "preparing", "preparant")),
+    };
+    let mut text = view.running.iter().map(|t| t.title.as_str()).collect::<Vec<_>>().join(" · ");
+    if !view.queued.is_empty() {
+        let queued = view.queued.len();
+        let more = match language {
+            "en" => format!("+{queued} queued"),
+            "ca" => format!("+{queued} a la cua"),
+            _ => format!("+{queued} en cola"),
+        };
+        text = if text.is_empty() { more } else { format!("{text} · {more}") };
+    }
+    crate::mobile::BusyNotice { title, text, percent }
 }
 
 /// The engine as a download and «Crear Playlist» both use it.
@@ -444,6 +493,8 @@ impl<'a> Events<'a> {
         let state = self.app.state::<AppState>();
         change(&mut state.downloads.tasks.lock().unwrap(), self.id);
         state.downloads.emit_view(self.app);
+        // The notification that keeps the app alive shows the state and the progress too.
+        state.downloads.sync_busy(self.app);
     }
 }
 
@@ -508,6 +559,38 @@ impl DownloadEvents for Events<'_> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use soundify_core::engine::tasks::RunningTask;
+
+    fn running(origin: &str, step: Step, fraction: Option<f64>) -> RunningTask {
+        RunningTask { id: 1, title: "Canciones".into(), origin: origin.into(), step, fraction, total: 10, block_key: None }
+    }
+
+    fn view(running: Vec<RunningTask>) -> TasksView {
+        TasksView { running, queued: Vec::new(), unseen: None, history: Vec::new() }
+    }
+
+    #[test]
+    fn the_notification_says_what_runs_and_how_far_it_is() {
+        let sync = busy_notice(&view(vec![running(ORIGIN_MANAGER, Step::Download, Some(0.456))]), "es");
+        assert_eq!((sync.title.as_str(), sync.text.as_str(), sync.percent), ("Sincronizando · 46%", "Canciones", Some(46)));
+        let download = busy_notice(&view(vec![running(ORIGIN_URL, Step::Download, Some(0.1))]), "en");
+        assert_eq!(download.title, "Downloading · 10%");
+    }
+
+    #[test]
+    fn the_notification_while_preparing_has_no_percent_and_counts_what_waits() {
+        let mut waiting = view(vec![running(ORIGIN_MANAGER, Step::Prepare, None)]);
+        waiting.queued.push(soundify_core::engine::tasks::QueuedTask { id: 2, title: "Otra".into(), origin: ORIGIN_URL.into(), block_key: None, resources: Vec::new() });
+        let notice = busy_notice(&waiting, "ca");
+        assert_eq!((notice.title.as_str(), notice.percent), ("Sincronitzant · preparant…", None));
+        assert_eq!(notice.text, "Canciones · +1 a la cua");
+    }
+
+    #[test]
+    fn two_tasks_share_one_notification() {
+        let two = busy_notice(&view(vec![running(ORIGIN_MANAGER, Step::Download, Some(0.2)), running(ORIGIN_URL, Step::Download, Some(0.6))]), "es");
+        assert_eq!(two.title, "2 tareas · 40%");
+    }
 
     #[test]
     fn an_activity_line_keeps_its_shape_and_adds_the_task() {

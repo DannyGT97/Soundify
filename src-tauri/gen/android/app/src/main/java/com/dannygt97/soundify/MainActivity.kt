@@ -1,5 +1,6 @@
 package com.dannygt97.soundify
 
+import android.content.Intent
 import android.os.Bundle
 import android.view.View
 import androidx.activity.enableEdgeToEdge
@@ -28,5 +29,12 @@ class MainActivity : TauriActivity() {
       isAppearanceLightStatusBars = false
       isAppearanceLightNavigationBars = false
     }
+    SoundifyPlugin.openFrom(intent)
+  }
+
+  // Tapping the music notification brings the running app to the front: this arrives here.
+  override fun onNewIntent(intent: Intent) {
+    super.onNewIntent(intent)
+    SoundifyPlugin.openFrom(intent)
   }
 }

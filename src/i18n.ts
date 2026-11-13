@@ -52,6 +52,12 @@ export const es: Record<string, string> = {
   'newPlaylist.registered': '"{0}" registrada ({1} vídeo(s) listados).',
   'newPlaylist.registeredGenericName': 'Registrada con nombre genérico ("{0}") — no se pudo obtener el título real. {1} vídeo(s) listados.',
   'newPlaylist.registerFailed': 'Error al registrar la playlist: {0}',
+  'newPlaylist.alreadyExists': 'La playlist «{0}» ya está registrada en esa carpeta.',
+  'newPlaylist.exists.title': 'Playlist ya existente',
+  'newPlaylist.exists.header': '«{0}» ya está en esa carpeta',
+  'newPlaylist.exists.body': 'Ya tienes esta playlist, con este formato, en esa carpeta. Puedes abrirla en el Gestor o continuar igualmente: se reutiliza la que hay y solo se le añaden los vídeos que falten, sin tocar lo ya descargado.',
+  'newPlaylist.exists.open': 'Abrir en el Gestor',
+  'newPlaylist.exists.continue': 'Continuar igualmente',
   'newPlaylist.numberMode.sameFormat': 'Ya estaba registrada en esta carpeta y este formato: se mantiene su modo ({0}), que no se puede cambiar. Para tenerla del otro modo, regístrala en otra carpeta.',
   'newPlaylist.numberMode.otherFormat': 'Se ha heredado el modo de los otros formatos ya registrados de esta misma playlist y carpeta ({0}).',
 
@@ -164,6 +170,9 @@ export const es: Record<string, string> = {
 
   'nowPlaying.title': 'Reproduciendo',
   'nowPlaying.openPlaylist': 'Ver la playlist',
+  'nowPlaying.back': 'Atrás',
+  'nowPlaying.device': 'Dispositivo de reproducción',
+  'nowPlaying.device.this': 'Este dispositivo',
   'nowPlaying.fullscreen': 'Pantalla completa',
   'nowPlaying.exitFullscreen': 'Salir de pantalla completa',
 

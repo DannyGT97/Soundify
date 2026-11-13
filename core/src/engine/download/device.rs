@@ -137,10 +137,14 @@ impl Engine<'_> {
         format: &str,
         target: &DeviceTarget,
         numbered: bool,
+        reuse_existing: bool,
     ) -> Result<Created, CreateError> {
         let found = self.look_up_new_playlist(raw_url, format)?;
         let (url, title, entries) = (&found.url, &found.title, &found.entries);
         let json = device_playlist_json(self.archives, title, target, format)?;
+        if !reuse_existing && self.archives.storage().exists(&json)? {
+            return Err(CreateError::AlreadyExists { title: found.title.clone(), json });
+        }
         let number_mode = self.archives.resolve_number_mode(&json, numbered);
         let device_path = paths::device_playlist_sub_path(Some(&target.path), title, format);
         let placed = DeviceTarget { path: device_path, ..target.clone() };

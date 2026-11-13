@@ -111,8 +111,19 @@ const loaded = new Map<string, { source: string; width: number; height: number }
 const waiting = new Map<string, ((path: string) => void)[]>();
 let listening = false;
 
+/** Bumped when a picked cover replaces the file of the same name; 0 = never (the address stays as is). */
+let pickedVersion = 0;
+
+/** A playlist's picked cover is always `cover.jpg`: a new address makes the webview read the new bytes. */
+export function refreshPickedCovers(): void {
+  pickedVersion = Date.now();
+}
+
 async function sourceOf(picture: Picture): Promise<string | null> {
-  if (picture.kind === 'file') return api.fileUrl(picture.path);
+  if (picture.kind === 'file') {
+    const url = api.fileUrl(picture.path);
+    return pickedVersion ? `${url}${url.includes('?') ? '&' : '?'}v=${pickedVersion}` : url;
+  }
   const path = await thumbnailPath(picture.id);
   return path ? api.fileUrl(path) : null;
 }

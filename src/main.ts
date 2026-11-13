@@ -19,8 +19,8 @@ import { settingsView } from './views/settings';
 import { mountToasts, notify } from './components/toasts';
 import { api } from './api';
 import { onLanguageChange, t } from './i18n';
-import { loadLibrary, loadLibrarySoon } from './library';
-import { restoreLast, savePosition } from './player';
+import { checkDisk, loadLibrary, loadLibrarySoon } from './library';
+import { onOpenRequest, restoreLast, savePosition } from './player';
 import { loadAppInfo } from './appInfo';
 import { watchAppUpdates } from './appUpdate';
 import { messageText, noticeTone, pointsToSettings } from './tasks';
@@ -98,6 +98,15 @@ if (app) {
   }, route => {
     app.dataset.route = route;
     markActive(route);
+    // What these screens show is what is on disk: it may have changed outside the app.
+    if (route === 'manager' || route === 'player' || route === 'now-playing') void checkDisk();
+  });
+  // The phone's music notification opens the app on what is playing.
+  onOpenRequest(() => navigate('now-playing'));
+  // Coming back to the window (from the file explorer, say): the same look.
+  window.addEventListener('focus', () => void checkDisk());
+  document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState === 'visible') void checkDisk();
   });
   // The first start (or tools deleted by hand): the assistant, only when a
   // REQUIRED one is missing. Asked after the first screen, so it is not waited for.

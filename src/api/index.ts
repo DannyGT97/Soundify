@@ -17,15 +17,26 @@ import { HtmlPlayer } from './htmlPlayer';
 import { AndroidPlayer } from './androidPlayer';
 import { onAndroid } from '../platform';
 
+export interface PlaybackDevice {
+  kind: 'this' | 'headphones' | 'bluetooth';
+  name: string | null;
+}
+
 export interface Api {
   /** The library the Gestor, Inicio and the Player show: always the last state known. */
   listPlaylists(): Promise<Playlist[]>;
+  /** Looks at the disk again (files or folders moved, renamed or deleted outside the app); read the library afterwards. */
+  refreshLibrary(): Promise<void>;
   formats(): Promise<FormatCatalog>;
   /**
    * Asks YouTube for the playlist and registers it, without downloading.
    * Rejects with an `ApiError`.
    */
-  createPlaylist(url: string, format: string, folder: string, numbered: boolean): Promise<CreatedPlaylist>;
+  /**
+   * Rejects with `newPlaylist.alreadyExists` (args: title, block key) when that playlist is already
+   * registered there, unless `reuseExisting` says to reuse it.
+   */
+  createPlaylist(url: string, format: string, folder: string, numbered: boolean, reuseExisting?: boolean): Promise<CreatedPlaylist>;
   /** Starts a download in the background; only one runs at a time. */
   startDownload(request: DownloadRequest): void;
   /** Stops one running task, or all of them without an id. */
@@ -81,7 +92,7 @@ export interface Api {
   /** A phone folder in the system's explorer. Rejects with an `ApiError`. */
   openDeviceFolder(deviceId: string, path: string): Promise<void>;
   /** `createPlaylist` with a phone as the destination. Rejects with an `ApiError`. */
-  createDevicePlaylist(url: string, format: string, target: DeviceTarget, numbered: boolean): Promise<CreatedPlaylist>;
+  createDevicePlaylist(url: string, format: string, target: DeviceTarget, numbered: boolean, reuseExisting?: boolean): Promise<CreatedPlaylist>;
   /** «Copiar a un dispositivo…»: cancelled with `cancelCopy`, like a folder copy. Rejects with an `ApiError`. */
   copyToDevice(blockKey: string, target: DeviceTarget, onProgress: (progress: CopyProgress) => void): Promise<ExportResult>;
   /** «Copiar a este ordenador…» of a playlist that lives on a phone. Rejects with an `ApiError`. */
@@ -152,6 +163,8 @@ export interface Api {
   /** The system's picker for a cookies .txt, opened where the last one was; null if closed. */
   pickCookiesFile(title: string, filter: string): Promise<string | null>;
   fileExists(path: string): Promise<boolean>;
+  /** Where the sound goes now: this device's own speaker (`name` = what it is called, if it says) or headphones / a Bluetooth device. */
+  playbackDevice(): Promise<PlaybackDevice>;
   /** The window in full screen or back (a video in Reproduciendo). */
   setFullscreen(on: boolean): void;
   /** Null where the window has no title bar to draw: the browser and Android. */

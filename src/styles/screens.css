@@ -328,9 +328,12 @@ button.fmt:hover { background: var(--sp-icon-btn-hover); color: var(--sp-text-st
 .detail-screen { padding-bottom: 0; overflow: hidden; }
 .detail { flex: 1; min-height: 0; position: relative; overflow: hidden; border-radius: 10px; background: var(--sp-card); border: 1px solid var(--sp-card-border); }
 .scroller { height: 100%; overflow-y: auto; scrollbar-width: thin; scrollbar-color: var(--sp-line) transparent; }
-.ambient { --amb: hsl(var(--h) 62% 40% / .7); background: linear-gradient(180deg, var(--amb), transparent); padding: 14px 22px 8px; }
+.ambient { position: relative; --amb: hsl(var(--h) 62% 40% / .7); background: linear-gradient(180deg, var(--amb), transparent); padding: 14px 22px 8px; }
 [data-theme^="light"] .ambient { --amb: hsl(var(--h) 75% 70% / .7); }
 .icon-button.back { background: #00000040; color: var(--sp-white); }
+/* In the hero it sits at the top right corner, out of the cover's way. */
+.ambient > .icon-button.back { position: absolute; top: 14px; right: 22px; z-index: 1; }
+.hero { padding-top: 40px; }
 .icon-button.back:hover:not(:disabled) { background: #00000070; color: var(--sp-white); }
 .hero { display: flex; align-items: flex-end; gap: 22px; margin-top: 6px; }
 /* The pencil that appears over the big cover; on touch screens (no hover) it is a small badge always in view. */

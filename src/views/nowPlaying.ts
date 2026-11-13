@@ -1,9 +1,9 @@
-import { api } from '../api';
+import { api, type PlaybackDevice } from '../api';
 import { h } from '../dom';
 import { icon } from '../icons';
 import { t } from '../i18n';
 import { findBlock } from '../library';
-import { isPhone } from '../platform';
+import { isPhone, onAndroid } from '../platform';
 import { currentRoute, navigate, onLeave } from '../router';
 import { currentIsVideo, hidePip, parkVideo, showPip, videoView } from '../player';
 import { chooseAutoPip } from '../preferences';
@@ -14,10 +14,12 @@ import { pipButton } from '../components/pip';
 
 /** How long the controls stay over a full-screen video after the mouse stops. */
 const CONTROLS_IDLE_MS = 2500;
+/** How often the playback device is asked again while this screen is open. */
+const DEVICE_POLL_MS = 3000;
 
 /**
  * Reproduciendo: the cover in big (or the video, for an MP4) with the same
- * picture blurred behind it. «Ver la playlist» opens the Reproductor on it.
+ * picture blurred behind it. The arrow, at the top right, goes to the playlist that is playing.
  * The controls show here when the bottom bar does not (only the side menu's
  * mini player, which cannot seek), and a video can go full screen.
  */
@@ -38,9 +40,20 @@ export function nowPlayingView(): HTMLElement {
       h('p', { text: t('nowPlaying.empty.body') }),
       h('div', { class: 'row gap-8' },
         h('button', { class: 'secondary-button', onclick: () => navigate('player') }, icon('list', 16), h('span', { text: t('nowPlaying.goToPlayer') })))));
-  const openPlaylist = h('button', { class: 'secondary-button', text: t('nowPlaying.openPlaylist'), onclick: () => {
+  // Back to the playlist that is playing, in the Reproductor (its list when nothing is).
+  const back = h('button', { class: 'icon-button np-back', title: t('nowPlaying.back'), attrs: { 'aria-label': t('nowPlaying.back') }, onclick: () => {
     if (ui.nowPlaying) navigate('player', { b: ui.nowPlaying.blockKey });
-  } });
+    else navigate('player');
+  } }, icon('back', 22));
+  // Where the sound goes: this device, or the headphones / Bluetooth device that is connected.
+  const deviceIcon = h('span', { class: 'np-device-icon' });
+  const deviceName = h('span', { class: 'np-device-name ellipsis' });
+  const device = h('div', { class: 'np-device', title: t('nowPlaying.device') }, deviceIcon, deviceName);
+  const paintDevice = (found: PlaybackDevice) => {
+    deviceIcon.replaceChildren(icon(found.kind === 'bluetooth' ? 'bluetooth' : found.kind === 'headphones' ? 'headphones' : onAndroid ? 'device' : 'monitor', 16));
+    deviceName.textContent = found.name || t('nowPlaying.device.this');
+    device.classList.toggle('external', found.kind !== 'this');
+  };
   const fullscreenButton = h('button', { class: 'player-control np-fullscreen-button', onclick: () => setFullscreen(!fullscreen) });
   const controls = h('div', { class: 'np-controls' }, buildTransport(), buildVolume(), fullscreenButton);
 
@@ -54,16 +67,13 @@ export function nowPlayingView(): HTMLElement {
     autoPip.title = t(ui.autoPip ? 'pip.auto.on' : 'pip.auto.off');
   };
 
-  const info = h('div', { class: 'np-info' }, title, meta, autoPip);
+  const info = h('div', { class: 'np-info' }, title, meta, device, autoPip);
 
   const screen = h('div', { class: 'screen np-screen' },
     backdrop,
     h('div', { class: 'np-tint' }),
     h('div', { class: 'np-content' },
-      h('div', { class: 'title-row np-head' },
-        h('h1', { class: 'page-title', text: t('nowPlaying.title') }),
-        h('div', { class: 'grow' }),
-        openPlaylist),
+      h('div', { class: 'np-head' }, h('div', { class: 'grow' }), back),
       empty,
       art,
       info,
@@ -116,7 +126,6 @@ export function nowPlayingView(): HTMLElement {
     empty.hidden = !!np;
     art.hidden = !np;
     info.hidden = !np;
-    openPlaylist.hidden = !np;
     backdrop.hidden = !np;
     if (!np) {
       setFullscreen(false);
@@ -164,6 +173,12 @@ export function nowPlayingView(): HTMLElement {
   onLeave(() => {
     if (currentRoute().route !== 'now-playing' && ui.autoPip && !ui.pip) showPip(true);
   });
+  // Which device it sounds on can change under the screen (headphones connected): asked every few seconds.
+  paintDevice({ kind: 'this', name: null });
+  const pullDevice = () => void api.playbackDevice().then(paintDevice).catch(() => {});
+  pullDevice();
+  const deviceTimer = window.setInterval(() => document.visibilityState === 'visible' && pullDevice(), DEVICE_POLL_MS);
+  onLeave(() => window.clearInterval(deviceTimer));
   refresh();
   paintAuto();
   return screen;

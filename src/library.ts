@@ -17,6 +17,29 @@ export async function loadLibrary(): Promise<void> {
   emit('library');
 }
 
+let lastCheck = 0;
+
+/**
+ * The disk may have changed behind the app's back (a folder moved or renamed, files
+ * deleted): the back reconciles and the library is read again. Called when the window
+ * comes back and when the Gestor or the Reproductor opens; at most once every `every` ms.
+ */
+export async function checkDisk(every = 2000): Promise<void> {
+  const now = Date.now();
+  if (now - lastCheck < every) return;
+  lastCheck = now;
+  try {
+    await api.refreshLibrary();
+  } catch {
+    // Nothing to reconcile now: the library is read as it is.
+  }
+  // Open screens are redrawn only if something really changed (focusing the window is frequent).
+  const playlists = await api.listPlaylists();
+  if (JSON.stringify(playlists) === JSON.stringify(library.playlists)) return;
+  library.playlists = playlists;
+  emit('library');
+}
+
 let reloadTimer: ReturnType<typeof setTimeout> | undefined;
 
 /**

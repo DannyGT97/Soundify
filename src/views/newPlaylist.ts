@@ -6,7 +6,8 @@ import { api } from '../api';
 import { navigate, type Params } from '../router';
 import { isWebUrl } from '../urls';
 import { notify } from '../components/toasts';
-import { canCreateFrom, createdNotice } from '../createPlaylist';
+import { canCreateFrom, createdNotice, existingPlaylist } from '../createPlaylist';
+import { confirmDialog } from '../overlays/confirm';
 import { findBlock, loadLibrary } from '../library';
 import { errorText } from '../transfer';
 import { subscribeWhile } from '../state';
@@ -61,7 +62,7 @@ export function newPlaylistView(params: Params = {}): HTMLElement {
   // Registered first, ALWAYS (the Java order): the playlist is in the Gestor
   // the moment the screen gets there, and «Crear y descargar» then runs the
   // same update as the Gestor's «Actualizar».
-  const submit = async (download: boolean) => {
+  const submit = async (download: boolean, reuseExisting = false) => {
     if (!canDownload(tools.report)) return;
     const link = url.value.trim();
     if (!link || !destination.value()) {
@@ -77,8 +78,8 @@ export function newPlaylistView(params: Params = {}): HTMLElement {
     try {
       const target = destination.device();
       const created = target
-        ? await api.createDevicePlaylist(link, format.value(), target, numbered.checked)
-        : await api.createPlaylist(link, format.value(), destination.value(), numbered.checked);
+        ? await api.createDevicePlaylist(link, format.value(), target, numbered.checked, reuseExisting)
+        : await api.createPlaylist(link, format.value(), destination.value(), numbered.checked, reuseExisting);
       const notice = createdNotice(created);
       const pickedCover = picture.picked();
       if (pickedCover) {
@@ -102,11 +103,28 @@ export function newPlaylistView(params: Params = {}): HTMLElement {
       if (download) api.startDownload({ kind: 'update', blockKey: created.blockKey });
       navigate('manager');
     } catch (error) {
-      notify({ tone: 'error', text: errorText(error) });
+      const existing = existingPlaylist(error);
+      if (existing) askAboutExisting(existing.title, existing.blockKey, download);
+      else notify({ tone: 'error', text: errorText(error) });
     } finally {
       busy = false;
       sync();
     }
+  };
+
+  // Nothing was written: the playlist was already registered there, and reusing it is the user's call.
+  const askAboutExisting = (title: string, blockKey: string, download: boolean) => {
+    confirmDialog(t('newPlaylist.exists.title'), t('newPlaylist.exists.header', title), t('newPlaylist.exists.body'), [
+      {
+        label: t('newPlaylist.exists.open'), kind: 'primary',
+        run: () => {
+          const found = findBlock(blockKey);
+          if (found) navigate('manager', { open: found.playlist.id, focus: found.block.key });
+          else navigate('manager');
+        },
+      },
+      { label: t('newPlaylist.exists.continue'), run: () => void submit(download, true) },
+    ]);
   };
 
   const create = h('button', { class: 'secondary-button', text: t('newPlaylist.create'), onclick: () => void submit(false) });

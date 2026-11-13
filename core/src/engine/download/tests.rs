@@ -187,7 +187,12 @@ impl World {
     }
 
     fn create(&self, downloader: &dyn Downloader, numbered: bool) -> Result<Created, CreateError> {
-        self.engine(downloader, &StopFlag::new()).create_playlist(PLAYLIST_URL, "MP3", &base(), numbered)
+        self.engine(downloader, &StopFlag::new()).create_playlist(PLAYLIST_URL, "MP3", &base(), numbered, false)
+    }
+
+    /// The same, saying that a playlist already there is to be reused.
+    fn create_reusing(&self, downloader: &dyn Downloader, numbered: bool) -> Result<Created, CreateError> {
+        self.engine(downloader, &StopFlag::new()).create_playlist(PLAYLIST_URL, "MP3", &base(), numbered, true)
     }
 
     /// «Crear y descargar»: registered first, then a normal update.
@@ -617,10 +622,30 @@ fn creating_it_again_keeps_the_numbering_it_was_given_first() {
     fake.set_entries(&[&format!("1|{A}|Primero")]);
     world.create(&fake, true).unwrap();
 
-    let again = world.create(&fake, false).unwrap();
+    let again = world.create_reusing(&fake, false).unwrap();
 
     assert_eq!(again.number_mode.source, NumberModeSource::SameFormat);
     assert!(again.number_mode.number_files, "immutable once fixed");
+}
+
+#[test]
+fn a_playlist_already_in_that_folder_is_refused_unless_reusing_it_is_asked_for() {
+    let world = World::new(Some("web"));
+    let fake = FakeYtDlp::new(world.storage.clone(), downloads_all_but(&[]));
+    fake.set_entries(&[&format!("1|{A}|Primero")]);
+    let first = world.create(&fake, true).unwrap();
+    // The first one grows: a refusal must not have touched it.
+    fake.set_entries(&[&format!("1|{A}|Primero"), &format!("2|{B}|Segundo")]);
+
+    match world.create(&fake, false) {
+        Err(CreateError::AlreadyExists { title, json }) => assert_eq!((title.as_str(), json), ("Clásicos", first.json.clone())),
+        other => panic!("expected AlreadyExists, got {other:?}"),
+    }
+    assert_eq!(world.store.saved_title(&first.json, B), None, "the refusal added nothing");
+
+    let reused = world.create_reusing(&fake, false).unwrap();
+    assert_eq!(reused.json, first.json);
+    assert_eq!(world.store.saved_title(&first.json, B).as_deref(), Some("Segundo"), "reusing it did");
 }
 
 // === TWO PROCESSES ON ONE PLAYLIST (ajuste «Dos descargas a la vez») ===

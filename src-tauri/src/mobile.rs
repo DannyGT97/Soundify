@@ -76,8 +76,8 @@ pub async fn native_player(app: AppHandle, action: String, args: Option<serde_js
     run_blocking(move || native_player_now(&app, &action, args.unwrap_or(serde_json::Value::Null))).await
 }
 
-const PLAYER_ACTIONS: [&str; 7] =
-    ["playerLoad", "playerPlay", "playerPause", "playerSeek", "playerStop", "playerGetVolume", "playerSetVolume"];
+const PLAYER_ACTIONS: [&str; 10] =
+    ["playerLoad", "playerPlay", "playerPause", "playerSeek", "playerStop", "playerGetVolume", "playerSetVolume", "playerSetModes", "playerOutputDevice", "playerPendingOpen"];
 
 /// Starts listening to the player so its events reach the page. Android only.
 #[cfg_attr(not(target_os = "android"), allow(dead_code))]
@@ -107,15 +107,23 @@ async fn run_blocking<T: Send + 'static>(work: impl FnOnce() -> Result<T, String
 
 /// The foreground notice that keeps Android from freezing the app while it
 /// downloads. Does nothing elsewhere.
-pub fn set_busy(app: &AppHandle, busy: bool, text: &str) {
+pub fn set_busy(app: &AppHandle, busy: bool, notice: &BusyNotice) {
     #[cfg(target_os = "android")]
-    android::set_busy(app, busy, text);
+    android::set_busy(app, busy, notice);
     #[cfg(not(target_os = "android"))]
-    let _ = (app, busy, text);
+    let _ = (app, busy, notice);
+}
+
+/// What that notification says: a title with the state, the line under it and how far it is (0–100; None = not known yet).
+#[cfg_attr(not(target_os = "android"), allow(dead_code))]
+pub struct BusyNotice {
+    pub title: String,
+    pub text: String,
+    pub percent: Option<u8>,
 }
 
 #[cfg(not(target_os = "android"))]
-fn storage_info_now(_: &AppHandle) -> Result<StorageInfo, String> {
+pub(crate) fn storage_info_now(_: &AppHandle) -> Result<StorageInfo, String> {
     Ok(StorageInfo { all_files: true, music_dir: None })
 }
 
@@ -130,7 +138,7 @@ fn pick_folder_now(_: &AppHandle) -> Result<Option<String>, String> {
 }
 
 #[cfg(target_os = "android")]
-fn storage_info_now(app: &AppHandle) -> Result<StorageInfo, String> {
+pub(crate) fn storage_info_now(app: &AppHandle) -> Result<StorageInfo, String> {
     android::storage_info(app)
 }
 
@@ -322,11 +330,13 @@ mod android {
         busy: bool,
         title: &'a str,
         text: &'a str,
+        /// 0–100, or -1 while it is not known (the bar then goes back and forth).
+        progress: i32,
     }
 
-    pub fn set_busy(app: &AppHandle, busy: bool, text: &str) {
+    pub fn set_busy(app: &AppHandle, busy: bool, notice: &super::BusyNotice) {
         let Ok(bridge) = bridge(app) else { return };
-        let args = BusyArgs { busy, title: "Soundify", text };
+        let args = BusyArgs { busy, title: &notice.title, text: &notice.text, progress: notice.percent.map_or(-1, i32::from) };
         if let Err(e) = bridge.0.run_mobile_plugin::<serde_json::Value>("setBusy", args) {
             log::warn!("Could not change the foreground notice: {e}");
         }

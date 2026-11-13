@@ -112,6 +112,16 @@ engine.onRemoteSkip?.(direction => {
   if (direction === 'next') next();
   else previous();
 });
+// Shuffle and repeat pressed in the notification.
+engine.onRemoteMode?.(mode => {
+  if (mode === 'shuffle') toggleShuffle();
+  else cycleRepeat();
+});
+
+/** The app was opened from the phone's music notification: the screen should show what is playing. */
+export function onOpenRequest(listener: () => void): void {
+  engine.onRemoteOpen?.(listener);
+}
 
 // === PUBLIC API ===
 
@@ -177,12 +187,14 @@ export function seek(seconds: number): void {
 export function toggleShuffle(): void {
   ui.shuffle = !ui.shuffle;
   queue?.setShuffled(ui.shuffle);
+  engine.setModes?.(ui.shuffle, ui.repeat);
   emit('player');
 }
 
 export function cycleRepeat(): void {
   ui.repeat = nextRepeat(ui.repeat);
   if (queue) queue.repeat = ui.repeat;
+  engine.setModes?.(ui.shuffle, ui.repeat);
   emit('player');
 }
 
@@ -293,6 +305,8 @@ function start(blockKey: string, index: number, autoplay: boolean, resumeAt = 0)
 }
 
 function load(track: Track, autoplay: boolean, resumeAt = 0): void {
+  // The notification's two buttons draw the state with every file (the service may have been restarted).
+  engine.setModes?.(ui.shuffle, ui.repeat);
   const found = findBlock(currentBlock);
   ui.nowPlaying = { blockKey: currentBlock, track };
   ui.position = resumeAt;
