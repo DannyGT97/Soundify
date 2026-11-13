@@ -5,7 +5,7 @@
 // emits the matching topic (`tasks`, `player`), and the views follow that.
 
 import type {
-  AppUpdate, AppUpdateProgress, ConnectCommand, ConnectDevice, ConnectIncoming, ConnectPlayerState, ConnectStatus, CopyOutcome, CopyProgress, CreatedPlaylist, DeleteResult, DeviceEntry, DeviceImportScan, DevicesView, DeviceTarget, DownloadNotice, DownloadRequest,
+  AppUpdate, AppUpdateProgress, ConnectCommand, ConnectDevice, ConnectFirewall, ConnectIncoming, ConnectPlayerState, ConnectStatus, CopyOutcome, CopyProgress, CreatedPlaylist, DeleteResult, DeviceEntry, DeviceImportScan, DevicesView, DeviceTarget, DownloadNotice, DownloadRequest,
   ExportResult, FormatCatalog, ImportOutcome, ImportScan, PlayerBackend, PlayerMemory, Playlist,
   Preferences, PreferencesPatch,
   StorageInfo, ToolDownload, ToolId, ToolsReport, WindowControls, YtdlpCheck,
@@ -169,6 +169,12 @@ export interface Api {
   connectStatus(): Promise<ConnectStatus>;
   /** On or off (and remembered). Rejects with an `ApiError`. */
   connectSetEnabled(enabled: boolean): Promise<void>;
+  /** Windows' firewall and this app: is it let in, and is the network «Public»? Nothing is changed. */
+  connectFirewallStatus(): Promise<ConnectFirewall>;
+  /** Asks Windows for the rule (its administrator confirmation comes up). Rejects with an `ApiError` if it is closed. */
+  connectFirewallAllow(): Promise<ConnectFirewall>;
+  /** Marks the connected «Public» networks as «Private» (Windows asks to confirm as administrator). Rejects with an `ApiError` if it is closed. */
+  connectNetworkPrivate(): Promise<ConnectFirewall>;
   /** Devices pair by themselves (true, the default) or only with a PIN. */
   connectSetOpen(open: boolean): Promise<void>;
   /** The name the others see; applied the next time it is turned on. */

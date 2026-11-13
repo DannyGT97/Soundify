@@ -8,6 +8,7 @@ use std::sync::{Arc, Mutex};
 use log::{info, warn};
 use serde::{Deserialize, Serialize};
 use soundify_core::Location;
+use soundify_core::connect::beacon::{Beacon, Composite};
 use soundify_core::connect::discovery::{Discovery, Mdns};
 use soundify_core::connect::manager::{Connect, ConnectError, DeviceView, Identity, Listener, PREFERRED_PORT, Player};
 use soundify_core::connect::pairing::{KnownDevices, Pairing, Trusted, new_device_id};
@@ -38,6 +39,8 @@ pub struct ConnectState {
     connect: Arc<Connect>,
     config: Mutex<Config>,
     file: Location,
+    /// Why it could not start, for the window to say.
+    error: Arc<Mutex<Option<String>>>,
 }
 
 /// What a controller asks goes to the page: it owns the queue.
@@ -90,6 +93,24 @@ impl Listener for AppListener {
     }
 }
 
+/// Two ways of finding the others at once: mDNS (the standard one) and a UDP beacon (for the networks where
+/// multicast does not get through). If one cannot start, the other is enough.
+fn discovery() -> std::io::Result<Arc<dyn Discovery>> {
+    let mut parts: Vec<Arc<dyn Discovery>> = Vec::new();
+    match Mdns::new() {
+        Ok(mdns) => parts.push(Arc::new(mdns)),
+        Err(e) => warn!("Soundify Connect: no mDNS: {e}"),
+    }
+    match Beacon::new() {
+        Ok(beacon) => parts.push(Arc::new(beacon)),
+        Err(e) => warn!("Soundify Connect: no UDP beacon: {e}"),
+    }
+    if parts.is_empty() {
+        return Err(std::io::Error::other("neither mDNS nor the UDP beacon could start"));
+    }
+    Ok(Arc::new(Composite::new(parts)))
+}
+
 /// Builds Connect and, if it was left on, turns it on (in a thread of its own: it opens sockets).
 pub fn init(app: &AppHandle, paths: &AppPaths) {
     let dir = paths.connect_dir();
@@ -106,19 +127,22 @@ pub fn init(app: &AppHandle, paths: &AppPaths) {
     let handle = app.clone();
     let connect = Connect::new(
         identity,
-        || Ok(Arc::new(Mdns::new()?) as Arc<dyn Discovery>),
+        discovery,
         pairing,
         known,
         Arc::new(AppPlayer { app: app.clone() }),
         Arc::new(AppListener { app: handle }),
     );
     let enabled = config.enabled;
-    app.manage(ConnectState { connect: connect.clone(), config: Mutex::new(config), file });
+    let error: Arc<Mutex<Option<String>>> = Arc::default();
+    app.manage(ConnectState { connect: connect.clone(), config: Mutex::new(config), file, error: error.clone() });
     if enabled {
         let app = app.clone();
         std::thread::spawn(move || {
             if let Err(e) = turn_on(&app, &connect) {
                 warn!("Soundify Connect could not start: {e}");
+                *error.lock().unwrap() = Some(e.to_string());
+                let _ = app.emit("connect-devices", ());
             }
         });
     }
@@ -200,6 +224,12 @@ pub struct Status {
     enabled: bool,
     /// Pairs without a PIN.
     open: bool,
+    /// Where this device can be reached on the network (`ip:port`), to type it on another one.
+    addresses: Vec<String>,
+    /// The other devices are found by themselves (false: only by address).
+    discovery: bool,
+    /// Why Connect could not start, if it could not.
+    error: Option<String>,
     running: bool,
     port: Option<u16>,
     name: String,
@@ -217,6 +247,9 @@ pub fn connect_status(state: State<'_, ConnectState>) -> Status {
     Status {
         enabled: config.enabled,
         open: config.open,
+        addresses: state.connect.addresses(),
+        discovery: state.connect.discovers(),
+        error: state.error.lock().unwrap().clone(),
         running: state.connect.is_running(),
         port: state.connect.port(),
         name: config.name,
@@ -241,6 +274,7 @@ pub async fn connect_set_enabled(app: AppHandle, state: State<'_, ConnectState>,
     })
     .await
     .map_err(CommandError::io)?;
+    *state.error.lock().unwrap() = result.as_ref().err().map(ToString::to_string);
     result.map_err(CommandError::io)?;
     let mut config = state.config.lock().unwrap();
     config.enabled = enabled;

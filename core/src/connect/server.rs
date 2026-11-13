@@ -38,6 +38,8 @@ pub trait Host: Send + Sync {
     fn state(&self) -> PlayerState;
     /// Does what the controller asked. `Err` is the reason, which goes back in the `ack`.
     fn command(&self, who: &Trusted, command: Command) -> Result<(), String>;
+    /// A controller connected and said where its own server listens: a chance to find it back (when mDNS did not).
+    fn controller_seen(&self, _who: &Trusted, _ip: std::net::IpAddr, _port: u16) {}
 }
 
 struct Shared {
@@ -190,6 +192,9 @@ fn websocket(shared: &Arc<Shared>, mut stream: TcpStream, request: &Request) -> 
     };
     http::respond_switching(&mut stream, key)?;
     stream.set_read_timeout(Some(Duration::from_millis(100)))?;
+    if let (Some(port), Ok(peer)) = (request.header("x-soundify-port").and_then(|p| p.trim().parse::<u16>().ok()), stream.peer_addr()) {
+        shared.host.controller_seen(&who, peer.ip(), port);
+    }
 
     let (outbox, inbox) = mpsc::sync_channel(OUTBOX);
     let number = shared.next_outbox.fetch_add(1, Ordering::SeqCst);

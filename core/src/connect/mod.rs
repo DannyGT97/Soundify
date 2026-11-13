@@ -1,6 +1,7 @@
 //! Soundify Connect: one Soundify controls another on the same network (see
 //! `PLAN-CONNECT.md`). Everything here is blocking and independent of Tauri.
 
+pub mod beacon;
 pub mod client;
 pub mod discovery;
 pub mod http;

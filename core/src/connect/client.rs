@@ -118,7 +118,12 @@ pub struct Session {
 
 impl Session {
     /// Connects and does the handshake: a wrong token fails here, not later.
-    pub fn open(addr: SocketAddr, token: &str, mut on_event: impl FnMut(Event) + Send + 'static) -> Result<Session, ClientError> {
+    pub fn open(addr: SocketAddr, token: &str, on_event: impl FnMut(Event) + Send + 'static) -> Result<Session, ClientError> {
+        Self::open_with(addr, token, None, on_event)
+    }
+
+    /// `own_port`: where this device's own server listens, so the other one can find this one back.
+    pub fn open_with(addr: SocketAddr, token: &str, own_port: Option<u16>, mut on_event: impl FnMut(Event) + Send + 'static) -> Result<Session, ClientError> {
         let unreachable = |e: io::Error| ClientError::Unreachable(e.to_string());
         let stream = TcpStream::connect_timeout(&addr, CONNECT_TIMEOUT).map_err(unreachable)?;
         stream.set_read_timeout(Some(IO_TIMEOUT)).map_err(unreachable)?;
@@ -127,6 +132,9 @@ impl Session {
         let mut request = format!("ws://{addr}{BASE}/ws").into_client_request().map_err(|e| ClientError::Protocol(e.to_string()))?;
         let header = format!("Bearer {token}").parse().map_err(|_| ClientError::Protocol("the token is not a header".into()))?;
         request.headers_mut().insert("Authorization", header);
+        if let Some(port) = own_port.and_then(|p| p.to_string().parse().ok()) {
+            request.headers_mut().insert("X-Soundify-Port", port);
+        }
         let config = WebSocketConfig::default().max_message_size(Some(MAX_MESSAGE)).max_frame_size(Some(MAX_MESSAGE));
         let (mut socket, _) = tungstenite::client::client_with_config(request, stream, Some(config)).map_err(|e| match e {
             tungstenite::HandshakeError::Failure(tungstenite::Error::Http(response)) => {

@@ -8,6 +8,7 @@ mod commands;
 mod connect;
 mod covers;
 mod devices;
+mod firewall;
 mod downloads;
 mod mobile;
 mod mtp;
@@ -140,6 +141,9 @@ pub fn run() {
       connect::connect_status,
       connect::connect_set_enabled,
       connect::connect_set_name,
+      firewall::connect_firewall_status,
+      firewall::connect_firewall_allow,
+      firewall::connect_network_private,
       connect::connect_set_open,
       connect::connect_devices,
       connect::connect_add,

@@ -116,6 +116,8 @@ struct Nearby {
     state: Option<PlayerState>,
     /// It is strict: pairing needs the PIN it shows.
     needs_pin: bool,
+    /// Found by it connecting here, not announced on the network: nothing will say when it is gone, so it is let go of as soon as its connection fails.
+    learned: bool,
 }
 
 /// The open connection to a paired device (its `generation` tells an old one's end from the current one's).
@@ -126,6 +128,7 @@ struct Watch {
 
 /// What the server asks the app: its own description and the last state published.
 struct HostAdapter {
+    me: std::sync::Weak<Connect>,
     info: DeviceInfo,
     pairing: Arc<Pairing>,
     state: Arc<Mutex<PlayerState>>,
@@ -143,6 +146,12 @@ impl Host for HostAdapter {
 
     fn command(&self, who: &Trusted, command: Command) -> Result<(), String> {
         self.player.command(who, command)
+    }
+
+    fn controller_seen(&self, _who: &Trusted, ip: IpAddr, port: u16) {
+        if let Some(connect) = self.me.upgrade() {
+            connect.learn(SocketAddr::new(ip, port));
+        }
     }
 }
 
@@ -164,11 +173,14 @@ pub struct Connect {
     busy: Mutex<HashMap<String, bool>>,
     /// Devices the user forgot: not paired again by themselves until it is asked for.
     forgotten: Mutex<HashSet<String>>,
+    /// When each device last went off the network: a device found by connection a moment before it left is not added back.
+    departures: Mutex<HashMap<String, Instant>>,
 }
 
 struct Running {
     server: Server,
-    discovery: Arc<dyn Discovery>,
+    /// None when no way of finding the others could be started.
+    discovery: Option<Arc<dyn Discovery>>,
 }
 
 impl Connect {
@@ -196,6 +208,7 @@ impl Connect {
             generation: AtomicU64::new(0),
             busy: Mutex::new(HashMap::new()),
             forgotten: Mutex::new(HashSet::new()),
+            departures: Mutex::new(HashMap::new()),
         })
     }
 
@@ -217,6 +230,33 @@ impl Connect {
         self.running.lock().unwrap().as_ref().map(|running| running.server.port())
     }
 
+    /// Can the other devices be found by themselves? False: only by address (or when they connect here).
+    pub fn discovers(&self) -> bool {
+        self.running.lock().unwrap().as_ref().is_some_and(|running| running.discovery.is_some())
+    }
+
+    /// Where this device can be reached on the local network, for typing on another one (`ip:port`).
+    pub fn addresses(&self) -> Vec<String> {
+        let Some(port) = self.port() else { return Vec::new() };
+        super::beacon::local_ipv4().map(|ip| vec![format!("{ip}:{port}")]).unwrap_or_default()
+    }
+
+    /// A device connected here and said where it listens: it is added too, so it is found back without anybody typing its address.
+    fn learn(self: &Arc<Self>, addr: SocketAddr) {
+        let already = self.nearby.lock().unwrap().values().any(|n| n.addr == addr);
+        if already {
+            return;
+        }
+        let (me, triggered) = (self.clone(), Instant::now());
+        let spawned = thread::Builder::new().name("connect-learn".into()).spawn(move || {
+            // Its own description (and its id) comes from itself.
+            let _ = me.add(addr, false, triggered);
+        });
+        if spawned.is_err() {
+            warn!("Could not start a thread to find a device back");
+        }
+    }
+
     /// Open (any device pairs by itself) or strict (the PIN is asked for).
     pub fn set_open(&self, open: bool) {
         self.pairing.set_open(open);
@@ -233,21 +273,34 @@ impl Connect {
         if running.is_some() {
             return Ok(());
         }
-        let host = Arc::new(HostAdapter { info: self.info(), pairing: self.pairing.clone(), state: self.state.clone(), player: self.player.clone() });
+        let host = Arc::new(HostAdapter { me: Arc::downgrade(self), info: self.info(), pairing: self.pairing.clone(), state: self.state.clone(), player: self.player.clone() });
         let server = match Server::start(preferred_port, host.clone(), self.pairing.clone()) {
             Ok(server) => server,
             // The preferred port is taken (another copy of the app): any free one.
             Err(_) if preferred_port != 0 => Server::start(0, host, self.pairing.clone())?,
             Err(e) => return Err(e),
         };
-        let discovery = (self.factory)()?;
-        discovery.announce(&self.info(), server.port())?;
-        let me = Arc::downgrade(self);
-        discovery.browse(Box::new(move |change| {
-            if let Some(connect) = me.upgrade() {
-                connect.saw(change);
+        // Finding the others automatically is a plus: if it cannot be done the server still runs, and the
+        // devices are reached by address (or find this one when it connects to them).
+        let discovery = match (self.factory)() {
+            Ok(discovery) => {
+                let me = Arc::downgrade(self);
+                let announced = discovery.announce(&self.info(), server.port());
+                let browsing = discovery.browse(Box::new(move |change| {
+                    if let Some(connect) = me.upgrade() {
+                        connect.saw(change);
+                    }
+                }));
+                if let Err(e) = announced.as_ref().and(browsing.as_ref()) {
+                    warn!("Soundify Connect: automatic discovery is not complete: {e}");
+                }
+                (announced.is_ok() || browsing.is_ok()).then_some(discovery)
             }
-        }))?;
+            Err(e) => {
+                warn!("Soundify Connect: no automatic discovery: {e}");
+                None
+            }
+        };
         info!("Soundify Connect on, port {}", server.port());
         *running = Some(Running { server, discovery });
         Ok(())
@@ -262,7 +315,9 @@ impl Connect {
             watch.session.close();
         }
         if let Some(running) = running {
-            running.discovery.shutdown();
+            if let Some(discovery) = &running.discovery {
+                discovery.shutdown();
+            }
             running.server.stop();
         }
         self.nearby.lock().unwrap().clear();
@@ -283,7 +338,7 @@ impl Connect {
                 {
                     let mut nearby = self.nearby.lock().unwrap();
                     let (state, needs_pin, manual) = nearby.get(&id).map(|n| (n.state.clone(), n.needs_pin, n.manual)).unwrap_or((None, false, false));
-                    nearby.insert(id.clone(), Nearby { info: found.info, addr, manual, state, needs_pin });
+                    nearby.insert(id.clone(), Nearby { info: found.info, addr, manual, state, needs_pin, learned: false });
                 }
                 self.listener.devices_changed();
                 self.connect_to(&id);
@@ -295,6 +350,7 @@ impl Connect {
                         return;
                     }
                     nearby.remove(&id);
+                    self.departures.lock().unwrap().insert(id.clone(), Instant::now());
                 }
                 self.drop_session(&id);
                 self.listener.devices_changed();
@@ -323,12 +379,33 @@ impl Connect {
 
     /// For a network where mDNS does not get through: the address of the other device, as it shows it.
     pub fn add_by_address(self: &Arc<Self>, addr: SocketAddr) -> Result<DeviceInfo, ConnectError> {
+        self.add(addr, true, Instant::now())
+    }
+
+    /// `manual`: the user typed it, so it stays until forgotten; otherwise it was found by connection and goes when it stops answering.
+    /// `asked_at`: when the reason to add it arose; if the device left the network after that, it is not added.
+    fn add(self: &Arc<Self>, addr: SocketAddr, manual: bool, asked_at: Instant) -> Result<DeviceInfo, ConnectError> {
         let info = client::fetch_info(addr)?;
+        // It answered, but it may have left the network while it did: then it is not added back.
+        if !manual && self.departures.lock().unwrap().get(&info.device_id).is_some_and(|left| *left >= asked_at) {
+            return Err(ConnectError::Offline);
+        }
         if info.device_id == self.identity().device_id {
             return Err(ConnectError::Other("that is this device".into()));
         }
-        self.forgotten.lock().unwrap().remove(&info.device_id);
-        self.nearby.lock().unwrap().insert(info.device_id.clone(), Nearby { info: info.clone(), addr, manual: true, state: None, needs_pin: !info.open });
+        if manual {
+            self.forgotten.lock().unwrap().remove(&info.device_id);
+        } else if self.forgotten.lock().unwrap().contains(&info.device_id) {
+            return Err(ConnectError::Other("forgotten".into()));
+        }
+        {
+            let mut nearby = self.nearby.lock().unwrap();
+            // Already known (announced on the network, or typed in): what is known about it is better than a guess.
+            if !manual && nearby.contains_key(&info.device_id) {
+                return Ok(info);
+            }
+            nearby.insert(info.device_id.clone(), Nearby { info: info.clone(), addr, manual, state: None, needs_pin: !info.open, learned: !manual });
+        }
         self.listener.devices_changed();
         self.connect_to(&info.device_id);
         Ok(info)
@@ -364,6 +441,7 @@ impl Connect {
                 busy.remove(&id);
                 break;
             }
+            me.forget_if_learned_and_unreachable(&id);
             me.listener.devices_changed();
         });
         if spawned.is_err() {
@@ -383,7 +461,7 @@ impl Connect {
         };
         let generation = self.generation.fetch_add(1, Ordering::SeqCst) + 1;
         let (me, device) = (Arc::downgrade(self), id.to_string());
-        let opened = Session::open(addr, &token, move |event| {
+        let opened = Session::open_with(addr, &token, self.port(), move |event| {
             let Some(connect) = me.upgrade() else { return };
             match event {
                 Event::Message(ServerMessage::State { state }) => connect.got_state(&device, state),
@@ -448,6 +526,17 @@ impl Connect {
         if let Some(nearby) = self.nearby.lock().unwrap().get_mut(id) {
             nearby.state = None;
         }
+        // Found only by its connection: when that ends it is gone (if it is back it connects again and is found again).
+        if self.nearby.lock().unwrap().get(id).is_some_and(|n| n.learned) {
+            self.nearby.lock().unwrap().remove(id);
+            self.departures.lock().unwrap().insert(id.to_string(), Instant::now());
+            if self.selected.lock().unwrap().as_deref() == Some(id) {
+                *self.selected.lock().unwrap() = None;
+                self.listener.remote_closed(id, reason);
+            }
+            self.listener.devices_changed();
+            return;
+        }
         let was_selected = {
             let mut selected = self.selected.lock().unwrap();
             let was = selected.as_deref() == Some(id);
@@ -463,6 +552,18 @@ impl Connect {
         self.reconnect(id);
     }
 
+    /// A device found by connection that cannot be connected to is not there (nothing else will say so).
+    fn forget_if_learned_and_unreachable(&self, id: &str) {
+        if self.sessions.lock().unwrap().contains_key(id) {
+            return;
+        }
+        let mut nearby = self.nearby.lock().unwrap();
+        if nearby.get(id).is_some_and(|n| n.learned) {
+            nearby.remove(id);
+            self.departures.lock().unwrap().insert(id.to_string(), Instant::now());
+        }
+    }
+
     fn reconnect(self: &Arc<Self>, id: &str) {
         let (me, id) = (self.clone(), id.to_string());
         let spawned = thread::Builder::new().name("connect-reconnect".into()).spawn(move || {
@@ -476,6 +577,14 @@ impl Connect {
                 if me.sessions.lock().unwrap().contains_key(&id) {
                     return;
                 }
+            }
+            // It did not come back: a device found by connection (nobody typed it, nobody announces it) is let go of.
+            let removed = {
+                let mut nearby = me.nearby.lock().unwrap();
+                if nearby.get(&id).is_some_and(|n| !n.manual) { nearby.remove(&id).is_some() } else { false }
+            };
+            if removed {
+                me.listener.devices_changed();
             }
         });
         if spawned.is_err() {

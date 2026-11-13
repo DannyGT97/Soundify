@@ -344,6 +344,20 @@ Repositorio: https://github.com/DannyGT97/Soundify (GitHub, rama `main`, GPL-3.0
   si no es válida.
 
 ## Pendiente
+- **Connect y el cortafuegos de Windows (13/11/2026).** `src-tauri/src/firewall.rs`: `connect_firewall_status` (solo lee: ¿hay regla «Soundify Connect» que apunte
+  a ESTE exe? ¿la red es «Pública»?, con `netsh` y `Get-NetConnectionProfile`) y `connect_firewall_allow` (solo si el usuario pulsa «Permitir en el cortafuegos» en
+  la ventana de Dispositivos: `netsh advfirewall firewall add rule` en PowerShell con `-Verb RunAs`, o sea con el aviso de administrador de Windows, solo perfil
+  **privado**, ruta del exe por variable de entorno). La ventana avisa si la red es Pública (hay que cambiarla a Privada: una regla privada no ayuda). **En este
+  PC, el 13/11/2026, `public_network=true` y sin regla: probable causa de que el mDNS no funcionara ni entre dos copias locales.** Mock: `?mockFirewall`.
+  Sin probar el botón de verdad (necesita confirmar el UAC).
+- **Connect: descubrimiento más robusto (13/11/2026, tras probar el usuario con PC y móvil: solo funcionaba añadiendo la IP desde el móvil).** (1) Segunda vía
+  de descubrimiento, la **baliza UDP** (`core/src/connect/beacon.rs`, puerto 48651, difusión cada 3 s; `Composite` la junta con mDNS: un dispositivo
+  está mientras ALGUNA vía lo vea; solo un proceso por máquina puede tenerla, el segundo sigue con mDNS). (2) **Aprender del que se conecta:** el que
+  controla manda su puerto en la cabecera `X-Soundify-Port` del WebSocket y el destino lo añade y se conecta de vuelta (`Host::controller_seen` →
+  `Connect::learn`), así que basta con escribir la IP en UN lado. Lo aprendido así (`Nearby.learned`) se quita en cuanto falla su conexión (nadie
+  anuncia su marcha). (3) El **arranque es tolerante**: si no hay descubrimiento el servidor arranca igual (`Connect::discovers()`); la ventana
+  enseña la **dirección propia** (`addresses()`, `local_ipv4`) para teclearla en el otro, avisa si no hay descubrimiento y el error si no pudo arrancar
+  (`ConnectState.error`). Probado en core (`beacon.rs`, `manager_tests.rs`, 30 pasadas seguidas sin fallos); **sin probar entre PC y móvil reales**.
 - **Soundify Connect, sin PIN por defecto (13/11/2026, a petición del usuario: «en Spotify simplemente detecta el otro dispositivo»).** Cada
   dispositivo es **abierto** de serie (`Pairing::set_open`, `connect.json` → `open`, `/info` lo dice en `open`): el que controla se empareja SOLO, sin PIN
   (`Connect::attach`/`pair_by_itself`) y mantiene un WebSocket con cada dispositivo emparejado que ve (`sessions`), así que sabe qué suena en cada uno

@@ -6,10 +6,10 @@
 // something of it, make a device start playing, or drop the connection.
 
 import type { Api } from '..';
-import type { ConnectCommand, ConnectDevice, ConnectIncoming, ConnectPlayerState, ConnectStatus } from '../types';
+import type { ConnectCommand, ConnectDevice, ConnectFirewall, ConnectIncoming, ConnectPlayerState, ConnectStatus } from '../types';
 
 type ConnectApi = Pick<Api,
-  | 'connectStatus' | 'connectSetEnabled' | 'connectSetName' | 'connectSetOpen' | 'connectDevices' | 'connectAdd' | 'connectPin' | 'connectRenewPin'
+  | 'connectFirewallStatus' | 'connectFirewallAllow' | 'connectNetworkPrivate' | 'connectStatus' | 'connectSetEnabled' | 'connectSetName' | 'connectSetOpen' | 'connectDevices' | 'connectAdd' | 'connectPin' | 'connectRenewPin'
   | 'connectPair' | 'connectForget' | 'connectForgetController' | 'connectSelect' | 'connectDeselect' | 'connectSend' | 'connectPublish'
   | 'onConnectDevices' | 'onConnectRemoteState' | 'onConnectRemoteClosed' | 'onConnectCommand'>;
 
@@ -87,9 +87,22 @@ if (typeof window !== 'undefined') {
   };
 }
 
+// `?mockFirewall` pretends to be Windows with the app not let in yet and a Public network.
+const mockFirewall = typeof location !== 'undefined' && new URLSearchParams(location.search).has('mockFirewall');
+let firewall: ConnectFirewall = { supported: mockFirewall, allowed: false, publicNetwork: mockFirewall };
+
 export const mockConnect: ConnectApi = {
+  connectFirewallStatus: async () => ({ ...firewall }),
+  connectNetworkPrivate: async () => {
+    firewall = { ...firewall, publicNetwork: false };
+    return { ...firewall };
+  },
+  connectFirewallAllow: async () => {
+    firewall = { ...firewall, allowed: true };
+    return { ...firewall };
+  },
   connectStatus: async (): Promise<ConnectStatus> => ({
-    enabled, open, running: enabled, port: enabled ? 48650 : null, name, deviceId: 'this-device', selected, controllers, connectedControllers: 0,
+    enabled, open, addresses: enabled ? ['192.168.1.35:48650'] : [], discovery: true, error: null, running: enabled, port: enabled ? 48650 : null, name, deviceId: 'this-device', selected, controllers, connectedControllers: 0,
   }),
   connectSetEnabled: async value => {
     enabled = value;

@@ -188,16 +188,27 @@ fn when_the_player_goes_away_the_controller_is_told_once_and_the_device_stays_kn
     player.connect.stop();
     wait(|| controller.heard.closed.lock().unwrap().as_slice() == ["tv"]);
     assert_eq!(controller.connect.selected(), None);
-    wait(|| device(&controller, "tv").is_some_and(|d| !d.online && d.paired));
+    let deadline = Instant::now() + Duration::from_secs(5);
+    while Instant::now() < deadline && !device(&controller, "tv").is_some_and(|d| !d.online && d.paired) {
+        std::thread::sleep(Duration::from_millis(20));
+    }
+    assert!(device(&controller, "tv").is_some_and(|d| !d.online && d.paired), "devices: {:?}", controller.connect.devices());
 }
 
 #[test]
 fn the_player_that_comes_back_is_connected_to_again() {
     let (player, controller) = open_pair();
     player.connect.stop();
-    wait(|| device(&controller, "tv").is_some_and(|d| !d.online));
+    let until = |wanted: &dyn Fn() -> bool| {
+        let deadline = Instant::now() + Duration::from_secs(5);
+        while Instant::now() < deadline && !wanted() {
+            std::thread::sleep(Duration::from_millis(20));
+        }
+        wanted()
+    };
+    assert!(until(&|| device(&controller, "tv").is_some_and(|d| !d.online)), "first: {:?}", controller.connect.devices());
     player.connect.start(0).unwrap();
-    wait(|| device(&controller, "tv").is_some_and(|d| d.online && d.ready));
+    assert!(until(&|| device(&controller, "tv").is_some_and(|d| d.online && d.ready)), "second: {:?}", controller.connect.devices());
 }
 
 // === STRICT: THE PIN ===
@@ -305,4 +316,30 @@ fn a_late_controller_gets_what_was_published_before() {
     player.connect.publish(PlayerState { playing: true, position: 9.0, volume: 0.3, ..PlayerState::default() });
     wait(|| controller.heard.states.lock().unwrap().iter().any(|(_, s)| s.position == 9.0 && s.volume == 0.3));
     assert_eq!(controller.connect.state_of("tv").map(|s| s.position), Some(9.0));
+}
+
+#[test]
+fn a_device_added_by_address_finds_the_other_back_by_itself() {
+    // Two networks that do not see each other: no discovery between them at all.
+    let (player, controller) = (app(&Arc::new(MemoryNetwork::default()), "tv", "Salón", false), app(&Arc::new(MemoryNetwork::default()), "phone", "Móvil", false));
+    player.connect.start(0).unwrap();
+    controller.connect.start(0).unwrap();
+    assert!(controller.connect.devices().is_empty() && player.connect.devices().is_empty());
+    let addr = std::net::SocketAddr::from(([127, 0, 0, 1], player.connect.port().unwrap()));
+    controller.connect.add_by_address(addr).unwrap();
+    wait(|| device(&controller, "tv").is_some_and(|d| d.ready));
+    // Whoever was typed in tells where it listens, so the other side finds it back and can control it too.
+    wait(|| device(&player, "phone").is_some_and(|d| d.ready));
+}
+
+#[test]
+fn this_device_says_where_it_can_be_reached_only_while_it_runs() {
+    let network = Arc::new(MemoryNetwork::default());
+    let one = app(&network, "a", "Uno", false);
+    assert!(one.connect.addresses().is_empty());
+    one.connect.start(0).unwrap();
+    assert!(one.connect.discovers());
+    if let Some(address) = one.connect.addresses().first() {
+        assert!(address.ends_with(&format!(":{}", one.connect.port().unwrap())));
+    }
 }

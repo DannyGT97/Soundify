@@ -147,3 +147,22 @@ test('what is typed in the address and PIN boxes survives the list redrawing its
   await address.pressSequentially('.1.31');
   await expect(address).toHaveValue('192.168.1.31');
 });
+
+test('Windows: a Public network is warned about and the firewall rule is one button', async ({ page }) => {
+  await openDevices(page, '/?mockConnect&mockFirewall#/settings');
+  await expect(page.locator('.cx-warning', { hasText: 'Pública' })).toBeVisible();
+  // One click makes the network private; the rule is another one.
+  await page.getByRole('button', { name: 'Cambiar a red privada' }).click();
+  await expect(page.locator('.toast', { hasText: 'tu red ahora es privada' })).toBeVisible();
+  await expect(page.locator('.cx-warning', { hasText: 'Pública' })).toHaveCount(0);
+  const card = page.locator('.cx-firewall');
+  await expect(card).toContainText('Permitir Soundify en el cortafuegos');
+  await card.getByRole('button', { name: 'Permitir en el cortafuegos' }).click();
+  await expect(page.locator('.toast', { hasText: 'Soundify puede recibir conexiones' })).toBeVisible();
+  await expect(page.locator('.cx-firewall')).toHaveCount(0);
+});
+
+test('without Windows there is nothing about the firewall', async ({ page }) => {
+  await openDevices(page);
+  await expect(page.locator('.cx-firewall')).toHaveCount(0);
+});

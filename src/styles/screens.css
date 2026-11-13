@@ -499,3 +499,6 @@ button.dev-row:hover { background: var(--sp-nav-hover); }
 .cx .cx-switch { padding: 4px 2px; }
 .np-device { background: none; border: none; cursor: pointer; padding: 4px 8px; border-radius: 14px; font: inherit; }
 .np-device:hover { background: var(--sp-nav-hover); }
+.cx .cx-warning { color: var(--sp-warning, #e0a030); }
+.cx .cx-address b { color: var(--sp-text-strong); user-select: all; }
+.cx .card.cx-firewall { display: flex; flex-direction: row; align-items: center; gap: 14px; padding: 12px 14px; }

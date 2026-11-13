@@ -7,7 +7,7 @@ import { getCurrentWindow } from '@tauri-apps/api/window';
 import { open } from '@tauri-apps/plugin-dialog';
 import type { Api } from '.';
 import type {
-  ActivityLine, AppUpdate, AppUpdateProgress, ConnectDevice, ConnectIncoming, ConnectPlayerState, ConnectStatus, CopyOutcome, CopyProgress, CreatedPlaylist, DeleteResult, DeviceEntry, DeviceImportScan, DevicesView, DownloadNotice, ExportResult,
+  ActivityLine, AppUpdate, AppUpdateProgress, ConnectDevice, ConnectFirewall, ConnectIncoming, ConnectPlayerState, ConnectStatus, CopyOutcome, CopyProgress, CreatedPlaylist, DeleteResult, DeviceEntry, DeviceImportScan, DevicesView, DownloadNotice, ExportResult,
   FormatCatalog, ImportOutcome, ImportScan, PlayerMemory, Playlist, Preferences, StorageInfo, TasksViewWire, ToolDownload, ToolsReport, YtdlpCheck,
 } from './types';
 import { onAndroid } from '../platform';
@@ -122,6 +122,9 @@ export const tauriApi: Api = {
   connectSetEnabled: enabled => invoke('connect_set_enabled', { enabled }),
   connectSetName: name => invoke('connect_set_name', { name }),
   connectSetOpen: open => invoke('connect_set_open', { open }),
+  connectFirewallStatus: () => invoke<ConnectFirewall>('connect_firewall_status'),
+  connectFirewallAllow: () => invoke<ConnectFirewall>('connect_firewall_allow'),
+  connectNetworkPrivate: () => invoke<ConnectFirewall>('connect_network_private'),
   connectDevices: () => invoke<ConnectDevice[]>('connect_devices'),
   connectAdd: address => invoke('connect_add', { address }),
   connectPin: () => invoke<string | null>('connect_pin'),

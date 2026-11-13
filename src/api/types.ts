@@ -300,6 +300,12 @@ export interface ConnectStatus {
   enabled: boolean;
   /** Any device may pair without a PIN (the default). Off = the PIN is asked for. */
   open: boolean;
+  /** Where this device can be reached on the network (`ip:port`), to type on another device. */
+  addresses: string[];
+  /** The other devices are found by themselves (false: only by address). */
+  discovery: boolean;
+  /** Why Connect could not start, if it could not. */
+  error: string | null;
   running: boolean;
   port: number | null;
   name: string;
@@ -309,6 +315,15 @@ export interface ConnectStatus {
   /** Who may control this device. */
   controllers: Array<{ id: string; name: string }>;
   connectedControllers: number;
+}
+/** What Windows' firewall says about this app (Soundify Connect needs to be let in). */
+export interface ConnectFirewall {
+  /** There is a Windows firewall to ask (false on Android and elsewhere). */
+  supported: boolean;
+  /** A rule that lets this app in already exists. */
+  allowed: boolean;
+  /** The network in use is «Public»: it blocks incoming connections whatever the rules say. */
+  publicNetwork: boolean;
 }
 export interface ConnectIncoming { from: string; command: ConnectCommand }
 
