@@ -40,6 +40,8 @@ export const ui = {
   shuffle: false,
   repeat: 'off' as Repeat,
   volume: 0.7,
+  /** Another device is being controlled (Soundify Connect): what the player shows is ITS state. */
+  remote: null as { deviceId: string; name: string } | null,
   /** The first task running (what the pill and Tareas lead with); null when nothing runs. */
   task: null as RunningTask | null,
   /** Everything running now: one, or two with Ajustes → «Descargar más rápido» (experimental). */
@@ -50,7 +52,7 @@ export const ui = {
   activity: [] as ActivityLine[],
 };
 
-type Topic = 'library' | 'player' | 'tasks' | 'activity' | 'theme' | 'player-placement' | 'tools' | 'storage';
+type Topic = 'library' | 'player' | 'tasks' | 'activity' | 'theme' | 'player-placement' | 'tools' | 'storage' | 'connect';
 const listeners = new Map<Topic, Set<() => void>>();
 
 export function subscribe(topic: Topic, listener: () => void): () => void {

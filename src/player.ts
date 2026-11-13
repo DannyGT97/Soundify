@@ -6,8 +6,8 @@
 // The last file and its second are kept between runs (`PlayerMemory`): at
 // startup it comes back to the bar PAUSED where it was left.
 
-import { api, playerBackend as engine, type PlayerMemory, type Track } from './api';
-import { findBlock, onDisk } from './library';
+import { api, playerBackend as engine, type ConnectCommand, type PlayerMemory, type Track } from './api';
+import { findBlock, library, onDisk } from './library';
 import { PlayerQueue, nextRepeat } from './playerQueue';
 import { emit, ui } from './state';
 import { orderOf, sortTracks } from './trackOrder';
@@ -96,14 +96,14 @@ engine.onError(() => {
 
 // Pause, play, next and previous from the phone's notification, lock screen or headphones.
 engine.onPlayState?.(playing => {
-  if (!ui.nowPlaying || ui.playing === playing) return;
+  if (ui.remote || !ui.nowPlaying || ui.playing === playing) return;
   ui.playing = playing;
   emit('player');
   if (!playing) void savePosition();
 });
 // The device's volume moved (its buttons): the slider follows at once.
 engine.onVolume?.(volume => {
-  if (ui.volume === volume) return;
+  if (ui.remote || ui.volume === volume) return;
   ui.volume = volume;
   memory.volume = volume;
   emit('player');
@@ -125,12 +125,78 @@ export function onOpenRequest(listener: () => void): void {
 
 // === PUBLIC API ===
 
+/**
+ * Soundify Connect: while another device is being controlled, the player's actions go to it
+ * instead of the local engine (`connect.ts` sets this and puts that device's state in `ui`).
+ */
+let remoteRoute: ((command: ConnectCommand) => void) | null = null;
+
+/** What the local player was doing when another device took over the screen. */
+export interface LocalSnapshot {
+  nowPlaying: typeof ui.nowPlaying;
+  position: number;
+  duration: number;
+  volume: number;
+  shuffle: boolean;
+  repeat: typeof ui.repeat;
+}
+
+/** Starts controlling another device: the local one is paused and kept as it is, to come back to it. */
+export function enterRemote(route: (command: ConnectCommand) => void): LocalSnapshot {
+  if (ui.playing) setPlaying(false);
+  void savePosition();
+  const snapshot: LocalSnapshot = { nowPlaying: ui.nowPlaying, position: ui.position, duration: ui.duration, volume: ui.volume, shuffle: ui.shuffle, repeat: ui.repeat };
+  remoteRoute = route;
+  return snapshot;
+}
+
+/** Back to the local player, paused where it was. */
+export function leaveRemote(snapshot: LocalSnapshot): void {
+  remoteRoute = null;
+  ui.nowPlaying = snapshot.nowPlaying;
+  ui.playing = false;
+  ui.position = snapshot.position;
+  ui.duration = snapshot.duration;
+  ui.volume = snapshot.volume;
+  ui.shuffle = snapshot.shuffle;
+  ui.repeat = snapshot.repeat;
+  emit('player');
+}
+
+/** The files of the block that sounds, in the order it plays them, for handing the playback to another device. */
+export function currentQueue(): { playlist: string; items: Array<{ videoId: string; title: string }>; index: number } | null {
+  if (!ui.nowPlaying || !currentBlock) return null;
+  const tracks = queueOf(currentBlock);
+  const index = tracks.findIndex(tr => tr.id === ui.nowPlaying?.track.id);
+  if (index < 0) return null;
+  return { playlist: findBlock(currentBlock)?.playlist.title ?? '', items: tracks.map(tr => ({ videoId: tr.id, title: tr.title })), index };
+}
+
+/**
+ * Plays the file whose video id another device named, from the library on THIS device (paths mean
+ * nothing across devices, the id does). The playlist of the same name is preferred. False if there is none.
+ */
+export function playVideoId(videoId: string, position: number, autoplay: boolean, playlist = ''): boolean {
+  let fallback: { blockKey: string; index: number } | null = null;
+  for (const entry of library.playlists) {
+    for (const block of entry.formats) {
+      if (!isPlayable(block.format)) continue;
+      const index = queueOf(block.key).findIndex(tr => tr.id === videoId);
+      if (index < 0) continue;
+      if (entry.title === playlist) return start(block.key, index, autoplay, position);
+      fallback ??= { blockKey: block.key, index };
+    }
+  }
+  return fallback ? start(fallback.blockKey, fallback.index, autoplay, position) : false;
+}
+
 export function isPlayable(format: string | null | undefined): boolean {
   return !!format && PLAYABLE.has(format.toUpperCase());
 }
 
 /** Plays `track` of a block, with the block's files on disk as the queue. */
 export function play(blockKey: string, track: Track): void {
+  if (remoteRoute) return;
   const index = queueOf(blockKey).findIndex(tr => tr.id === track.id);
   if (index >= 0) start(blockKey, index, true);
 }
@@ -152,22 +218,26 @@ export function reorderQueue(blockKey: string): void {
 
 /** From the first file (shuffled, the rest come in a fixed random order). */
 export function playAll(blockKey: string): void {
+  if (remoteRoute) return;
   start(blockKey, 0, true);
 }
 
 export function togglePlay(): void {
+  if (remoteRoute) return remoteRoute({ cmd: 'toggle' });
   if (!ui.nowPlaying) return;
   setPlaying(!ui.playing);
   if (!ui.playing) void savePosition();
 }
 
 export function next(): void {
+  if (remoteRoute) return remoteRoute({ cmd: 'next' });
   if (!queue) return;
   failures = 0;
   load(queue.next(), true);
 }
 
 export function previous(): void {
+  if (remoteRoute) return remoteRoute({ cmd: 'previous' });
   if (!queue) return;
   // Like every player: past the first seconds, "previous" restarts the file.
   if (ui.position > 3) {
@@ -179,12 +249,14 @@ export function previous(): void {
 }
 
 export function seek(seconds: number): void {
+  if (remoteRoute) return remoteRoute({ cmd: 'seek', seconds });
   ui.position = seconds;
   engine.seek(seconds);
   emit('player');
 }
 
 export function toggleShuffle(): void {
+  if (remoteRoute) return remoteRoute({ cmd: 'shuffle' });
   ui.shuffle = !ui.shuffle;
   queue?.setShuffled(ui.shuffle);
   engine.setModes?.(ui.shuffle, ui.repeat);
@@ -192,6 +264,7 @@ export function toggleShuffle(): void {
 }
 
 export function cycleRepeat(): void {
+  if (remoteRoute) return remoteRoute({ cmd: 'repeat' });
   ui.repeat = nextRepeat(ui.repeat);
   if (queue) queue.repeat = ui.repeat;
   engine.setModes?.(ui.shuffle, ui.repeat);
@@ -200,12 +273,18 @@ export function cycleRepeat(): void {
 
 /** While the slider moves; `saveVolume` once it is let go. */
 export function setVolume(volume: number): void {
+  if (remoteRoute) {
+    ui.volume = volume;
+    emit('player');
+    return remoteRoute({ cmd: 'volume', volume });
+  }
   ui.volume = volume;
   engine.setVolume(volume);
   emit('player');
 }
 
 export function saveVolume(): void {
+  if (remoteRoute) return;
   memory.volume = ui.volume;
   void persist();
 }
@@ -219,6 +298,8 @@ export function close(): void {
 
 /** Saves the second it is at: on every pause and when the app closes. */
 export function savePosition(): Promise<void> {
+  // What shows while another device is controlled is not this player's.
+  if (ui.remote) return Promise.resolve();
   if (memory.last && ui.nowPlaying) memory.last.position = ui.position;
   return persist();
 }

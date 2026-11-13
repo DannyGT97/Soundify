@@ -5,7 +5,7 @@
 // emits the matching topic (`tasks`, `player`), and the views follow that.
 
 import type {
-  AppUpdate, AppUpdateProgress, CopyOutcome, CopyProgress, CreatedPlaylist, DeleteResult, DeviceEntry, DeviceImportScan, DevicesView, DeviceTarget, DownloadNotice, DownloadRequest,
+  AppUpdate, AppUpdateProgress, ConnectCommand, ConnectDevice, ConnectIncoming, ConnectPlayerState, ConnectStatus, CopyOutcome, CopyProgress, CreatedPlaylist, DeleteResult, DeviceEntry, DeviceImportScan, DevicesView, DeviceTarget, DownloadNotice, DownloadRequest,
   ExportResult, FormatCatalog, ImportOutcome, ImportScan, PlayerBackend, PlayerMemory, Playlist,
   Preferences, PreferencesPatch,
   StorageInfo, ToolDownload, ToolId, ToolsReport, WindowControls, YtdlpCheck,
@@ -165,6 +165,37 @@ export interface Api {
   fileExists(path: string): Promise<boolean>;
   /** Where the sound goes now: this device's own speaker (`name` = what it is called, if it says) or headphones / a Bluetooth device. */
   playbackDevice(): Promise<PlaybackDevice>;
+  // === SOUNDIFY CONNECT: control between devices on the same network ===
+  connectStatus(): Promise<ConnectStatus>;
+  /** On or off (and remembered). Rejects with an `ApiError`. */
+  connectSetEnabled(enabled: boolean): Promise<void>;
+  /** The name the others see; applied the next time it is turned on. */
+  connectSetName(name: string): Promise<void>;
+  connectDevices(): Promise<ConnectDevice[]>;
+  /** For a network where the devices do not find each other: `192.168.1.20` or `192.168.1.20:48650`. */
+  connectAdd(address: string): Promise<void>;
+  /** The PIN this device shows so another can pair with it. */
+  connectPin(): Promise<string | null>;
+  connectRenewPin(): Promise<string | null>;
+  /** The PIN the other device shows. Rejects with an `ApiError` (`connect.error.*`). */
+  connectPair(deviceId: string, pin: string): Promise<void>;
+  connectForget(deviceId: string): Promise<void>;
+  connectForgetController(controllerId: string): Promise<void>;
+  /** Starts controlling a paired device. */
+  connectSelect(deviceId: string): Promise<void>;
+  connectDeselect(): Promise<void>;
+  /** An order for the device being controlled. */
+  connectSend(command: ConnectCommand): Promise<void>;
+  /** What this device plays now, for those who control it. */
+  connectPublish(state: ConnectPlayerState): void;
+  /** The list of devices, or who is connected, changed. */
+  onConnectDevices(listener: () => void): void;
+  /** The device being controlled says what it is doing. */
+  onConnectRemoteState(listener: (deviceId: string, state: ConnectPlayerState) => void): void;
+  /** The connection to the device being controlled ended by itself. */
+  onConnectRemoteClosed(listener: (deviceId: string) => void): void;
+  /** A device that controls this one asks for something. */
+  onConnectCommand(listener: (incoming: ConnectIncoming) => void): void;
   /** The window in full screen or back (a video in Reproduciendo). */
   setFullscreen(on: boolean): void;
   /** Null where the window has no title bar to draw: the browser and Android. */

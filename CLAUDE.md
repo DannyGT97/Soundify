@@ -25,7 +25,8 @@ Repositorio: https://github.com/DannyGT97/Soundify (GitHub, rama `main`, GPL-3.0
   se hace `app.exit(0)`. **Para que instale por encima hace falta el MISMO paquete, la MISMA clave de firma que el instalado y un `versionCode` mayor**
   (`tauri.properties`: 1.1.5 → 1001005, 1.1.6 → 1001006). Por eso la build de depuración (`.debug`, clave de depuración) NO se actualiza con
   un APK de release: para probar la actualización hay que instalar la build de RELEASE de la versión anterior. Ninguna release publicada
-  lleva APK todavía: hasta entonces Android dice «al día».
+  lleva APK todavía: hasta entonces Android dice «al día». (**La 1.1.6, publicada el 13/11/2026, es la primera con APK**: la 1.1.5 instalada
+  en una copia NO puede actualizarse a ella si se instaló con otra clave, p. ej. la de depuración.)
   **Keystore propio** (creado el 11/11/2026): `soundify-android.jks` + `soundify-android.properties` (contraseñas; `storeFile`, `alias`, `storePassword`,
   `keyPassword`) fuera de git, en la carpeta de claves (ruta en `CLAUDE.local.md`). No se abren ni se muestran: solo se pasa la ruta del `.properties`
   (`SOUNDIFY_ANDROID_KEYSTORE_PROPS`; `app/build.gradle.kts` lo lee, o un `keystore.properties` junto a él, ignorado por git; sin ninguno el APK de release sale SIN firmar).
@@ -343,11 +344,26 @@ Repositorio: https://github.com/DannyGT97/Soundify (GitHub, rama `main`, GPL-3.0
   si no es válida.
 
 ## Pendiente
-- **Idea (12/11/2026, sin empezar): control entre dispositivos, tipo Spotify Connect.** Tres niveles: (1) Soundify ↔ Soundify en la misma red (mDNS
-  para descubrirse, canal WebSocket con emparejamiento para play/pausa/siguiente/volumen/cola; el que reproduce pide los archivos por HTTP al que los
-  tiene; el hueco en la interfaz ya existe: el «dispositivo» de Reproduciendo, `api.playbackDevice`); (2) reproducir en tele/altavoces por DLNA/UPnP o
-  Chromecast, sirviendo los archivos por HTTP; (3) controlar Spotify solo vía su API web (Premium + app registrada), Connect es cerrado. En Android,
-  controlar las sesiones de otras apps del mismo móvil necesitaría el permiso de acceso a notificaciones.
+- **Soundify Connect (13/11/2026, fases 1 y 2 hechas; SIN probar entre dos aparatos reales).** Control entre dispositivos como Spotify Connect, sin nube:
+  el plan completo y cómo lo hace Spotify están en `PLAN-CONNECT.md` (no va a git). Resumen: cada Soundify anuncia `_soundify-connect._tcp` por mDNS y
+  sirve `GET /connect/v1/info`, `POST /connect/v1/pair` (PIN de 6 cifras que enseña el destino: 2 min, un uso, 5 fallos = bloqueo de 60 s → token de
+  32 bytes; el destino solo guarda su SHA-256) y `GET /connect/v1/ws` (WebSocket con `Authorization: Bearer`; el destino empuja `state`, recibe `cmd` y
+  contesta `ack`). `core/src/connect/`: `protocol` (mensajes y validación), `pairing` (+ `KnownDevices` del lado del que controla), `http` (el mínimo de
+  HTTP/1.1, con límites), `server`, `client`, `discovery` (trait; `Mdns` con `mdns-sd`; `MemoryDiscovery` para tests) y `manager::Connect` (los dos
+  papeles a la vez: lista de aparatos, emparejar, controlar uno, publicar estado). Probado en `core` con dos instancias sobre sockets reales
+  (`connect/tests.rs`, `manager_tests.rs`). `src-tauri/src/connect.rs`: comandos `connect_*`; la cola vive en la página, así que las órdenes entrantes
+  salen como evento `connect-command` y la página publica su estado con `connect_publish`. Datos en `data/connect/` (`connect.json` = id, nombre y si
+  está activado; `trusted.json`; `devices.json`). **Apagado de serie** (abre un puerto en la red; en Windows salta el cortafuegos): Ajustes → General →
+  Soundify Connect, o el chip del dispositivo en Reproduciendo → «Dispositivos» (`overlays/devices.ts`). Puerto 48650 (otro libre si está ocupado).
+  Front: `connect.ts` (estado, controlar, ser controlado, pasar la reproducción por **id de vídeo**, no por ruta) y `connectLogic.ts` (lo puro, con
+  tests); `player.ts` enruta las acciones al otro aparato mientras `ui.remote` (`enterRemote`/`leaveRemote`) y el estado del otro se vuelca en `ui`.
+  Mock con `?mockConnect` (`api/mock/connect.ts`, `window.__connect` para los tests; `e2e/connect.spec.ts`). Android: `multicastLock` (Kotlin) y permisos
+  `CHANGE_WIFI_MULTICAST_STATE`/`ACCESS_WIFI_STATE`. **Sin comprobar:** mDNS real (en este PC dos demonios en el mismo proceso no se vieron: sospecha del
+  cortafuegos o de las interfaces virtuales; el test `two_real_mdns_daemons_see_each_other` está `#[ignore]`), el orden PC↔móvil, y el MulticastLock.
+  Si el mDNS no pasa, «Añadir por dirección» (IP del otro, que enseña la lista) funciona igual por TCP. **Límites decididos:** tráfico en claro dentro de
+  la red (TLS con huella fijada al emparejar sería la mejora), solo órdenes de reproducción. **Faltan:** fase 3 (que el destino pida el archivo por HTTP
+  al que lo tiene, `GET /connect/v1/media/<id>`, con Range, para aparatos sin la biblioteca: hoy «Pasar mi música» solo sirve si el destino ya tiene esos
+  vídeos) y fase 4 (DLNA/UPnP y Chromecast para tele y altavoces). Controlar Spotify real solo sería por su Web API (Premium + app registrada).
 - **Hecho el 12/11/2026 (tests en verde, sin ver en el móvil):** la flecha atrás está arriba a la derecha en el detalle de playlist del Reproductor
   (`.ambient > .icon-button.back`; en la barra fija `.mini` va al final) y en Reproduciendo (`.np-head`), y la de Reproduciendo lleva a la playlist que suena en
   el Reproductor (`navigate('player', { b })`, no `history.back()`); la tarjeta «Sonando ahora» de Inicio abre Reproduciendo y su botón redondo

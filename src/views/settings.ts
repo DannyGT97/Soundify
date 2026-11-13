@@ -15,6 +15,8 @@ import { buildIndex, searchIndex } from '../settingsSearch';
 import { checkForUpdate, onUpdateChange, updateState } from '../appUpdate';
 import { checkYtdlp, checkYtdlpOnPhone, installTools, isBusy, loadTools, missingTools, toolChip, tools, TOOL_SIZES_MB, updateYtdlpOnPhone } from '../tools';
 import type { ToolStatus } from '../api/types';
+import { connect, loadConnect } from '../connect';
+import { connectSwitch, openDevicesOverlay } from '../overlays/devices';
 
 interface Tab {
   id: string;
@@ -130,8 +132,18 @@ function select(options: [string, string][], value: string, changed?: (v: string
   return el;
 }
 
+/** Soundify Connect: the switch, and the way into the list of devices. */
+function connectControl(): HTMLElement {
+  const box = connectSwitch();
+  // The state may not have come back from the back yet when this tab opens.
+  if (!connect.status) void loadConnect().then(() => { box.checked = connect.status?.enabled ?? false; });
+  return h('div', { class: 'row center gap-10' },
+    h('button', { class: 'secondary-button', text: t('settings.general.connect.open'), onclick: openDevicesOverlay }), box);
+}
+
 function general(): HTMLElement[] {
   return [
+    setting('settings.general.connect', connectControl()),
     setting('settings.general.includeIds', checkbox('includeIdInTitleName')),
   ];
 }

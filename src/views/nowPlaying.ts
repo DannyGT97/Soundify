@@ -11,6 +11,7 @@ import { subscribe, ui } from '../state';
 import { cover } from '../components/cover';
 import { buildTransport, buildVolume, describe } from '../components/transport';
 import { pipButton } from '../components/pip';
+import { openDevicesOverlay } from '../overlays/devices';
 
 /** How long the controls stay over a full-screen video after the mouse stops. */
 const CONTROLS_IDLE_MS = 2500;
@@ -48,8 +49,16 @@ export function nowPlayingView(): HTMLElement {
   // Where the sound goes: this device, or the headphones / Bluetooth device that is connected.
   const deviceIcon = h('span', { class: 'np-device-icon' });
   const deviceName = h('span', { class: 'np-device-name ellipsis' });
-  const device = h('div', { class: 'np-device', title: t('nowPlaying.device') }, deviceIcon, deviceName);
+  // It opens the list of devices (Soundify Connect): to control another one, or to bring the music back.
+  const device = h('button', { class: 'np-device', title: t('nowPlaying.device'), onclick: openDevicesOverlay }, deviceIcon, deviceName);
   const paintDevice = (found: PlaybackDevice) => {
+    // Controlling another Soundify: that is where it sounds.
+    if (ui.remote) {
+      deviceIcon.replaceChildren(icon('monitor', 16));
+      deviceName.textContent = ui.remote.name;
+      device.classList.add('external');
+      return;
+    }
     deviceIcon.replaceChildren(icon(found.kind === 'bluetooth' ? 'bluetooth' : found.kind === 'headphones' ? 'headphones' : onAndroid ? 'device' : 'monitor', 16));
     deviceName.textContent = found.name || t('nowPlaying.device.this');
     device.classList.toggle('external', found.kind !== 'this');
@@ -177,6 +186,7 @@ export function nowPlayingView(): HTMLElement {
   paintDevice({ kind: 'this', name: null });
   const pullDevice = () => void api.playbackDevice().then(paintDevice).catch(() => {});
   pullDevice();
+  onLeave(subscribe('connect', pullDevice));
   const deviceTimer = window.setInterval(() => document.visibilityState === 'visible' && pullDevice(), DEVICE_POLL_MS);
   onLeave(() => window.clearInterval(deviceTimer));
   refresh();

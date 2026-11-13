@@ -10,6 +10,7 @@
 
 pub mod archive;
 pub mod clock;
+pub mod connect;
 pub mod cover_art;
 pub mod cover_embed;
 pub mod device;

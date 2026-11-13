@@ -204,6 +204,14 @@ pub fn open_folder_now(app: &AppHandle, folder: &str) -> Result<(), String> {
     android::open_folder(app, folder)
 }
 
+/// Android drops the multicast packets mDNS lives on unless the app holds a lock on them. Does nothing elsewhere.
+pub fn set_multicast(app: &AppHandle, on: bool) {
+    #[cfg(target_os = "android")]
+    android::set_multicast(app, on);
+    #[cfg(not(target_os = "android"))]
+    let _ = (app, on);
+}
+
 /// Before downloading an update: may the app install apps? `Ok(false)` = not yet,
 /// and the screen where the user allows it is now open.
 #[cfg(target_os = "android")]
@@ -339,6 +347,13 @@ mod android {
         let args = BusyArgs { busy, title: &notice.title, text: &notice.text, progress: notice.percent.map_or(-1, i32::from) };
         if let Err(e) = bridge.0.run_mobile_plugin::<serde_json::Value>("setBusy", args) {
             log::warn!("Could not change the foreground notice: {e}");
+        }
+    }
+
+    pub fn set_multicast(app: &AppHandle, on: bool) {
+        let Ok(bridge) = bridge(app) else { return };
+        if let Err(e) = bridge.0.run_mobile_plugin::<serde_json::Value>("multicastLock", serde_json::json!({ "on": on })) {
+            log::warn!("Could not change the multicast lock: {e}");
         }
     }
 

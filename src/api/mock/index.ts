@@ -10,6 +10,7 @@ import type {
 import { onAndroid } from '../../platform';
 import { emit, ui, type RunningTask, type TaskStatus } from '../../state';
 import { activityLog, AUDIO_FORMATS, importedPlaylist, playlists, VIDEO_FORMATS } from './data';
+import { mockConnect } from './connect';
 import { mockCanDownload, mockTools } from './tools';
 
 /** One clock per running task: with «Descargar más rápido» two of them tick at once. */
@@ -169,6 +170,7 @@ export const mockApi: Api = {
   // The made-up cookies file is there; any other path is not.
   fileExists: async path => path.endsWith('cookies.txt'),
   playbackDevice: async () => ({ kind: 'this', name: null }),
+  ...mockConnect,
   // A plain browser has no window to resize: the page's own full screen stands in.
   setFullscreen: on => {
     if (on && !document.fullscreenElement) void document.documentElement.requestFullscreen().catch(() => {});

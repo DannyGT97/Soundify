@@ -22,6 +22,11 @@ import com.yausername.youtubedl_android.YoutubeDL
 import java.io.File
 
 @InvokeArg
+class MulticastArgs {
+  var on: Boolean = false
+}
+
+@InvokeArg
 class BusyArgs {
   var busy: Boolean = false
   var title: String = ""
@@ -351,6 +356,33 @@ class SoundifyPlugin(private val activity: Activity) : Plugin(activity) {
       }
     } catch (e: Exception) {
       // Starting a service from the background can be refused; the download goes on anyway.
+    }
+    invoke.resolve()
+  }
+
+  // === SOUNDIFY CONNECT ===
+
+  private var multicast: android.net.wifi.WifiManager.MulticastLock? = null
+
+  /**
+   * Android drops the multicast packets mDNS lives on (to save battery) unless the app holds this lock.
+   * Held only while Soundify Connect is on.
+   */
+  @Command
+  fun multicastLock(invoke: Invoke) {
+    val on = invoke.parseArgs(MulticastArgs::class.java).on
+    try {
+      if (on) {
+        if (multicast == null) {
+          val wifi = activity.applicationContext.getSystemService(Context.WIFI_SERVICE) as android.net.wifi.WifiManager
+          multicast = wifi.createMulticastLock("soundify-connect").apply { setReferenceCounted(false) }
+        }
+        multicast?.acquire()
+      } else {
+        multicast?.takeIf { it.isHeld }?.release()
+      }
+    } catch (e: Exception) {
+      // Without the lock the devices are found by address instead of by name; nothing else is lost.
     }
     invoke.resolve()
   }

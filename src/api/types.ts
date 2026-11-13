@@ -255,6 +255,54 @@ export interface WindowControls {
   showSystemMenu(): void;
 }
 
+/** What a player is playing, as two Soundify apps tell each other (`core::connect::protocol`): the video id, not a path. */
+export interface ConnectNowPlaying { videoId: string; title: string; playlist: string; format: string; video: boolean }
+/** The whole state of a player at a moment. */
+export interface ConnectPlayerState {
+  nowPlaying: ConnectNowPlaying | null;
+  playing: boolean;
+  position: number;
+  duration: number;
+  volume: number;
+  shuffle: boolean;
+  repeat: 'off' | 'all' | 'one';
+}
+export interface ConnectQueueItem { videoId: string; title: string }
+/** What a controller asks a player to do. */
+export type ConnectCommand =
+  | { cmd: 'play' | 'pause' | 'toggle' | 'next' | 'previous' }
+  | { cmd: 'seek'; seconds: number }
+  | { cmd: 'volume'; volume: number }
+  | { cmd: 'shuffle'; on?: boolean }
+  | { cmd: 'repeat'; mode?: 'off' | 'all' | 'one' }
+  | { cmd: 'load'; playlist: string; queue: ConnectQueueItem[]; index: number; position: number; autoplay: boolean };
+/** One line of the list of devices (Ajustes and the panel of Reproduciendo). */
+export interface ConnectDevice {
+  id: string;
+  name: string;
+  kind: 'desktop' | 'phone' | 'tablet';
+  address: string | null;
+  /** This device holds a token for it. */
+  paired: boolean;
+  /** It answers on the network now. */
+  online: boolean;
+  /** It is the one being controlled. */
+  connected: boolean;
+}
+export interface ConnectStatus {
+  enabled: boolean;
+  running: boolean;
+  port: number | null;
+  name: string;
+  deviceId: string;
+  /** The device being controlled, if any. */
+  selected: string | null;
+  /** Who may control this device. */
+  controllers: Array<{ id: string; name: string }>;
+  connectedControllers: number;
+}
+export interface ConnectIncoming { from: string; command: ConnectCommand }
+
 export interface PlayerMemory { volume: number; last: LastPlayed | null }
 /** What Ajustes shows and changes, from settings.json. `appearance` is the theme id. */
 export interface Preferences {

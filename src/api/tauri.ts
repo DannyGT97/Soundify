@@ -7,7 +7,7 @@ import { getCurrentWindow } from '@tauri-apps/api/window';
 import { open } from '@tauri-apps/plugin-dialog';
 import type { Api } from '.';
 import type {
-  ActivityLine, AppUpdate, AppUpdateProgress, CopyOutcome, CopyProgress, CreatedPlaylist, DeleteResult, DeviceEntry, DeviceImportScan, DevicesView, DownloadNotice, ExportResult,
+  ActivityLine, AppUpdate, AppUpdateProgress, ConnectDevice, ConnectIncoming, ConnectPlayerState, ConnectStatus, CopyOutcome, CopyProgress, CreatedPlaylist, DeleteResult, DeviceEntry, DeviceImportScan, DevicesView, DownloadNotice, ExportResult,
   FormatCatalog, ImportOutcome, ImportScan, PlayerMemory, Playlist, Preferences, StorageInfo, TasksViewWire, ToolDownload, ToolsReport, YtdlpCheck,
 } from './types';
 import { onAndroid } from '../platform';
@@ -118,6 +118,24 @@ export const tauriApi: Api = {
   resetPreferences: () => invoke<Preferences>('reset_preferences'),
   pickCookiesFile: (title, filter) => invoke<string | null>('pick_cookies_file', { title, filter }),
   fileExists: path => invoke<boolean>('file_exists', { path }),
+  connectStatus: () => invoke<ConnectStatus>('connect_status'),
+  connectSetEnabled: enabled => invoke('connect_set_enabled', { enabled }),
+  connectSetName: name => invoke('connect_set_name', { name }),
+  connectDevices: () => invoke<ConnectDevice[]>('connect_devices'),
+  connectAdd: address => invoke('connect_add', { address }),
+  connectPin: () => invoke<string | null>('connect_pin'),
+  connectRenewPin: () => invoke<string | null>('connect_renew_pin'),
+  connectPair: (deviceId, pin) => invoke('connect_pair', { deviceId, pin }),
+  connectForget: deviceId => invoke('connect_forget', { deviceId }),
+  connectForgetController: controllerId => invoke('connect_forget_controller', { controllerId }),
+  connectSelect: deviceId => invoke('connect_select', { deviceId }),
+  connectDeselect: () => invoke('connect_deselect'),
+  connectSend: command => invoke('connect_send', { command }),
+  connectPublish: state => void invoke('connect_publish', { player: state }).catch(() => {}),
+  onConnectDevices: listener => void listen('connect-devices', () => listener()),
+  onConnectRemoteState: listener => void listen<{ deviceId: string; state: ConnectPlayerState }>('connect-remote-state', event => listener(event.payload.deviceId, event.payload.state)),
+  onConnectRemoteClosed: listener => void listen<{ deviceId: string }>('connect-remote-closed', event => listener(event.payload.deviceId)),
+  onConnectCommand: listener => void listen<ConnectIncoming>('connect-command', event => listener(event.payload)),
   playbackDevice: async () => {
     if (!onAndroid) return { kind: 'this', name: null };
     const answer = await invoke<{ kind?: string; name?: string }>('native_player', { action: 'playerOutputDevice' }).catch(() => null);

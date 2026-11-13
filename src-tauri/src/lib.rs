@@ -5,6 +5,7 @@ mod app_paths;
 mod app_update;
 mod bootstrap;
 mod commands;
+mod connect;
 mod covers;
 mod devices;
 mod downloads;
@@ -117,6 +118,8 @@ pub fn run() {
       // On Android only once the storage can be read: without access every
       // file would look deleted (`mobile::request_all_files` runs it later).
       mobile::reconcile_in_background(app.handle().clone());
+      // Soundify Connect: control between devices on the same network (off until the user turns it on).
+      connect::init(app.handle(), &app.state::<AppState>().paths);
       // The daily check for a newer version (on Android it offers the APK).
       app_update::check_at_startup(app.handle());
       // On Android the tools come in the APK and are unpacked now.
@@ -134,6 +137,20 @@ pub fn run() {
       mobile::pick_phone_folder,
       mobile::native_player,
       commands::list_playlists,
+      connect::connect_status,
+      connect::connect_set_enabled,
+      connect::connect_set_name,
+      connect::connect_devices,
+      connect::connect_add,
+      connect::connect_pin,
+      connect::connect_renew_pin,
+      connect::connect_pair,
+      connect::connect_forget,
+      connect::connect_forget_controller,
+      connect::connect_select,
+      connect::connect_deselect,
+      connect::connect_send,
+      connect::connect_publish,
       commands::refresh_library,
       commands::formats,
       commands::tool_health,

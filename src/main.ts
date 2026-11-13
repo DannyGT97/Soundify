@@ -21,6 +21,7 @@ import { api } from './api';
 import { onLanguageChange, t } from './i18n';
 import { checkDisk, loadLibrary, loadLibrarySoon } from './library';
 import { onOpenRequest, restoreLast, savePosition } from './player';
+import { startConnect } from './connect';
 import { loadAppInfo } from './appInfo';
 import { watchAppUpdates } from './appUpdate';
 import { messageText, noticeTone, pointsToSettings } from './tasks';
@@ -101,6 +102,8 @@ if (app) {
     // What these screens show is what is on disk: it may have changed outside the app.
     if (route === 'manager' || route === 'player' || route === 'now-playing') void checkDisk();
   });
+  // Soundify Connect: other devices that control this one, and the one this controls.
+  startConnect();
   // The phone's music notification opens the app on what is playing.
   onOpenRequest(() => navigate('now-playing'));
   // Coming back to the window (from the file explorer, say): the same look.
