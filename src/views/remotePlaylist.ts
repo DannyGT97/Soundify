@@ -8,8 +8,14 @@ import { hueOf, queuePicture, showPicture } from '../covers';
 import { h } from '../dom';
 import { t } from '../i18n';
 import { icon } from '../icons';
+import * as player from '../player';
 import { navigate, onLeave } from '../router';
+import { filterByTitle } from '../search';
 import { subscribe, ui } from '../state';
+import { nextOrder, orderOf, setOrder, sortTracks, type SortKey } from '../trackOrder';
+
+/** A file of the remote playlist with its place in it (the number the other device gives it). */
+type Numbered = ConnectQueueItem & { number: number; addedDaysAgo: number };
 
 function numberCell(current: boolean, number: number): HTMLElement {
   return current
@@ -57,7 +63,88 @@ export function remotePlaylistView(): HTMLElement {
   const heading = h('h1');
   const sub = h('div', { class: 'pl-sub' });
   const tracks = h('div', { class: 'tracks' });
-  const none = h('p', { class: 'none', text: t('remotePlaylist.empty') });
+  const none = h('p', { class: 'none' });
+  let filter = '';
+  // The same sorting as a local playlist (# and title; it has no download date). It only changes how it is listed
+  // here: the other device plays its own order.
+  const orderKey = () => `remote:${device.deviceId}:${connect.queue?.playlist ?? ''}`;
+  const COLUMNS: { key: SortKey; class: string; label: string }[] = [
+    { key: 'number', class: 'n', label: '#' },
+    { key: 'title', class: '', label: t('player.column.title') },
+  ];
+  const headers = new Map<SortKey, HTMLElement>();
+  for (const column of COLUMNS) {
+    headers.set(column.key, h('button', {
+      class: `col-sort ${column.class}`.trim(),
+      attrs: { type: 'button' },
+      onclick: () => {
+        setOrder(orderKey(), nextOrder(orderOf(orderKey()), column.key));
+        fillTracks();
+      },
+    }, h('span', { text: column.label }), icon('chevron-down', 12)));
+  }
+  const cols = h('div', { class: 'cols' }, headers.get('number')!, h('span', { class: 'thumb-col' }), headers.get('title')!, h('span', { class: 'added' }));
+  const refreshHeaders = () => {
+    const order = orderOf(orderKey());
+    for (const column of COLUMNS) {
+      const header = headers.get(column.key)!;
+      const active = column.key === order.key;
+      header.classList.toggle('active', active);
+      header.dataset.dir = active ? order.dir : '';
+      header.setAttribute('aria-sort', active ? (order.dir === 'asc' ? 'ascending' : 'descending') : 'none');
+      header.title = t('player.sort.by', column.label);
+    }
+  };
+  const fillTracks = () => {
+    refreshHeaders();
+    const items: Numbered[] = (connect.queue?.items ?? []).map((item, index) => ({ ...item, number: index + 1, addedDaysAgo: 0 }));
+    const shown = sortTracks(filterByTitle(items, filter), orderOf(orderKey()));
+    tracks.replaceChildren(...shown.map(item => row(item, item.number)));
+    none.hidden = shown.length > 0;
+    none.textContent = !items.length ? t('remotePlaylist.empty') : t('player.search.none', filter.trim());
+  };
+
+  // Play/pause, shuffle and search, like a local playlist: they go to the device being controlled.
+  const sounds = () => !!ui.nowPlaying && !!connect.queue?.items.some(item => item.videoId === ui.nowPlaying?.track.id);
+  const playButton = (big: boolean) => h('button', { class: `round-play${big ? ' big' : ''}`, onclick: () => {
+    if (sounds()) player.togglePlay();
+    else {
+      const first = connect.queue?.items[0];
+      if (first) playRemoteTrack(first.videoId);
+    }
+  } });
+  const heroPlay = playButton(true);
+  const miniPlay = playButton(false);
+  const shuffle = h('button', { class: 'icon-button', title: t('player.shuffle'), onclick: () => player.toggleShuffle() }, icon('shuffle', 20));
+  const refreshPlay = () => {
+    const playing = sounds() && ui.playing;
+    for (const [button, iconSize] of [[heroPlay, 24], [miniPlay, 16]] as const) {
+      button.replaceChildren(icon(playing ? 'pause' : 'play', iconSize, true));
+      button.title = t(playing ? 'player.pause' : 'player.play');
+      button.setAttribute('aria-label', button.title);
+      button.disabled = !connect.queue?.items.length;
+    }
+    shuffle.disabled = !connect.queue?.items.length;
+    shuffle.classList.toggle('on', ui.shuffle);
+  };
+  const search = h('input', { class: 'input track-search', attrs: { type: 'search', placeholder: t('songs.searchPlaceholder'), 'aria-label': t('player.search') } });
+  search.addEventListener('input', () => {
+    filter = search.value;
+    fillTracks();
+  });
+  const closeSearch = () => {
+    search.classList.remove('open');
+    search.value = '';
+    filter = '';
+    fillTracks();
+  };
+  const searchToggle = h('button', { class: 'icon-button', title: t('player.search'), onclick: () => {
+    if (search.classList.contains('open')) closeSearch();
+    else {
+      search.classList.add('open');
+      search.focus();
+    }
+  } }, icon('search', 18));
   const miniTitle = h('b', { class: 'ellipsis grow' });
   const heroCover = cover(device.name, false, 168);
   let shownFor: object | null | undefined;
@@ -72,13 +159,14 @@ export function remotePlaylistView(): HTMLElement {
     detail.style.setProperty('--h', String(hueOf(title)));
     sub.textContent = [t('remotePlaylist.on', device.name), queue ? t('remotePlaylist.files', queue.items.length) : ''].filter(Boolean).join(' · ');
     showPicture(heroCover, queuePicture(queue));
-    tracks.replaceChildren(...(queue?.items ?? []).map((item, index) => row(item, index + 1)));
-    none.hidden = !!queue?.items.length;
+    fillTracks();
+    refreshPlay();
     tracks.querySelector('.playing')?.scrollIntoView({ block: 'center' });
   };
 
   /** What sounds changes all the time: only the rows whose state changed are touched (the list can have hundreds). */
   const paint = () => {
+    refreshPlay();
     for (const element of tracks.querySelectorAll<HTMLElement>(':scope > .track-row')) {
       const item = { videoId: element.dataset.id ?? '', title: '' };
       const state = stateOf(item);
@@ -98,10 +186,14 @@ export function remotePlaylistView(): HTMLElement {
       h('div', { class: 'grow min0' },
         h('div', { class: 'eyebrow', text: t('remotePlaylist.eyebrow') }),
         heading,
-        sub)));
-  const scroller = h('div', { class: 'scroller' }, hero, tracks, none);
+        sub)),
+    h('div', { class: 'actions' },
+      heroPlay, shuffle,
+      h('div', { class: 'spacer' }),
+      search, searchToggle));
+  const scroller = h('div', { class: 'scroller' }, hero, cols, tracks, none);
   const detail = h('div', { class: 'detail' },
-    h('div', { class: 'mini' }, icon('monitor', 18), miniTitle, h('span', { class: 'fmt', text: device.name }), backButton()),
+    h('div', { class: 'mini' }, miniPlay, icon('monitor', 18), miniTitle, h('span', { class: 'fmt', text: device.name }), backButton()),
     scroller);
   scroller.addEventListener('scroll', () => detail.classList.toggle('stuck', scroller.scrollTop > hero.offsetHeight - 56));
 
@@ -113,7 +205,8 @@ export function remotePlaylistView(): HTMLElement {
   onLeave(subscribe('player', paint));
   const onKey = (event: KeyboardEvent) => {
     if (event.key !== 'Escape' || document.querySelector('#overlay-root')?.childElementCount) return;
-    back();
+    if (search.classList.contains('open')) closeSearch();
+    else back();
   };
   window.addEventListener('keydown', onKey);
   onLeave(() => window.removeEventListener('keydown', onKey));

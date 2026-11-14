@@ -381,6 +381,12 @@ Repositorio: https://github.com/DannyGT97/Soundify (GitHub, rama `main`, GPL-3.0
   argumentos, protocolo igual) lo manda `Connect::select` al elegirlo; el elegido, si controlaba a otro, lo suelta, publica su estado y cola reales y avisa (`onCommand` en
   `connect.ts`). Un dispositivo con versión vieja contesta «unknown» al `take` y no pasa nada. (8) Reproduciendo lleva de título (`.np-head-title`) la playlist, y
   «Playlist remota» encima si es del otro dispositivo; el subtítulo ya solo lleva el formato.
+  **4.ª tanda (14/11/2026, tests y e2e en verde, SIN probar en el móvil):** (9) reproducir algo LOCAL mientras se controla otro (fila, tarjeta o
+  «Reproducir todo») suelta el control (`connect_deselect`, la conexión sigue) y suena aquí, con el aviso `connect.playingHere` y «Volver a controlarlo»
+  (`player.enterRemote(route, release)` → `takeBackLocal` en `play`/`playAll`; antes se ignoraba). El corte «Se perdió la conexión» que vio el usuario al hacerlo
+  NO tiene causa demostrada (deselect no cierra la sesión): si se repite, mirar el log del PC. (10) La playlist remota ordena por # y título (`trackOrder`,
+  clave `remote:<id>:<playlist>`, solo cambia cómo se lista aquí: el otro toca en su orden) y lleva reproducir/pausa, aleatorio y buscar. (11) En móvil el
+  detalle de playlist (local y remota) y Reproduciendo ocupan todo el ancho y alto (`phone.css`, sin borde ni radio).
   Pendiente menor: el PC sigue enseñando el nombre viejo del controlador («Teléfono Android») hasta que se vuelva a emparejar.
 - **Connect en Android 17: la causa de que «no funcionara» (13/11/2026, comprobada con el S24 por adb; Samsung One UI 9 / Android 17, SDK 37).** Dos cosas,
   las dos necesarias: (1) **sin el permiso `ACCESS_LOCAL_NETWORK`** (Android 16+, grupo «Dispositivos cercanos»; la app apunta a SDK 37) la red local queda

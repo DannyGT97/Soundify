@@ -57,6 +57,17 @@
   #app:has(.tasks-pill:not([hidden])) .screen { padding-top: 54px; }
 
   .screen { padding: 12px 12px 16px; }
+  /* A playlist (local or remote) fills the whole width and height: on a phone no edge is spare. */
+  .screen.detail-screen { padding: 0; }
+  .detail { border: 0; border-radius: 0; }
+  .detail .cols { margin: 0; }
+  .detail .tracks { padding: 4px 0 12px; }
+  .ambient { padding: 12px 14px 6px; }
+  .ambient > .icon-button.back { top: 12px; right: 14px; }
+  .detail .notice { margin: 4px 14px 8px; }
+  .foot-note { padding: 4px 14px 18px; }
+  .np-backdrop, .np-tint { border-radius: 0; }
+  .now-empty { border: 0; border-radius: 0; }
   .page-title { font-size: 22px; }
   .title-row { flex-wrap: wrap; row-gap: 8px; }
 

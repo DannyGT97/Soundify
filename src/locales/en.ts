@@ -214,6 +214,8 @@ export const en: Record<string, string> = {
   'connect.add.desc': 'If it does not show up by itself (some routers block discovery), type its IP address.',
   'connect.controllers': 'Can control this device',
   'connect.revoke': 'Remove access',
+  'connect.playingHere': 'Now playing on this device. "{0}" stays connected and keeps playing its own.',
+  'connect.controlAgain': 'Control it again',
   'connect.lost': 'The connection to "{0}" was lost: you are back to controlling this device.',
   'connect.someone': 'Another device',
   'connect.said.take': '{0} now controls this device',

@@ -184,7 +184,7 @@ export async function controlDevice(device: ConnectDevice): Promise<boolean> {
     return false;
   }
   if (!ui.remote) {
-    snapshot = player.enterRemote(route);
+    snapshot = player.enterRemote(route, playHere);
     publishPaused(snapshot);
   }
   ui.remote = { deviceId: device.id, name: device.name };
@@ -210,6 +210,25 @@ export function playRemoteTrack(videoId: string): void {
 export async function stopControlling(): Promise<void> {
   await api.connectDeselect().catch(() => {});
   leave();
+}
+
+/**
+ * A file of THIS device was played while another was controlled: control is let go of (not the connection: it stays,
+ * and the notice offers to take the other back) and this device plays it. The other keeps playing what it was.
+ */
+function playHere(): void {
+  const was = ui.remote;
+  if (!was) return;
+  void api.connectDeselect().catch(() => {});
+  leave();
+  notify({
+    tone: 'neutral',
+    text: t('connect.playingHere', was.name),
+    action: { label: t('connect.controlAgain'), run: () => {
+      const device = connect.devices.find(d => d.id === was.deviceId);
+      if (device) void controlDevice(device);
+    } },
+  });
 }
 
 function leave(): void {

@@ -226,6 +226,8 @@ export const es: Record<string, string> = {
   'connect.add.desc': 'Si no aparece solo (algunos routers bloquean el descubrimiento), escribe su dirección IP.',
   'connect.controllers': 'Pueden controlar este dispositivo',
   'connect.revoke': 'Quitar acceso',
+  'connect.playingHere': 'Ahora suena en este dispositivo. «{0}» sigue conectado y con lo suyo.',
+  'connect.controlAgain': 'Volver a controlarlo',
   'connect.lost': 'Se perdió la conexión con «{0}»: vuelves a controlar este dispositivo.',
   'connect.someone': 'Otro dispositivo',
   'connect.said.take': '{0} controla ahora este dispositivo',

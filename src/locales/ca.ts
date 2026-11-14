@@ -214,6 +214,8 @@ export const ca: Record<string, string> = {
   'connect.add.desc': 'Si no apareix sol (alguns routers bloquegen el descobriment), escriu-ne l\'adreça IP.',
   'connect.controllers': 'Poden controlar aquest dispositiu',
   'connect.revoke': 'Treu l\'accés',
+  'connect.playingHere': 'Ara sona en aquest dispositiu. «{0}» continua connectat i amb el seu.',
+  'connect.controlAgain': 'Torna a controlar-lo',
   'connect.lost': 'S\'ha perdut la connexió amb «{0}»: tornes a controlar aquest dispositiu.',
   'connect.someone': 'Un altre dispositiu',
   'connect.said.take': '{0} controla ara aquest dispositiu',

@@ -285,3 +285,35 @@ test('repeat goes round off, all, one and back to off on the controlled device',
     await expect(repeat).toHaveAttribute('title', wanted);
   }
 });
+
+test('playing a file of this device while controlling another lets go of the control, not of the connection', async ({ page }) => {
+  await openDevices(page);
+  await row(page, 'tv').getByRole('button', { name: 'Controlar' }).click();
+  await expect(barTitle(page)).toHaveText('Canción del salón');
+  await page.goto('/?mockConnect#/player?b=pl1:MP3');
+  const local = page.locator('.tracks .track-row:not(.off)').first();
+  const title = (await local.locator('.row-title').textContent()) ?? '';
+  await local.click();
+  await expect(barTitle(page)).toHaveText(title);
+  const notice = page.locator('.toast', { hasText: 'sigue conectado' });
+  await expect(notice).toBeVisible();
+  await expect(page.locator('.toast', { hasText: 'Se perdió la conexión' })).toHaveCount(0);
+  // The other device is still there: one tap takes it back.
+  await notice.getByRole('button', { name: 'Volver a controlarlo' }).click();
+  await expect(barTitle(page)).toHaveText('Canción del salón');
+});
+
+test('the remote playlist sorts by # and title like a local one', async ({ page }) => {
+  await openDevices(page);
+  await row(page, 'tv').getByRole('button', { name: 'Controlar' }).click();
+  await page.evaluate(() => { location.hash = '#/remote-playlist'; });
+  await page.evaluate(() => (window as unknown as { __connect: { salonQueue: (p: string, t: string[]) => void } }).__connect.salonQueue('Jazz', ['Beta', 'Alfa', 'Gamma']));
+  const titles = page.locator('.track-row .row-title');
+  await expect(titles).toHaveText(['Beta', 'Alfa', 'Gamma']);
+  await page.locator('.cols .col-sort', { hasText: 'Título' }).click();
+  await expect(titles).toHaveText(['Alfa', 'Beta', 'Gamma']);
+  await page.locator('.cols .col-sort', { hasText: 'Título' }).click();
+  await expect(titles).toHaveText(['Gamma', 'Beta', 'Alfa']);
+  await page.locator('.cols .col-sort', { hasText: '#' }).click();
+  await expect(titles).toHaveText(['Beta', 'Alfa', 'Gamma']);
+});

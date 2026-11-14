@@ -130,6 +130,19 @@ export function onOpenRequest(listener: () => void): void {
  * instead of the local engine (`connect.ts` sets this and puts that device's state in `ui`).
  */
 let remoteRoute: ((command: ConnectCommand) => void) | null = null;
+/**
+ * Playing something of THIS device while another is controlled: control of the other is let go of (the connection to it
+ * stays, to take it again whenever) and this device plays. `connect.ts` gives it with `enterRemote`.
+ */
+let releaseRemote: (() => void) | null = null;
+
+/** True if nothing remote is in the way any more (it was let go of, or there was nothing). */
+function takeBackLocal(): boolean {
+  if (!remoteRoute) return true;
+  const release = releaseRemote;
+  release?.();
+  return !remoteRoute;
+}
 
 /** What the local player was doing when another device took over the screen. */
 export interface LocalSnapshot {
@@ -142,17 +155,19 @@ export interface LocalSnapshot {
 }
 
 /** Starts controlling another device: the local one is paused and kept as it is, to come back to it. */
-export function enterRemote(route: (command: ConnectCommand) => void): LocalSnapshot {
+export function enterRemote(route: (command: ConnectCommand) => void, release: () => void): LocalSnapshot {
   if (ui.playing) setPlaying(false);
   void savePosition();
   const snapshot: LocalSnapshot = { nowPlaying: ui.nowPlaying, position: ui.position, duration: ui.duration, volume: ui.volume, shuffle: ui.shuffle, repeat: ui.repeat };
   remoteRoute = route;
+  releaseRemote = release;
   return snapshot;
 }
 
 /** Back to the local player, paused where it was. */
 export function leaveRemote(snapshot: LocalSnapshot): void {
   remoteRoute = null;
+  releaseRemote = null;
   ui.nowPlaying = snapshot.nowPlaying;
   ui.playing = false;
   ui.position = snapshot.position;
@@ -188,7 +203,7 @@ export function isPlayable(format: string | null | undefined): boolean {
 
 /** Plays `track` of a block, with the block's files on disk as the queue. */
 export function play(blockKey: string, track: Track): void {
-  if (remoteRoute) return;
+  if (!takeBackLocal()) return;
   const index = queueOf(blockKey).findIndex(tr => tr.id === track.id);
   if (index >= 0) start(blockKey, index, true);
 }
@@ -210,7 +225,7 @@ export function reorderQueue(blockKey: string): void {
 
 /** From the first file (shuffled, the rest come in a fixed random order). */
 export function playAll(blockKey: string): void {
-  if (remoteRoute) return;
+  if (!takeBackLocal()) return;
   start(blockKey, 0, true);
 }
 
