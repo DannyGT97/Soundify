@@ -46,3 +46,9 @@ Thumbs.db
 
 # Plan de migracion: notas de trabajo locales
 MIGRATION-PLAN.md
+
+# Notas de trabajo locales (planes y mapas): en el repositorio solo va CLAUDE.md
+PLAN-CONNECT.md
+PLAN-DESCARGA-SIMULTANEA.md
+plan-seguridad.md
+TEST-MAP.md
