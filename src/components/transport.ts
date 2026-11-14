@@ -24,14 +24,25 @@ export function buildTransport(): HTMLElement {
     h('div', { class: 'player-controls' }, shuffle, previous, play, next, repeat),
     h('div', { class: 'player-progress' }, position, progress, duration));
 
+  // The icons are only replaced when they change: this runs with every tick of the song, and a button whose content is
+  // swapped between pressing and letting go of the mouse can lose its click.
+  let shownPlay = '';
+  let shownRepeat = '';
   const refresh = () => {
     if (!ui.nowPlaying) return;
-    play.replaceChildren(icon(ui.playing ? 'pause' : 'play', 16, true));
-    describe(play, ui.playing ? 'player.pause' : 'player.play');
+    const playKey = ui.playing ? 'pause' : 'play';
+    if (playKey !== shownPlay) {
+      shownPlay = playKey;
+      play.replaceChildren(icon(playKey, 16, true));
+      describe(play, ui.playing ? 'player.pause' : 'player.play');
+    }
     shuffle.classList.toggle('on', ui.shuffle);
-    repeat.replaceChildren(icon(ui.repeat === 'one' ? 'repeat-one' : 'repeat'));
+    if (ui.repeat !== shownRepeat) {
+      shownRepeat = ui.repeat;
+      repeat.replaceChildren(icon(ui.repeat === 'one' ? 'repeat-one' : 'repeat'));
+      describe(repeat, `player.repeat.${ui.repeat}`);
+    }
     repeat.classList.toggle('on', ui.repeat !== 'off');
-    describe(repeat, `player.repeat.${ui.repeat}`);
     progress.max = String(ui.duration);
     if (!progress.matches(':active')) progress.value = String(ui.position);
     paintFilled(progress);
@@ -68,8 +79,13 @@ export function buildVolume(): HTMLElement {
   volume.addEventListener('change', player.saveVolume);
   const volumeIcon = h('span', { class: 'player-volume-icon', title: t('player.volume') });
   const box = h('div', { class: 'player-volume' }, volumeIcon, volume);
+  let shownVolume = '';
   const refresh = () => {
-    volumeIcon.replaceChildren(icon(ui.volume === 0 ? 'muted' : 'volume'));
+    const volumeKey = ui.volume === 0 ? 'muted' : 'volume';
+    if (volumeKey !== shownVolume) {
+      shownVolume = volumeKey;
+      volumeIcon.replaceChildren(icon(volumeKey));
+    }
     volume.value = String(ui.volume);
     paintFilled(volume);
   };

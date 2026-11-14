@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { crop, placement, playlistPicture } from './covers';
+import { crop, placement, playlistPicture, queuePicture } from './covers';
 import type { FormatBlock, Playlist } from './api';
 
 function block(firstVideoId: string | null): FormatBlock {
@@ -41,5 +41,16 @@ describe('playlistPicture', () => {
 
   it('has nothing for a playlist with neither', () => {
     expect(playlistPicture(playlist(null, block(null)))).toBeNull();
+  });
+});
+
+describe('queuePicture', () => {
+  it("is the thumbnail of the remote playlist's first file", () => {
+    expect(queuePicture({ items: [{ videoId: 'dQw4w9WgXcQ' }, { videoId: 'x' }] })).toEqual({ kind: 'thumbnail', id: 'dQw4w9WgXcQ' });
+  });
+
+  it('is nothing while the playlist is not known or empty', () => {
+    expect(queuePicture(null)).toBeNull();
+    expect(queuePicture({ items: [] })).toBeNull();
   });
 });

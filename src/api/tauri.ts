@@ -7,7 +7,7 @@ import { getCurrentWindow } from '@tauri-apps/api/window';
 import { open } from '@tauri-apps/plugin-dialog';
 import type { Api } from '.';
 import type {
-  ActivityLine, AppUpdate, AppUpdateProgress, ConnectDevice, ConnectFirewall, ConnectIncoming, ConnectPlayerState, ConnectStatus, CopyOutcome, CopyProgress, CreatedPlaylist, DeleteResult, DeviceEntry, DeviceImportScan, DevicesView, DownloadNotice, ExportResult,
+  ActivityLine, AppUpdate, AppUpdateProgress, ConnectDevice, ConnectFirewall, ConnectIncoming, ConnectPlayerState, ConnectQueue, ConnectStatus, CopyOutcome, CopyProgress, CreatedPlaylist, DeleteResult, DeviceEntry, DeviceImportScan, DevicesView, DownloadNotice, ExportResult,
   FormatCatalog, ImportOutcome, ImportScan, PlayerMemory, Playlist, Preferences, StorageInfo, TasksViewWire, ToolDownload, ToolsReport, YtdlpCheck,
 } from './types';
 import { onAndroid } from '../platform';
@@ -124,6 +124,7 @@ export const tauriApi: Api = {
   connectSetOpen: open => invoke('connect_set_open', { open }),
   connectFirewallStatus: () => invoke<ConnectFirewall>('connect_firewall_status'),
   connectFirewallAllow: () => invoke<ConnectFirewall>('connect_firewall_allow'),
+  connectRequestLocalNetwork: () => invoke('connect_request_local_network'),
   connectNetworkPrivate: () => invoke<ConnectFirewall>('connect_network_private'),
   connectDevices: () => invoke<ConnectDevice[]>('connect_devices'),
   connectAdd: address => invoke('connect_add', { address }),
@@ -136,6 +137,9 @@ export const tauriApi: Api = {
   connectDeselect: () => invoke('connect_deselect'),
   connectSend: command => invoke('connect_send', { command }),
   connectPublish: state => void invoke('connect_publish', { player: state }).catch(() => {}),
+  connectPublishQueue: queue => void invoke('connect_publish_queue', { queue }).catch(() => {}),
+  connectQueueOf: deviceId => invoke<ConnectQueue | null>('connect_queue_of', { deviceId }),
+  onConnectRemoteQueue: listener => void listen<{ deviceId: string; queue: ConnectQueue | null }>('connect-remote-queue', event => listener(event.payload.deviceId, event.payload.queue)),
   onConnectDevices: listener => void listen('connect-devices', () => listener()),
   onConnectRemoteState: listener => void listen<{ deviceId: string; state: ConnectPlayerState }>('connect-remote-state', event => listener(event.payload.deviceId, event.payload.state)),
   onConnectRemoteClosed: listener => void listen<{ deviceId: string }>('connect-remote-closed', event => listener(event.payload.deviceId)),

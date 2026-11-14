@@ -5,7 +5,7 @@
 // emits the matching topic (`tasks`, `player`), and the views follow that.
 
 import type {
-  AppUpdate, AppUpdateProgress, ConnectCommand, ConnectDevice, ConnectFirewall, ConnectIncoming, ConnectPlayerState, ConnectStatus, CopyOutcome, CopyProgress, CreatedPlaylist, DeleteResult, DeviceEntry, DeviceImportScan, DevicesView, DeviceTarget, DownloadNotice, DownloadRequest,
+  AppUpdate, AppUpdateProgress, ConnectCommand, ConnectDevice, ConnectFirewall, ConnectIncoming, ConnectPlayerState, ConnectQueue, ConnectStatus, CopyOutcome, CopyProgress, CreatedPlaylist, DeleteResult, DeviceEntry, DeviceImportScan, DevicesView, DeviceTarget, DownloadNotice, DownloadRequest,
   ExportResult, FormatCatalog, ImportOutcome, ImportScan, PlayerBackend, PlayerMemory, Playlist,
   Preferences, PreferencesPatch,
   StorageInfo, ToolDownload, ToolId, ToolsReport, WindowControls, YtdlpCheck,
@@ -169,6 +169,8 @@ export interface Api {
   connectStatus(): Promise<ConnectStatus>;
   /** On or off (and remembered). Rejects with an `ApiError`. */
   connectSetEnabled(enabled: boolean): Promise<void>;
+  /** Android 16+: asks for the permission to use the local network (or opens the app's settings if it was refused for good). */
+  connectRequestLocalNetwork(): Promise<void>;
   /** Windows' firewall and this app: is it let in, and is the network «Public»? Nothing is changed. */
   connectFirewallStatus(): Promise<ConnectFirewall>;
   /** Asks Windows for the rule (its administrator confirmation comes up). Rejects with an `ApiError` if it is closed. */
@@ -196,10 +198,16 @@ export interface Api {
   connectSend(command: ConnectCommand): Promise<void>;
   /** What this device plays now, for those who control it. */
   connectPublish(state: ConnectPlayerState): void;
+  /** The playlist this device is playing (null = none), for those who control it. */
+  connectPublishQueue(queue: ConnectQueue | null): void;
+  /** The playlist a device said it is playing (null if it has not said). */
+  connectQueueOf(deviceId: string): Promise<ConnectQueue | null>;
   /** The list of devices, or who is connected, changed. */
   onConnectDevices(listener: () => void): void;
   /** The device being controlled says what it is doing. */
   onConnectRemoteState(listener: (deviceId: string, state: ConnectPlayerState) => void): void;
+  /** The device being controlled says which playlist it is playing. */
+  onConnectRemoteQueue(listener: (deviceId: string, queue: ConnectQueue | null) => void): void;
   /** The connection to the device being controlled ended by itself. */
   onConnectRemoteClosed(listener: (deviceId: string) => void): void;
   /** A device that controls this one asks for something. */

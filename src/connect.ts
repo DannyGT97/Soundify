@@ -9,9 +9,9 @@
 // Being controlled = this player's state is published whenever it is worth it, and what
 // the controller asks is done with the same functions the buttons call.
 
-import { api, type ConnectDevice, type ConnectPlayerState, type ConnectStatus } from './api';
+import { api, type ConnectDevice, type ConnectPlayerState, type ConnectQueue, type ConnectStatus } from './api';
 import { notify } from './components/toasts';
-import { actionsFor, projectPosition, remoteTrack, shouldPublish, toWireState } from './connectLogic';
+import { VOLUME_ECHO_MS, actionsFor, describeCommand, projectPosition, remoteTrack, shouldPublish, toWireState, volumeToShow } from './connectLogic';
 import { t } from './i18n';
 import { findBlock } from './library';
 import * as player from './player';
@@ -21,6 +21,8 @@ import { errorText } from './transfer';
 export const connect = {
   status: null as ConnectStatus | null,
   devices: [] as ConnectDevice[],
+  /** The playlist the device being controlled is playing: its «remote playlist» (null until it says). */
+  queue: null as ConnectQueue | null,
 };
 
 /** The device list and who is connected, as the back has them now. */
@@ -68,8 +70,9 @@ function announcePlaying(): void {
 export function startConnect(): void {
   api.onConnectDevices(() => void loadConnect());
   api.onConnectRemoteState(onRemoteState);
+  api.onConnectRemoteQueue(onRemoteQueue);
   api.onConnectRemoteClosed(onRemoteClosed);
-  api.onConnectCommand(incoming => onCommand(incoming.command));
+  api.onConnectCommand(incoming => onCommand(incoming.command, incoming.from));
   subscribe('player', () => publishIfWorth());
   document.addEventListener('visibilitychange', () => document.visibilityState === 'visible' && void loadConnect());
   void loadConnect();
@@ -79,24 +82,53 @@ export function startConnect(): void {
 
 let lastPublished: ConnectPlayerState | null = null;
 let lastPublishedAt = 0;
+/** The playlist whose files were last published as the queue: they only go again when it changes. */
+let publishedBlock: string | null | undefined;
 
-/** This player's state, said to whoever controls it, when it changed in a way that matters. */
-function publishIfWorth(force = false): void {
-  if (!connect.status?.running || ui.remote) return;
-  const state = toWireState(ui, blockKey => {
-    const found = findBlock(blockKey);
-    return found ? { playlist: found.playlist.title, format: found.block.format, video: found.block.video } : null;
-  });
-  const elapsed = (Date.now() - lastPublishedAt) / 1000;
-  if (!force && !shouldPublish(lastPublished, state, elapsed)) return;
+const blockInfo = (blockKey: string) => {
+  const found = findBlock(blockKey);
+  return found ? { playlist: found.playlist.title, format: found.block.format, video: found.block.video } : null;
+};
+
+/**
+ * This device starts controlling another: what it said last (maybe «playing») is no longer true, because the local player was
+ * paused. Whoever controls THIS device from now on must see it as it is.
+ */
+function publishPaused(local: player.LocalSnapshot): void {
+  if (!connect.status?.running) return;
+  const state = toWireState({ ...local, playing: false }, blockInfo);
   lastPublished = state;
   lastPublishedAt = Date.now();
   api.connectPublish(state);
 }
 
-/** What a controller asked: done with the functions the buttons use. Ignored while this device is a controller itself. */
-function onCommand(command: Parameters<typeof actionsFor>[0]): void {
-  if (ui.remote) return;
+/** This player's state, said to whoever controls it, when it changed in a way that matters. */
+function publishIfWorth(force = false): void {
+  if (!connect.status?.running || ui.remote) return;
+  const state = toWireState(ui, blockInfo);
+  const elapsed = (Date.now() - lastPublishedAt) / 1000;
+  if (!force && !shouldPublish(lastPublished, state, elapsed)) return;
+  lastPublished = state;
+  lastPublishedAt = Date.now();
+  api.connectPublish(state);
+  const blockKey = ui.nowPlaying?.blockKey ?? null;
+  if (force || blockKey !== publishedBlock) {
+    publishedBlock = blockKey;
+    const queue = player.currentQueue();
+    api.connectPublishQueue(queue ? { playlist: queue.playlist, items: queue.items } : null);
+  }
+}
+
+/**
+ * What a controller asked: done with the functions the buttons use. A device is either a controller or a player at a time, and
+ * the last to ask wins: if this one was controlling another device, it stops (back to its own player) and does what it is asked.
+ */
+function onCommand(command: Parameters<typeof actionsFor>[0], from = ''): void {
+  if (ui.remote) {
+    void api.connectDeselect().catch(() => {});
+    leave();
+  }
+  sayWhoDid(command, from);
   for (const action of actionsFor(command, ui)) {
     switch (action.kind) {
       case 'toggle': player.togglePlay(); break;
@@ -106,14 +138,23 @@ function onCommand(command: Parameters<typeof actionsFor>[0]): void {
       case 'volume': player.setVolume(action.volume); player.saveVolume(); break;
       case 'shuffle': player.toggleShuffle(); break;
       case 'repeat': for (let press = 0; press < action.times; press++) player.cycleRepeat(); break;
-      case 'load':
-        if (!player.playVideoId(action.videoId, action.position, action.autoplay, action.playlist)) {
-          notify({ tone: 'warning', text: t('connect.cannotLoad') });
-        }
-        break;
+      case 'play': player.playTrackById(action.videoId); break;
     }
   }
   publishIfWorth(true);
+}
+
+/** The same notice is not repeated while a slider is dragged or a button pressed again and again. */
+let lastSaid = { key: '', at: 0 };
+
+/** «Móvil controla ahora este dispositivo»: the device that is controlled says who took it (and nothing of what it then does). */
+function sayWhoDid(command: Parameters<typeof actionsFor>[0], from: string): void {
+  const said = describeCommand(command, from || t('connect.someone'));
+  if (!said) return;
+  const now = Date.now();
+  if (lastSaid.key === said.key && now - lastSaid.at < 3000) return;
+  lastSaid = { key: said.key, at: now };
+  notify({ tone: 'neutral', text: t(said.key, ...said.args) });
 }
 
 // === CONTROLLING ===
@@ -123,7 +164,11 @@ let remoteState: ConnectPlayerState | null = null;
 let receivedAt = 0;
 let ticker: number | undefined;
 
+let volumeSentAt = 0;
+let volumeSettle: number | undefined;
+
 const route = (command: Parameters<typeof actionsFor>[0]): void => {
+  if (command.cmd === 'volume') volumeSentAt = Date.now();
   api.connectSend(command).catch(error => notify({ tone: 'error', text: errorText(error) }));
 };
 
@@ -138,17 +183,27 @@ export async function controlDevice(device: ConnectDevice): Promise<boolean> {
     void loadConnect();
     return false;
   }
-  if (!ui.remote) snapshot = player.enterRemote(route);
+  if (!ui.remote) {
+    snapshot = player.enterRemote(route);
+    publishPaused(snapshot);
+  }
   ui.remote = { deviceId: device.id, name: device.name };
   window.clearInterval(ticker);
   ticker = window.setInterval(moveClock, 500);
   // What it is doing right now, at once: it is already connected and has been saying it all along.
   remoteState = current;
   receivedAt = Date.now();
+  connect.queue = await api.connectQueueOf(device.id).catch(() => null);
   if (current) show(current, current.position);
   else emit('player');
   void loadConnect();
   return true;
+}
+
+/** The remote playlist: asks the device to play that file of it. Playing the one that sounds pauses or resumes it. */
+export function playRemoteTrack(videoId: string): void {
+  if (ui.nowPlaying?.track.id === videoId) player.togglePlay();
+  else route({ cmd: 'playTrack', videoId });
 }
 
 /** Back to this device. */
@@ -160,7 +215,10 @@ export async function stopControlling(): Promise<void> {
 function leave(): void {
   window.clearInterval(ticker);
   ticker = undefined;
+  window.clearTimeout(volumeSettle);
+  volumeSentAt = 0;
   remoteState = null;
+  connect.queue = null;
   if (snapshot) {
     ui.remote = null;
     player.leaveRemote(snapshot);
@@ -183,7 +241,16 @@ function show(state: ConnectPlayerState, position: number): void {
   ui.playing = state.playing;
   ui.position = position;
   ui.duration = state.duration;
-  ui.volume = state.volume;
+  ui.volume = volumeToShow(state.volume, ui.volume, Date.now() - volumeSentAt);
+  if (ui.volume !== state.volume) {
+    // Its answer was held back: once the window is over, what it really has.
+    window.clearTimeout(volumeSettle);
+    volumeSettle = window.setTimeout(() => {
+      if (!ui.remote || !remoteState || ui.volume === remoteState.volume) return;
+      ui.volume = remoteState.volume;
+      emit('player');
+    }, VOLUME_ECHO_MS);
+  }
   ui.shuffle = state.shuffle;
   ui.repeat = state.repeat;
   emit('player');
@@ -196,37 +263,15 @@ function moveClock(): void {
   emit('player');
 }
 
+function onRemoteQueue(deviceId: string, queue: ConnectQueue | null): void {
+  if (ui.remote?.deviceId !== deviceId) return;
+  connect.queue = queue;
+  emit('connect');
+}
+
 function onRemoteClosed(deviceId: string): void {
   if (ui.remote?.deviceId !== deviceId) return;
   const name = ui.remote.name;
   leave();
   notify({ tone: 'warning', text: t('connect.lost', name) });
-}
-
-// === HANDING THE PLAYBACK OVER ===
-
-/** «Pasar aquí → allí»: the playlist that sounds here goes on in `device`, from the same second. */
-export async function transferTo(device: ConnectDevice): Promise<void> {
-  const queue = player.currentQueue();
-  if (!queue || !ui.nowPlaying) {
-    notify({ tone: 'warning', text: t('connect.nothingToHand') });
-    return;
-  }
-  const position = ui.position;
-  if (!await controlDevice(device)) return;
-  route({ cmd: 'load', playlist: queue.playlist, queue: queue.items, index: queue.index, position, autoplay: true });
-}
-
-/** «Traer aquí»: what sounds on the other device goes on here, if this device has the file. */
-export async function bringHere(): Promise<void> {
-  const state = remoteState;
-  if (!ui.remote || !state?.nowPlaying) {
-    await stopControlling();
-    return;
-  }
-  const { videoId, playlist } = state.nowPlaying;
-  const [position, playing] = [projectPosition(state, (Date.now() - receivedAt) / 1000), state.playing];
-  route({ cmd: 'pause' });
-  await stopControlling();
-  if (!player.playVideoId(videoId, position, playing, playlist)) notify({ tone: 'warning', text: t('connect.notHere') });
 }

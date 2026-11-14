@@ -7,13 +7,13 @@ use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::mpsc::{self, Sender};
 use std::sync::{Arc, Mutex};
 use std::thread::{self, JoinHandle};
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use tungstenite::client::IntoClientRequest;
 use tungstenite::protocol::WebSocketConfig;
 use tungstenite::{Message, WebSocket};
 
-use super::protocol::{BASE, ClientMessage, Command, DeviceInfo, PROTOCOL, PairRequest, PairResponse, ServerMessage};
+use super::protocol::{BASE, ClientMessage, Command, DeviceInfo, PING_EVERY, PROTOCOL, PairRequest, PairResponse, SILENCE_LIMIT, ServerMessage};
 
 const CONNECT_TIMEOUT: Duration = Duration::from_secs(3);
 const IO_TIMEOUT: Duration = Duration::from_secs(5);
@@ -54,7 +54,12 @@ pub fn fetch_info(addr: SocketAddr) -> Result<DeviceInfo, ClientError> {
 
 /// `POST /pair`: the PIN the other device shows, for the token that lets this one in.
 pub fn pair(addr: SocketAddr, controller_id: &str, name: &str, pin: &str) -> Result<String, ClientError> {
-    let body = serde_json::to_vec(&PairRequest { controller_id: controller_id.into(), name: name.into(), pin: pin.into() }).map_err(|e| ClientError::Protocol(e.to_string()))?;
+    pair_as(addr, controller_id, name, "", pin)
+}
+
+/// `kind`: what this device is (`desktop`, `phone`, `tablet`), so the other one draws the right icon.
+pub fn pair_as(addr: SocketAddr, controller_id: &str, name: &str, kind: &str, pin: &str) -> Result<String, ClientError> {
+    let body = serde_json::to_vec(&PairRequest { controller_id: controller_id.into(), name: name.into(), kind: kind.into(), pin: pin.into() }).map_err(|e| ClientError::Protocol(e.to_string()))?;
     let (status, answer) = request(addr, "POST", "/pair", Some(&body))?;
     refuse_unless_ok(status, &answer)?;
     let response: PairResponse = serde_json::from_slice(&answer).map_err(|e| ClientError::Protocol(e.to_string()))?;
@@ -184,13 +189,29 @@ impl Drop for Session {
 }
 
 fn run(socket: &mut WebSocket<TcpStream>, queue: &mpsc::Receiver<String>, stop: &AtomicBool, on_event: &mut impl FnMut(Event)) -> Option<String> {
+    let mut last_ping = Instant::now();
+    let mut last_heard = Instant::now();
     while !stop.load(Ordering::SeqCst) {
         while let Ok(text) = queue.try_recv() {
             if let Err(e) = socket.send(Message::text(text)) {
                 return Some(e.to_string());
             }
         }
-        match socket.read() {
+        // A phone that locks, or a Wi-Fi that drops, closes nothing: the connection is only known to be dead because nothing arrives.
+        if last_heard.elapsed() >= SILENCE_LIMIT {
+            return Some("no answer".into());
+        }
+        if last_ping.elapsed() >= PING_EVERY {
+            if let Err(e) = socket.send(Message::Ping(Vec::new().into())) {
+                return Some(e.to_string());
+            }
+            last_ping = Instant::now();
+        }
+        let read = socket.read();
+        if !matches!(&read, Err(tungstenite::Error::Io(e)) if matches!(e.kind(), io::ErrorKind::WouldBlock | io::ErrorKind::TimedOut)) {
+            last_heard = Instant::now();
+        }
+        match read {
             Ok(Message::Text(text)) => match serde_json::from_str::<ServerMessage>(text.as_str()) {
                 Ok(message) => on_event(Event::Message(message)),
                 Err(e) => return Some(format!("bad message: {e}")),

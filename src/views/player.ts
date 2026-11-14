@@ -11,9 +11,10 @@ import { ago } from '../relativeTime';
 import { navigate, onLeave, type Params } from '../router';
 import { subscribe, ui } from '../state';
 import { cover } from '../components/cover';
+import { connect } from '../connect';
 import { openMenu } from '../components/floating';
 import { canPlayTrack, patchPlaying, trackRow } from '../components/trackRow';
-import { hueOf, playlistPicture } from '../covers';
+import { hueOf, playlistPicture, queuePicture } from '../covers';
 import { changeCover, openFolder } from './manager';
 
 /**
@@ -84,6 +85,28 @@ function libraryView(): HTMLElement {
   });
 
   const resumeSlot = h('div');
+  // While another device is controlled, its playlist is here too (with the device it is on), above this device's own.
+  const remoteSlot = h('div');
+  const fillRemote = () => {
+    const device = ui.remote;
+    if (!device) {
+      remoteSlot.replaceChildren();
+      return;
+    }
+    const queue = connect.queue;
+    const card = h('div', { class: 'pl-card', title: queue?.playlist ?? '', attrs: { role: 'button', tabindex: '0' }, onclick: () => navigate('remote-playlist') },
+      h('div', { class: 'pl-art' },
+        cover(queue?.playlist || device.name, false, 160, queuePicture(queue)),
+        h('span', { class: 'badge' }, icon('monitor', 11), h('span', { text: device.name }))),
+      h('div', { class: 'pl-title ellipsis', text: queue?.playlist || t('remotePlaylist.eyebrow') }),
+      h('div', { class: 'pl-sub ellipsis', text: queue ? `${t('remotePlaylist.eyebrow')} · ${t('remotePlaylist.files', queue.items.length)}` : t('remotePlaylist.waiting') }));
+    card.addEventListener('keydown', event => {
+      if (event.key === 'Enter' && event.target === card) navigate('remote-playlist');
+    });
+    remoteSlot.replaceChildren(
+      h('div', { class: 'section-head' }, h('b', { text: t('remotePlaylist.on', device.name) })),
+      h('div', { class: 'pgrid' }, card));
+  };
   const count = h('span', { class: 'muted' });
   const grid = h('div', { class: 'pgrid' });
   const none = h('p', { class: 'none' });
@@ -146,7 +169,9 @@ function libraryView(): HTMLElement {
     fill();
   }));
   onLeave(subscribe('library', fill));
+  onLeave(subscribe('connect', fillRemote));
   shownKey = playingKey();
+  fillRemote();
   fill();
 
   return h('div', { class: 'screen' },
@@ -156,6 +181,7 @@ function libraryView(): HTMLElement {
       ...chipButtons,
       sortSelect),
     resumeSlot,
+    remoteSlot,
     h('div', { class: 'section-head' },
       h('b', { text: t('player.playlists') }),
       count),

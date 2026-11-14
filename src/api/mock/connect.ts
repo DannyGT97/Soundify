@@ -6,12 +6,12 @@
 // something of it, make a device start playing, or drop the connection.
 
 import type { Api } from '..';
-import type { ConnectCommand, ConnectDevice, ConnectFirewall, ConnectIncoming, ConnectPlayerState, ConnectStatus } from '../types';
+import type { ConnectCommand, ConnectDevice, ConnectFirewall, ConnectIncoming, ConnectPlayerState, ConnectQueue, ConnectStatus } from '../types';
 
 type ConnectApi = Pick<Api,
-  | 'connectFirewallStatus' | 'connectFirewallAllow' | 'connectNetworkPrivate' | 'connectStatus' | 'connectSetEnabled' | 'connectSetName' | 'connectSetOpen' | 'connectDevices' | 'connectAdd' | 'connectPin' | 'connectRenewPin'
-  | 'connectPair' | 'connectForget' | 'connectForgetController' | 'connectSelect' | 'connectDeselect' | 'connectSend' | 'connectPublish'
-  | 'onConnectDevices' | 'onConnectRemoteState' | 'onConnectRemoteClosed' | 'onConnectCommand'>;
+  | 'connectRequestLocalNetwork' | 'connectFirewallStatus' | 'connectFirewallAllow' | 'connectNetworkPrivate' | 'connectStatus' | 'connectSetEnabled' | 'connectSetName' | 'connectSetOpen' | 'connectDevices' | 'connectAdd' | 'connectPin' | 'connectRenewPin'
+  | 'connectPair' | 'connectForget' | 'connectForgetController' | 'connectSelect' | 'connectDeselect' | 'connectSend' | 'connectPublish' | 'connectPublishQueue' | 'connectQueueOf'
+  | 'onConnectDevices' | 'onConnectRemoteState' | 'onConnectRemoteQueue' | 'onConnectRemoteClosed' | 'onConnectCommand'>;
 
 const PIN_OF_STRICT = '123456';
 
@@ -28,12 +28,19 @@ let controllers: Array<{ id: string; name: string }> = [];
 let onDevices: () => void = () => {};
 let onRemoteState: (deviceId: string, state: ConnectPlayerState) => void = () => {};
 let onRemoteClosed: (deviceId: string) => void = () => {};
+let onRemoteQueue: (deviceId: string, queue: ConnectQueue | null) => void = () => {};
 let onCommand: (incoming: ConnectIncoming) => void = () => {};
 
 /** What the controlled device is doing. */
 let remote: ConnectPlayerState = emptyRemote(false);
 /** What this device published (for the tests to read). */
 const published: ConnectPlayerState[] = [];
+const publishedQueues: Array<ConnectQueue | null> = [];
+/** The playlist «Salón» plays. */
+const remoteQueue: ConnectQueue = {
+  playlist: 'Mix',
+  items: [{ videoId: 'remote-1', title: 'Canción del salón' }, { videoId: 'remote-2', title: 'Siguiente del salón' }, { videoId: 'remote-3', title: 'Tercera del salón' }],
+};
 
 function emptyRemote(playing: boolean): ConnectPlayerState {
   return {
@@ -56,14 +63,27 @@ function apply(command: ConnectCommand): void {
     case 'play': remote.playing = true; break;
     case 'pause': remote.playing = false; break;
     case 'toggle': remote.playing = !remote.playing; break;
-    case 'next': remote.nowPlaying = { ...(remote.nowPlaying ?? emptyRemote(true).nowPlaying!), videoId: 'remote-2', title: 'Siguiente del salón' }; remote.position = 0; break;
+    case 'next': playItem(Math.min(remoteQueue.items.length - 1, positionInQueue() + 1), remote.playing); break;
     case 'previous': remote.position = 0; break;
     case 'seek': remote.position = command.seconds; break;
     case 'volume': remote.volume = command.volume; break;
     case 'shuffle': remote.shuffle = command.on ?? !remote.shuffle; break;
     case 'repeat': remote.repeat = command.mode ?? (remote.repeat === 'off' ? 'all' : remote.repeat === 'all' ? 'one' : 'off'); break;
-    case 'load': remote.nowPlaying = { videoId: command.queue[command.index]?.videoId ?? 'x', title: command.queue[command.index]?.title ?? '', playlist: command.playlist, format: 'MP3', video: false }; remote.position = command.position; remote.playing = command.autoplay; break;
+    case 'take': break;
+    case 'playTrack': playItem(remoteQueue.items.findIndex(item => item.videoId === command.videoId), true); break;
   }
+}
+
+function positionInQueue(): number {
+  return Math.max(0, remoteQueue.items.findIndex(item => item.videoId === remote.nowPlaying?.videoId));
+}
+
+function playItem(index: number, playing: boolean): void {
+  const item = remoteQueue.items[index];
+  if (!item) return;
+  remote.nowPlaying = { videoId: item.videoId, title: item.title, playlist: remoteQueue.playlist, format: 'MP3', video: false };
+  remote.position = 0;
+  remote.playing = playing;
 }
 
 /** The list line follows what the device plays. */
@@ -78,21 +98,31 @@ function sync(): void {
 if (typeof window !== 'undefined') {
   (window as unknown as { __connect: unknown }).__connect = {
     published,
+    publishedQueues,
     /** The other side asks this device for something. */
     incoming: (command: ConnectCommand) => onCommand({ from: 'Móvil de prueba', command }),
     /** The device being controlled drops. */
     drop: () => { const id = selected; selected = null; change(); if (id) onRemoteClosed(id); },
+    /** «Salón» starts playing another playlist (it says so to whoever controls it). */
+    salonQueue: (playlist: string, titles: string[]) => {
+      remoteQueue.playlist = playlist;
+      remoteQueue.items = titles.map((title, n) => ({ videoId: `other-${n + 1}`, title }));
+      onRemoteQueue('tv', { ...remoteQueue, items: [...remoteQueue.items] });
+    },
     /** «Salón» starts (or stops) playing on its own, as somebody pressing play there. */
     salonPlays: (playing: boolean) => { remote = emptyRemote(playing); sync(); onDevices(); },
   };
 }
 
 // `?mockFirewall` pretends to be Windows with the app not let in yet and a Public network.
+// `?mockLocalNetwork` pretends to be Android 17 with the local network permission not given yet.
+let localNetwork: boolean | null = typeof location !== 'undefined' && new URLSearchParams(location.search).has('mockLocalNetwork') ? false : null;
 const mockFirewall = typeof location !== 'undefined' && new URLSearchParams(location.search).has('mockFirewall');
 let firewall: ConnectFirewall = { supported: mockFirewall, allowed: false, publicNetwork: mockFirewall };
 
 export const mockConnect: ConnectApi = {
   connectFirewallStatus: async () => ({ ...firewall }),
+  connectRequestLocalNetwork: async () => { localNetwork = true; },
   connectNetworkPrivate: async () => {
     firewall = { ...firewall, publicNetwork: false };
     return { ...firewall };
@@ -102,7 +132,7 @@ export const mockConnect: ConnectApi = {
     return { ...firewall };
   },
   connectStatus: async (): Promise<ConnectStatus> => ({
-    enabled, open, addresses: enabled ? ['192.168.1.35:48650'] : [], discovery: true, error: null, running: enabled, port: enabled ? 48650 : null, name, deviceId: 'this-device', selected, controllers, connectedControllers: 0,
+    enabled, open, addresses: enabled ? ['192.168.1.35:48650'] : [], discovery: true, error: null, localNetwork: localNetwork, running: enabled, port: enabled ? 48650 : null, name, deviceId: 'this-device', selected, controllers, connectedControllers: 0,
   }),
   connectSetEnabled: async value => {
     enabled = value;
@@ -153,6 +183,9 @@ export const mockConnect: ConnectApi = {
     window.setTimeout(() => { onRemoteState(id, { ...remote }); onDevices(); }, 0);
   },
   connectPublish: state => { published.push(state); },
+  connectPublishQueue: queue => { publishedQueues.push(queue); },
+  connectQueueOf: async deviceId => (deviceId === 'tv' ? { ...remoteQueue, items: [...remoteQueue.items] } : null),
+  onConnectRemoteQueue: listener => { onRemoteQueue = listener; },
   onConnectDevices: listener => { onDevices = listener; },
   onConnectRemoteState: listener => { onRemoteState = listener; },
   onConnectRemoteClosed: listener => { onRemoteClosed = listener; },

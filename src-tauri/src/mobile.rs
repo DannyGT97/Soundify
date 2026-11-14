@@ -205,11 +205,66 @@ pub fn open_folder_now(app: &AppHandle, folder: &str) -> Result<(), String> {
 }
 
 /// Android drops the multicast packets mDNS lives on unless the app holds a lock on them. Does nothing elsewhere.
-pub fn set_multicast(app: &AppHandle, on: bool) {
+pub fn set_multicast(app: &AppHandle, on: bool, title: &str, text: &str) {
     #[cfg(target_os = "android")]
-    android::set_multicast(app, on);
+    android::set_multicast(app, on, title, text);
     #[cfg(not(target_os = "android"))]
-    let _ = (app, on);
+    let _ = (app, on, title, text);
+}
+
+/// The name the owner gave this phone (or its model). `None` outside Android.
+pub fn device_name(app: &AppHandle) -> Option<String> {
+    #[cfg(target_os = "android")]
+    return android::device_name(app);
+    #[cfg(not(target_os = "android"))]
+    {
+        let _ = app;
+        None
+    }
+}
+
+/// What another device plays, for the media notification of the phone while that device is being controlled (Soundify Connect).
+#[derive(serde::Serialize, Clone, Debug, PartialEq)]
+pub struct RemoteSession {
+    /// «En "PC"»: where it sounds, in the app's language.
+    pub device: String,
+    pub title: String,
+    pub playlist: String,
+    pub playing: bool,
+    pub position: f64,
+    pub duration: f64,
+    pub shuffle: bool,
+    pub repeat: String,
+    /// 0 to 1: the volume of the other device (the phone's volume buttons move it).
+    pub volume: f64,
+}
+
+/// Shows (or, with `None`, takes away) the notification of the device being controlled. Does nothing outside Android.
+pub fn remote_session(app: &AppHandle, session: Option<&RemoteSession>) {
+    #[cfg(target_os = "android")]
+    android::remote_session(app, session);
+    #[cfg(not(target_os = "android"))]
+    let _ = (app, session);
+}
+
+/// Android 16+: is the permission to use the local network needed here, and given? `None` where it does not apply
+/// (desktop, older Android): nothing to ask.
+pub fn local_network_granted(app: &AppHandle) -> Option<bool> {
+    #[cfg(target_os = "android")]
+    return android::local_network_granted(app);
+    #[cfg(not(target_os = "android"))]
+    {
+        let _ = app;
+        None
+    }
+}
+
+/// Asks for it (or opens the app's settings if it was refused for good). Does nothing elsewhere.
+pub fn request_local_network(app: &AppHandle) {
+    #[cfg(target_os = "android")]
+    android::request_local_network(app);
+    #[cfg(not(target_os = "android"))]
+    let _ = app;
 }
 
 /// Before downloading an update: may the app install apps? `Ok(false)` = not yet,
@@ -350,9 +405,47 @@ mod android {
         }
     }
 
-    pub fn set_multicast(app: &AppHandle, on: bool) {
+    #[derive(Deserialize)]
+    struct LocalNetwork {
+        applies: bool,
+        granted: bool,
+    }
+
+    pub fn local_network_granted(app: &AppHandle) -> Option<bool> {
+        let answer: LocalNetwork = bridge(app).ok()?.0.run_mobile_plugin("localNetworkAccess", ()).ok()?;
+        answer.applies.then_some(answer.granted)
+    }
+
+    pub fn request_local_network(app: &AppHandle) {
         let Ok(bridge) = bridge(app) else { return };
-        if let Err(e) = bridge.0.run_mobile_plugin::<serde_json::Value>("multicastLock", serde_json::json!({ "on": on })) {
+        if let Err(e) = bridge.0.run_mobile_plugin::<serde_json::Value>("requestLocalNetwork", ()) {
+            log::warn!("Could not ask for the local network permission: {e}");
+        }
+    }
+
+    pub fn device_name(app: &AppHandle) -> Option<String> {
+        let answer: serde_json::Value = bridge(app).ok()?.0.run_mobile_plugin("deviceName", ()).ok()?;
+        answer.get("name").and_then(|name| name.as_str()).map(str::to_string)
+    }
+
+    pub fn remote_session(app: &AppHandle, session: Option<&super::RemoteSession>) {
+        let Ok(bridge) = bridge(app) else { return };
+        let args = match session {
+            Some(session) => {
+                let mut value = serde_json::to_value(session).unwrap_or_default();
+                value["on"] = serde_json::Value::Bool(true);
+                value
+            }
+            None => serde_json::json!({ "on": false }),
+        };
+        if let Err(e) = bridge.0.run_mobile_plugin::<serde_json::Value>("remoteSession", args) {
+            log::warn!("Could not change the notification of the remote device: {e}");
+        }
+    }
+
+    pub fn set_multicast(app: &AppHandle, on: bool, title: &str, text: &str) {
+        let Ok(bridge) = bridge(app) else { return };
+        if let Err(e) = bridge.0.run_mobile_plugin::<serde_json::Value>("multicastLock", serde_json::json!({ "on": on, "title": title, "text": text })) {
             log::warn!("Could not change the multicast lock: {e}");
         }
     }
@@ -377,6 +470,13 @@ mod android {
                 tauri::ipc::InvokeResponseBody::Json(text) => serde_json::from_str(&text).unwrap_or(serde_json::Value::Null),
                 tauri::ipc::InvokeResponseBody::Raw(_) => serde_json::Value::Null,
             };
+            // A button of the notification of the device being controlled: answered here, not by the page (which may be asleep).
+            if value.get("kind").and_then(|kind| kind.as_str()) == Some("remote") {
+                let action = value.get("action").and_then(|action| action.as_str()).unwrap_or("");
+                let seconds = value.get("seconds").and_then(|seconds| seconds.as_f64()).unwrap_or(0.0);
+                crate::connect::notification_action(&handle, action, seconds);
+                return Ok(());
+            }
             let _ = handle.emit("native-player", value);
             Ok(())
         });

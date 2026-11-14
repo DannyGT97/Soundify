@@ -20,12 +20,10 @@ use tungstenite::{Message, WebSocket};
 
 use super::http::{self, Request};
 use super::pairing::{PairError, Pairing, Trusted};
-use super::protocol::{BASE, ClientMessage, Command, DeviceInfo, PairRequest, PairResponse, PlayerState, ServerMessage};
+use super::protocol::{BASE, ClientMessage, Command, DeviceInfo, PING_EVERY, PairRequest, PairResponse, PlayerState, QueueInfo, SILENCE_LIMIT, ServerMessage};
 
 /// Connections served at once (controllers plus whatever else knocks).
 pub const MAX_CONNECTIONS: usize = 16;
-/// How long a WebSocket may stay silent to our pings before it is let go of.
-const PING_EVERY: Duration = Duration::from_secs(20);
 /// The most one message may weigh: a queue of [`super::protocol::MAX_QUEUE`] files.
 const MAX_MESSAGE: usize = 2 * 1024 * 1024;
 /// What waits to go out to one controller before it is dropped as too slow.
@@ -36,6 +34,10 @@ pub trait Host: Send + Sync {
     fn info(&self) -> DeviceInfo;
     /// The state as it is now (sent to a controller as soon as it connects).
     fn state(&self) -> PlayerState;
+    /// The playlist that plays now (sent to a controller after the state, when there is one).
+    fn queue(&self) -> Option<QueueInfo> {
+        None
+    }
     /// Does what the controller asked. `Err` is the reason, which goes back in the `ack`.
     fn command(&self, who: &Trusted, command: Command) -> Result<(), String>;
     /// A controller connected and said where its own server listens: a chance to find it back (when mDNS did not).
@@ -90,6 +92,15 @@ impl Server {
         outboxes.retain(|(_, outbox)| match outbox.try_send(ServerMessage::State { state: state.clone() }) {
             Ok(()) => true,
             // A controller that does not keep up is dropped: it reconnects and gets the state again.
+            Err(TrySendError::Full(_)) | Err(TrySendError::Disconnected(_)) => false,
+        });
+    }
+
+    /// Tells every controller which playlist is playing now.
+    pub fn publish_queue(&self, queue: &Option<QueueInfo>) {
+        let mut outboxes = self.shared.outboxes.lock().unwrap();
+        outboxes.retain(|(_, outbox)| match outbox.try_send(ServerMessage::Queue { queue: queue.clone() }) {
+            Ok(()) => true,
             Err(TrySendError::Full(_)) | Err(TrySendError::Disconnected(_)) => false,
         });
     }
@@ -202,43 +213,58 @@ fn websocket(shared: &Arc<Shared>, mut stream: TcpStream, request: &Request) -> 
     info!("Soundify Connect: {} controls this device", who.name);
     let result = session(shared, stream, &who, &inbox);
     shared.outboxes.lock().unwrap().retain(|(n, _)| *n != number);
-    info!("Soundify Connect: {} left", who.name);
-    result
+    match &result {
+        Ok(reason) => info!("Soundify Connect: {} left ({reason})", who.name),
+        Err(e) => info!("Soundify Connect: {} left (error: {e})", who.name),
+    }
+    result.map(|_| ())
 }
 
-fn session(shared: &Shared, stream: TcpStream, who: &Trusted, inbox: &Receiver<ServerMessage>) -> io::Result<()> {
+/// Serves one controller until it ends; `Ok` says why.
+fn session(shared: &Shared, stream: TcpStream, who: &Trusted, inbox: &Receiver<ServerMessage>) -> io::Result<&'static str> {
     let config = WebSocketConfig::default().max_message_size(Some(MAX_MESSAGE)).max_frame_size(Some(MAX_MESSAGE));
     let mut socket = WebSocket::from_raw_socket(stream, Role::Server, Some(config));
     send(&mut socket, &ServerMessage::Hello { device: shared.host.info() })?;
     send(&mut socket, &ServerMessage::State { state: shared.host.state() })?;
+    if let Some(queue) = shared.host.queue() {
+        send(&mut socket, &ServerMessage::Queue { queue: Some(queue) })?;
+    }
     let mut last_ping = Instant::now();
+    let mut last_heard = Instant::now();
     while !shared.stop.load(Ordering::SeqCst) {
         loop {
             match inbox.try_recv() {
                 Ok(message) => send(&mut socket, &message)?,
                 Err(mpsc::TryRecvError::Empty) => break,
                 // The server dropped this controller (too slow, or a new state could not be queued).
-                Err(mpsc::TryRecvError::Disconnected) => return Ok(()),
+                Err(mpsc::TryRecvError::Disconnected) => return Ok("dropped by this device: it did not keep up"),
             }
+        }
+        if last_heard.elapsed() >= SILENCE_LIMIT {
+            return Ok("it stopped answering");
         }
         if last_ping.elapsed() >= PING_EVERY {
             socket.send(Message::Ping(Vec::new().into())).map_err(io::Error::other)?;
             last_ping = Instant::now();
         }
-        match socket.read() {
+        let read = socket.read();
+        if !matches!(&read, Err(tungstenite::Error::Io(e)) if matches!(e.kind(), io::ErrorKind::WouldBlock | io::ErrorKind::TimedOut)) {
+            last_heard = Instant::now();
+        }
+        match read {
             Ok(Message::Text(text)) => {
                 let answer = answer(shared, who, text.as_str());
                 send(&mut socket, &answer)?;
             }
-            Ok(Message::Close(_)) => return Ok(()),
+            Ok(Message::Close(_)) => return Ok("it closed the connection"),
             Ok(_) => {}
             Err(tungstenite::Error::Io(e)) if matches!(e.kind(), io::ErrorKind::WouldBlock | io::ErrorKind::TimedOut) => {}
-            Err(tungstenite::Error::ConnectionClosed | tungstenite::Error::AlreadyClosed) => return Ok(()),
+            Err(tungstenite::Error::ConnectionClosed | tungstenite::Error::AlreadyClosed) => return Ok("connection closed"),
             Err(e) => return Err(io::Error::other(e)),
         }
     }
     let _ = socket.close(None);
-    Ok(())
+    Ok("this device stopped")
 }
 
 /// The `ack` for whatever the controller sent.

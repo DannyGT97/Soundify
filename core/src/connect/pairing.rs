@@ -52,6 +52,9 @@ pub enum PairError {
 pub struct Trusted {
     pub controller_id: String,
     pub name: String,
+    /// `desktop`, `phone` or `tablet` (empty if it did not say).
+    #[serde(default)]
+    pub kind: String,
     /// SHA-256 of the token, in hex.
     pub token_hash: String,
 }
@@ -135,8 +138,13 @@ impl Pairing {
         state.pin = None;
         state.failures = 0;
         let token = random_token();
-        let entry = Trusted { controller_id: request.controller_id.clone(), name: request.name.clone(), token_hash: hash(&token) };
+        let entry = Trusted { controller_id: request.controller_id.clone(), name: request.name.clone(), kind: request.kind.clone(), token_hash: hash(&token) };
         state.trusted.retain(|t| t.controller_id != entry.controller_id);
+        // A computer that lost its data pairs again with a new id: its old entry (same name) would stay in the list for ever.
+        // Only computers: a name is unique among them on a network, while two phones may well be called the same.
+        if entry.kind == "desktop" {
+            state.trusted.retain(|t| !(t.kind == "desktop" && t.name == entry.name));
+        }
         if state.trusted.len() >= MAX_TRUSTED {
             state.trusted.remove(0);
         }
@@ -271,7 +279,7 @@ mod tests {
     }
 
     fn request(pin: &str) -> PairRequest {
-        PairRequest { controller_id: "phone-1".into(), name: "Móvil".into(), pin: pin.into() }
+        PairRequest { controller_id: "phone-1".into(), name: "Móvil".into(), kind: "phone".into(), pin: pin.into() }
     }
 
     #[test]
@@ -341,6 +349,20 @@ mod tests {
         assert!(pairing.authenticate(&first).is_none());
         assert!(pairing.authenticate(&second).is_some());
         assert_eq!(pairing.trusted().len(), 1);
+    }
+
+    #[test]
+    fn a_computer_that_pairs_again_with_a_new_id_replaces_its_old_entry_but_two_phones_of_one_name_both_stay() {
+        let (_, pairing) = pairing();
+        let now = Instant::now();
+        let as_kind = |id: &str, kind: &str| PairRequest { controller_id: id.into(), name: "MSI-PC".into(), kind: kind.into(), pin: pairing.new_pin(now) };
+        let old = pairing.pair(&as_kind("pc-old", "desktop"), now).unwrap();
+        let new = pairing.pair(&as_kind("pc-new", "desktop"), now).unwrap();
+        assert!(pairing.authenticate(&old).is_none() && pairing.authenticate(&new).is_some());
+        assert_eq!(pairing.trusted().len(), 1);
+        pairing.pair(&as_kind("phone-a", "phone"), now).unwrap();
+        pairing.pair(&as_kind("phone-b", "phone"), now).unwrap();
+        assert_eq!(pairing.trusted().len(), 3);
     }
 
     #[test]

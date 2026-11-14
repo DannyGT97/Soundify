@@ -24,6 +24,23 @@ import java.io.File
 @InvokeArg
 class MulticastArgs {
   var on: Boolean = false
+  /** What the notice of the foreground service says while Connect is on. */
+  var title: String = ""
+  var text: String = ""
+}
+
+@InvokeArg
+class RemoteArgs {
+  var on: Boolean = false
+  var device: String = ""
+  var title: String = ""
+  var playlist: String = ""
+  var playing: Boolean = false
+  var position: Double = 0.0
+  var duration: Double = 0.0
+  var shuffle: Boolean = false
+  var repeat: String = "off"
+  var volume: Double = 1.0
 }
 
 @InvokeArg
@@ -363,26 +380,84 @@ class SoundifyPlugin(private val activity: Activity) : Plugin(activity) {
   // === SOUNDIFY CONNECT ===
 
   private var multicast: android.net.wifi.WifiManager.MulticastLock? = null
+  private var wifiLock: android.net.wifi.WifiManager.WifiLock? = null
 
   /**
    * Android drops the multicast packets mDNS lives on (to save battery) unless the app holds this lock.
-   * Held only while Soundify Connect is on.
+   * Held only while Soundify Connect is on (together with a Wi-Fi lock, so the radio does not sleep with the screen off).
    */
   @Command
   fun multicastLock(invoke: Invoke) {
-    val on = invoke.parseArgs(MulticastArgs::class.java).on
+    val args = invoke.parseArgs(MulticastArgs::class.java)
+    val on = args.on
     try {
+      if (on && !localNetworkGranted()) {
+        activity.runOnUiThread {
+          askedLocalNetwork = true
+          activity.requestPermissions(arrayOf(LOCAL_NETWORK), LOCAL_NETWORK_REQUEST)
+        }
+      }
+      // The foreground service keeps the app awake (and its network open) while the other devices may look for it.
+      val service = Intent(activity.applicationContext, ConnectService::class.java)
+      if (on) {
+        service.putExtra("title", args.title).putExtra("text", args.text)
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) activity.applicationContext.startForegroundService(service) else activity.applicationContext.startService(service)
+      } else {
+        activity.applicationContext.stopService(service)
+      }
       if (on) {
         if (multicast == null) {
           val wifi = activity.applicationContext.getSystemService(Context.WIFI_SERVICE) as android.net.wifi.WifiManager
           multicast = wifi.createMulticastLock("soundify-connect").apply { setReferenceCounted(false) }
         }
         multicast?.acquire()
+        // Without this the Wi-Fi radio sleeps when the screen is off and the connection to the other device flickers.
+        if (wifiLock == null) {
+          val wifi = activity.applicationContext.getSystemService(Context.WIFI_SERVICE) as android.net.wifi.WifiManager
+          val mode = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) android.net.wifi.WifiManager.WIFI_MODE_FULL_LOW_LATENCY else android.net.wifi.WifiManager.WIFI_MODE_FULL_HIGH_PERF
+          wifiLock = wifi.createWifiLock(mode, "soundify-connect").apply { setReferenceCounted(false) }
+        }
+        wifiLock?.acquire()
       } else {
         multicast?.takeIf { it.isHeld }?.release()
+        wifiLock?.takeIf { it.isHeld }?.release()
       }
     } catch (e: Exception) {
       // Without the lock the devices are found by address instead of by name; nothing else is lost.
+    }
+    invoke.resolve()
+  }
+
+  /**
+   * Android 17 closes the local network to apps that do not hold `ACCESS_LOCAL_NETWORK` (a runtime permission of
+   * «Nearby devices»): nothing on the Wi-Fi can reach the app and the app cannot reach what is on it, which is all that
+   * Soundify Connect is. Before Android 16 the permission does not exist and nothing is asked.
+   */
+  private fun localNetworkApplies(): Boolean = Build.VERSION.SDK_INT >= 36
+
+  private fun localNetworkGranted(): Boolean =
+    !localNetworkApplies() || activity.checkSelfPermission(LOCAL_NETWORK) == android.content.pm.PackageManager.PERMISSION_GRANTED
+
+  /** Whether the permission is needed here and whether the user gave it. */
+  @Command
+  fun localNetworkAccess(invoke: Invoke) {
+    invoke.resolve(JSObject().put("applies", localNetworkApplies()).put("granted", localNetworkGranted()))
+  }
+
+  /** Asks for it (the system's dialog); if the user already refused for good, the app's own settings page opens. */
+  @Command
+  fun requestLocalNetwork(invoke: Invoke) {
+    if (!localNetworkGranted()) {
+      activity.runOnUiThread {
+        val refusedForGood = !activity.shouldShowRequestPermissionRationale(LOCAL_NETWORK) && askedLocalNetwork
+        if (refusedForGood) {
+          val settings = Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS, Uri.parse("package:" + activity.packageName)).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+          activity.startActivity(settings)
+        } else {
+          askedLocalNetwork = true
+          activity.requestPermissions(arrayOf(LOCAL_NETWORK), LOCAL_NETWORK_REQUEST)
+        }
+      }
     }
     invoke.resolve()
   }
@@ -436,6 +511,27 @@ class SoundifyPlugin(private val activity: Activity) : Plugin(activity) {
     val target = pendingOpen
     pendingOpen = null
     invoke.resolve(JSObject().put("target", target ?: ""))
+  }
+
+  /** The name the owner gave this phone (Settings → About phone), or its model if it has none. */
+  @Command
+  fun deviceName(invoke: Invoke) {
+    val given = try { android.provider.Settings.Global.getString(activity.contentResolver, "device_name") } catch (e: Exception) { null }
+    invoke.resolve(JSObject().put("name", given?.takeIf { it.isNotBlank() } ?: Build.MODEL))
+  }
+
+  /**
+   * Soundify Connect: another device is being controlled, and this is what it plays: the media notification and the lock
+   * screen show IT (with where it sounds). `on` false takes it away. What is pressed there comes back as `remote` events,
+   * which Rust answers by itself (the page may be asleep with the screen off).
+   */
+  @Command
+  fun remoteSession(invoke: Invoke) {
+    val args = invoke.parseArgs(RemoteArgs::class.java)
+    if (args.on) askForNotifications()
+    val info = if (args.on) RemoteInfo(args.device, args.title, args.playlist, args.playing, (args.position * 1000).toLong(), (args.duration * 1000).toLong(), args.shuffle, args.repeat, args.volume) else null
+    PlaybackService.showRemote(activity.applicationContext, info)
+    invoke.resolve()
   }
 
   /** What the notification's shuffle and repeat buttons should show (the page's state). */
@@ -508,6 +604,9 @@ class SoundifyPlugin(private val activity: Activity) : Plugin(activity) {
   companion object {
     private const val STORAGE_REQUEST = 4711
     private const val NOTIFICATION_REQUEST = 4712
+    private const val LOCAL_NETWORK_REQUEST = 4713
+    private const val LOCAL_NETWORK = "android.permission.ACCESS_LOCAL_NETWORK"
+    private var askedLocalNetwork = false
     private var notificationsAsked = false
 
     @Volatile
@@ -532,6 +631,11 @@ class SoundifyPlugin(private val activity: Activity) : Plugin(activity) {
       intent.removeExtra(EXTRA_OPEN)
       pendingOpen = target
       current?.trigger("player", JSObject().put("kind", "open"))
+    }
+
+    /** A button of the notification of the device being controlled: asked of that device (by Rust, not by the page). */
+    fun remoteAction(action: String, seconds: Double) {
+      current?.trigger("player", JSObject().put("kind", "remote").put("action", action).put("seconds", seconds))
     }
 
     /** Shuffle / repeat pressed in the notification: the page owns both, so it toggles them. */

@@ -19,14 +19,14 @@ use serde::Serialize;
 use super::client::{self, ClientError, Event, Session};
 use super::discovery::{Change, Discovery};
 use super::pairing::{Known, KnownDevices, Pairing, Trusted};
-use super::protocol::{Command, DeviceInfo, PROTOCOL, PlayerState, ServerMessage};
+use super::protocol::{Command, DeviceInfo, PROTOCOL, PlayerState, QueueInfo, ServerMessage};
 use super::server::{Host, Server};
 
 /// The port tried first, so a firewall rule or a bookmark keeps working; any free one if it is taken.
 pub const PREFERRED_PORT: u16 = 48650;
 
 /// Waits (seconds) between the tries to get a dropped connection back, while the device is still on the network.
-const RECONNECT_DELAYS: [u64; 5] = [2, 4, 8, 16, 32];
+const RECONNECT_DELAYS: [u64; 8] = [1, 2, 4, 8, 16, 30, 30, 30];
 
 /// What the app does when a controller asks for something. It must not block.
 pub trait Player: Send + Sync {
@@ -39,6 +39,8 @@ pub trait Listener: Send + Sync {
     fn devices_changed(&self);
     /// A device says what it is doing.
     fn remote_state(&self, device_id: &str, state: PlayerState);
+    /// A device says which playlist it is playing (None = none).
+    fn remote_queue(&self, _device_id: &str, _queue: Option<QueueInfo>) {}
     /// The connection to the device being controlled is over without the user asking.
     fn remote_closed(&self, device_id: &str, reason: Option<String>);
 }
@@ -114,6 +116,8 @@ struct Nearby {
     manual: bool,
     /// What it last said it is doing.
     state: Option<PlayerState>,
+    /// The playlist it last said it is playing.
+    queue: Option<QueueInfo>,
     /// It is strict: pairing needs the PIN it shows.
     needs_pin: bool,
     /// Found by it connecting here, not announced on the network: nothing will say when it is gone, so it is let go of as soon as its connection fails.
@@ -132,6 +136,7 @@ struct HostAdapter {
     info: DeviceInfo,
     pairing: Arc<Pairing>,
     state: Arc<Mutex<PlayerState>>,
+    queue: Arc<Mutex<Option<QueueInfo>>>,
     player: Arc<dyn Player>,
 }
 
@@ -142,6 +147,10 @@ impl Host for HostAdapter {
 
     fn state(&self) -> PlayerState {
         self.state.lock().unwrap().clone()
+    }
+
+    fn queue(&self) -> Option<QueueInfo> {
+        self.queue.lock().unwrap().clone()
     }
 
     fn command(&self, who: &Trusted, command: Command) -> Result<(), String> {
@@ -163,6 +172,7 @@ pub struct Connect {
     player: Arc<dyn Player>,
     listener: Arc<dyn Listener>,
     state: Arc<Mutex<PlayerState>>,
+    queue: Arc<Mutex<Option<QueueInfo>>>,
     running: Mutex<Option<Running>>,
     nearby: Mutex<HashMap<String, Nearby>>,
     /// One per paired device that is on the network: how its state is known and how it is controlled.
@@ -175,6 +185,8 @@ pub struct Connect {
     forgotten: Mutex<HashSet<String>>,
     /// When each device last went off the network: a device found by connection a moment before it left is not added back.
     departures: Mutex<HashMap<String, Instant>>,
+    /// Devices discovery said left while their connection was up: they go when it ends (see `saw`).
+    swallowed: Mutex<HashSet<String>>,
 }
 
 struct Running {
@@ -201,6 +213,7 @@ impl Connect {
             player,
             listener,
             state: Arc::new(Mutex::new(PlayerState::default())),
+            queue: Arc::new(Mutex::new(None)),
             running: Mutex::new(None),
             nearby: Mutex::new(HashMap::new()),
             sessions: Mutex::new(HashMap::new()),
@@ -209,7 +222,13 @@ impl Connect {
             busy: Mutex::new(HashMap::new()),
             forgotten: Mutex::new(HashSet::new()),
             departures: Mutex::new(HashMap::new()),
+            swallowed: Mutex::new(HashSet::new()),
         })
+    }
+
+    /// The user renamed this device (what the others see from the next time it is announced).
+    pub fn set_name(&self, name: &str) {
+        self.identity.lock().unwrap().name = name.to_string();
     }
 
     pub fn identity(&self) -> Identity {
@@ -273,7 +292,7 @@ impl Connect {
         if running.is_some() {
             return Ok(());
         }
-        let host = Arc::new(HostAdapter { me: Arc::downgrade(self), info: self.info(), pairing: self.pairing.clone(), state: self.state.clone(), player: self.player.clone() });
+        let host = Arc::new(HostAdapter { me: Arc::downgrade(self), info: self.info(), pairing: self.pairing.clone(), state: self.state.clone(), queue: self.queue.clone(), player: self.player.clone() });
         let server = match Server::start(preferred_port, host.clone(), self.pairing.clone()) {
             Ok(server) => server,
             // The preferred port is taken (another copy of the app): any free one.
@@ -325,25 +344,32 @@ impl Connect {
     }
 
     /// A device appeared on or disappeared from the network.
-    fn saw(self: &Arc<Self>, change: Change) {
+    pub(crate) fn saw(self: &Arc<Self>, change: Change) {
         let own = self.identity().device_id;
         match change {
             Change::Up(found) => {
                 if found.info.device_id == own || found.info.v != PROTOCOL {
                     return;
                 }
+                self.swallowed.lock().unwrap().remove(&found.info.device_id);
                 let Some(ip) = found.addrs.iter().find(|ip| matches!(ip, IpAddr::V4(_))).or(found.addrs.first()) else { return };
                 let addr = SocketAddr::new(*ip, found.port);
                 let id = found.info.device_id.clone();
                 {
                     let mut nearby = self.nearby.lock().unwrap();
-                    let (state, needs_pin, manual) = nearby.get(&id).map(|n| (n.state.clone(), n.needs_pin, n.manual)).unwrap_or((None, false, false));
-                    nearby.insert(id.clone(), Nearby { info: found.info, addr, manual, state, needs_pin, learned: false });
+                    let (state, queue, needs_pin, manual) = nearby.get(&id).map(|n| (n.state.clone(), n.queue.clone(), n.needs_pin, n.manual)).unwrap_or((None, None, false, false));
+                    nearby.insert(id.clone(), Nearby { info: found.info, addr, manual, state, queue, needs_pin, learned: false });
                 }
                 self.listener.devices_changed();
                 self.connect_to(&id);
             }
             Change::Down(id) => {
+                // A live connection is the proof that it is there: a phone that sleeps loses the broadcasts it lives on and
+                // would flicker. If the connection ends later, this is what then says it is gone (`session_closed`).
+                if self.sessions.lock().unwrap().contains_key(&id) {
+                    self.swallowed.lock().unwrap().insert(id);
+                    return;
+                }
                 {
                     let mut nearby = self.nearby.lock().unwrap();
                     if nearby.get(&id).is_some_and(|n| n.manual) {
@@ -404,7 +430,7 @@ impl Connect {
             if !manual && nearby.contains_key(&info.device_id) {
                 return Ok(info);
             }
-            nearby.insert(info.device_id.clone(), Nearby { info: info.clone(), addr, manual, state: None, needs_pin: !info.open, learned: !manual });
+            nearby.insert(info.device_id.clone(), Nearby { info: info.clone(), addr, manual, state: None, queue: None, needs_pin: !info.open, learned: !manual });
         }
         self.listener.devices_changed();
         self.connect_to(&info.device_id);
@@ -465,6 +491,7 @@ impl Connect {
             let Some(connect) = me.upgrade() else { return };
             match event {
                 Event::Message(ServerMessage::State { state }) => connect.got_state(&device, state),
+                Event::Message(ServerMessage::Queue { queue }) => connect.got_queue(&device, queue),
                 Event::Message(_) => {}
                 Event::Closed(reason) => connect.session_closed(&device, generation, reason),
             }
@@ -476,6 +503,7 @@ impl Connect {
                     old.session.close();
                 }
                 info!("Soundify Connect: connected to {name}");
+                self.forget_stale_twins(id);
             }
             // A token the device no longer accepts is of no use: forgotten, and tried again as a new device.
             Err(ClientError::Refused { status: 401, .. }) => {
@@ -501,7 +529,7 @@ impl Connect {
             return None;
         }
         let me = self.identity();
-        let token = client::pair(addr, &me.device_id, &me.name, "").ok()?;
+        let token = client::pair_as(addr, &me.device_id, &me.name, &me.kind, "").ok()?;
         self.known.remember(Known { device_id: info.device_id, name: info.name, kind: info.kind, token: token.clone() }).ok()?;
         Some(token)
     }
@@ -514,6 +542,13 @@ impl Connect {
         self.listener.devices_changed();
     }
 
+    fn got_queue(&self, id: &str, queue: Option<QueueInfo>) {
+        if let Some(nearby) = self.nearby.lock().unwrap().get_mut(id) {
+            nearby.queue = queue.clone();
+        }
+        self.listener.remote_queue(id, queue);
+    }
+
     /// The connection ended by itself (the other app closed, the network dropped): tried again for a while.
     fn session_closed(self: &Arc<Self>, id: &str, generation: u64, reason: Option<String>) {
         let ended = {
@@ -523,11 +558,15 @@ impl Connect {
         // Dropped outside the lock, and `Session::close` knows not to wait for the thread it is called from.
         let Some(ended) = ended else { return };
         drop(ended);
+        info!("Soundify Connect: the connection to {id} ended ({})", reason.as_deref().unwrap_or("closed by the other side"));
         if let Some(nearby) = self.nearby.lock().unwrap().get_mut(id) {
             nearby.state = None;
+            nearby.queue = None;
         }
+        // Discovery said it left while the connection was still up (and nothing has said it came back): now it is gone.
+        let left = self.swallowed.lock().unwrap().remove(id) && !self.nearby.lock().unwrap().get(id).is_some_and(|n| n.manual);
         // Found only by its connection: when that ends it is gone (if it is back it connects again and is found again).
-        if self.nearby.lock().unwrap().get(id).is_some_and(|n| n.learned) {
+        if left || self.nearby.lock().unwrap().get(id).is_some_and(|n| n.learned) {
             self.nearby.lock().unwrap().remove(id);
             self.departures.lock().unwrap().insert(id.to_string(), Instant::now());
             if self.selected.lock().unwrap().as_deref() == Some(id) {
@@ -550,6 +589,25 @@ impl Connect {
         }
         self.listener.devices_changed();
         self.reconnect(id);
+    }
+
+    /// A computer that lost its data (a new id) shows up as a second device with the same name, left over in the list as
+    /// «no connection» for ever. When a computer is connected, the other paired ones with ITS name and kind that are not on
+    /// the network are that same computer's old identity: they are let go of (it pairs again by itself if it is open).
+    /// Only computers: a name is unique among them on a network, while two phones may well be called the same.
+    fn forget_stale_twins(&self, id: &str) {
+        let Some((name, kind)) = self.nearby.lock().unwrap().get(id).map(|n| (n.info.name.clone(), n.info.kind.clone())) else { return };
+        if kind != "desktop" {
+            return;
+        }
+        for twin in self.known.all() {
+            let online = self.nearby.lock().unwrap().contains_key(&twin.device_id);
+            if twin.device_id != id && twin.kind == kind && twin.name == name && !online {
+                info!("Soundify Connect: {name} paired again with another id: the old one ({}) is forgotten", twin.device_id);
+                let _ = self.known.forget(&twin.device_id);
+                self.listener.devices_changed();
+            }
+        }
     }
 
     /// A device found by connection that cannot be connected to is not there (nothing else will say so).
@@ -635,7 +693,7 @@ impl Connect {
             (device.info.clone(), device.addr)
         };
         let me = self.identity();
-        let token = client::pair(addr, &me.device_id, &me.name, pin)?;
+        let token = client::pair_as(addr, &me.device_id, &me.name, &me.kind, pin)?;
         self.forgotten.lock().unwrap().remove(device_id);
         self.known.remember(Known { device_id: info.device_id, name: info.name, kind: info.kind, token }).map_err(|e| ConnectError::Other(e.to_string()))?;
         if let Some(nearby) = self.nearby.lock().unwrap().get_mut(device_id) {
@@ -673,6 +731,10 @@ impl Connect {
             }
         }
         *self.selected.lock().unwrap() = Some(device_id.to_string());
+        // The device is told it is now controlled from here: it stops controlling something else, if it did, and says what it plays.
+        if let Some(watch) = self.sessions.lock().unwrap().get(device_id) {
+            watch.session.send(Command::Take);
+        }
         self.listener.devices_changed();
         Ok(())
     }
@@ -695,6 +757,11 @@ impl Connect {
         self.nearby.lock().unwrap().get(device_id).and_then(|n| n.state.clone())
     }
 
+    /// The playlist a device said it is playing.
+    pub fn queue_of(&self, device_id: &str) -> Option<QueueInfo> {
+        self.nearby.lock().unwrap().get(device_id).and_then(|n| n.queue.clone())
+    }
+
     /// Asks the device being controlled to do something.
     pub fn send(&self, command: Command) -> Result<u64, ConnectError> {
         command.validate().map_err(ConnectError::Other)?;
@@ -711,6 +778,15 @@ impl Connect {
         *self.state.lock().unwrap() = state.clone();
         if let Some(running) = self.running.lock().unwrap().as_ref() {
             running.server.publish(&state);
+        }
+    }
+
+    /// The playlist this device is playing: kept for whoever connects, and sent to those who are connected.
+    pub fn publish_queue(&self, queue: Option<QueueInfo>) {
+        let queue = queue.map(QueueInfo::limited);
+        *self.queue.lock().unwrap() = queue.clone();
+        if let Some(running) = self.running.lock().unwrap().as_ref() {
+            running.server.publish_queue(&queue);
         }
     }
 

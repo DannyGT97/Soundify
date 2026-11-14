@@ -12,7 +12,8 @@ use soundify_core::connect::beacon::{Beacon, Composite};
 use soundify_core::connect::discovery::{Discovery, Mdns};
 use soundify_core::connect::manager::{Connect, ConnectError, DeviceView, Identity, Listener, PREFERRED_PORT, Player};
 use soundify_core::connect::pairing::{KnownDevices, Pairing, Trusted, new_device_id};
-use soundify_core::connect::protocol::{Command, PlayerState};
+use soundify_core::connect::protocol::{Command, PlayerState, QueueInfo};
+use soundify_core::settings;
 use soundify_core::storage::{LocalStorage, Storage};
 use tauri::{AppHandle, Emitter, Manager, State};
 
@@ -74,6 +75,13 @@ struct RemoteState<'a> {
 
 #[derive(Serialize, Clone)]
 #[serde(rename_all = "camelCase")]
+struct RemoteQueue<'a> {
+    device_id: &'a str,
+    queue: &'a Option<QueueInfo>,
+}
+
+#[derive(Serialize, Clone)]
+#[serde(rename_all = "camelCase")]
 struct RemoteClosed<'a> {
     device_id: &'a str,
     reason: Option<&'a str>,
@@ -86,10 +94,85 @@ impl Listener for AppListener {
 
     fn remote_state(&self, device_id: &str, state: PlayerState) {
         let _ = self.app.emit("connect-remote-state", RemoteState { device_id, state: &state });
+        show_on_phone(&self.app, device_id, Some(&state));
+    }
+
+    fn remote_queue(&self, device_id: &str, queue: Option<QueueInfo>) {
+        let _ = self.app.emit("connect-remote-queue", RemoteQueue { device_id, queue: &queue });
     }
 
     fn remote_closed(&self, device_id: &str, reason: Option<String>) {
+        show_on_phone(&self.app, device_id, None);
         let _ = self.app.emit("connect-remote-closed", RemoteClosed { device_id, reason: reason.as_deref() });
+    }
+}
+
+/// While another device is controlled, the phone's media notification shows what IT plays and where (`state` None = it
+/// is over). Only for the device being controlled; does nothing outside Android.
+fn show_on_phone(app: &AppHandle, device_id: &str, state: Option<&PlayerState>) {
+    if !cfg!(target_os = "android") {
+        return;
+    }
+    let connect = &app.state::<ConnectState>().connect;
+    if state.is_some() && connect.selected().as_deref() != Some(device_id) {
+        return;
+    }
+    let Some(state) = state else {
+        crate::mobile::remote_session(app, None);
+        return;
+    };
+    let Some(playing) = state.now_playing.as_ref() else {
+        crate::mobile::remote_session(app, None);
+        return;
+    };
+    let name = connect.devices().into_iter().find(|device| device.id == device_id).map(|device| device.name).unwrap_or_default();
+    crate::mobile::remote_session(
+        app,
+        Some(&crate::mobile::RemoteSession {
+            device: on_device(&language(app), &name),
+            title: playing.title.clone(),
+            playlist: playing.playlist.clone(),
+            playing: state.playing,
+            position: state.position,
+            duration: state.duration,
+            shuffle: state.shuffle,
+            repeat: state.repeat.clone(),
+            volume: state.volume,
+        }),
+    );
+}
+
+fn language(app: &AppHandle) -> String {
+    settings::load(&LocalStorage, &app.state::<crate::commands::AppState>().paths.settings()).language
+}
+
+/// «En "PC"»: where the music sounds, in the app's language.
+fn on_device(language: &str, name: &str) -> String {
+    match language {
+        "en" => format!("On \"{name}\""),
+        "ca" => format!("A «{name}»"),
+        _ => format!("En «{name}»"),
+    }
+}
+
+/// A button of the phone's notification of the device being controlled: asked of that device from here, because the
+/// page may be asleep (screen off). `seconds` only means something for `seek`.
+#[cfg_attr(not(target_os = "android"), allow(dead_code))]
+pub fn notification_action(app: &AppHandle, action: &str, seconds: f64) {
+    let command = match action {
+        "play" => Command::Play,
+        "pause" => Command::Pause,
+        "next" => Command::Next,
+        "previous" => Command::Previous,
+        "shuffle" => Command::Shuffle { on: None },
+        "repeat" => Command::Repeat { mode: None },
+        "seek" => Command::Seek { seconds },
+        // The phone's volume buttons while another device is controlled: `seconds` carries the volume (0 to 1).
+        "volume" => Command::Volume { volume: seconds.clamp(0.0, 1.0) },
+        _ => return,
+    };
+    if let Err(e) = app.state::<ConnectState>().connect.send(command) {
+        warn!("A button of the notification could not be sent to the device being controlled: {e:?}");
     }
 }
 
@@ -139,6 +222,7 @@ pub fn init(app: &AppHandle, paths: &AppPaths) {
     if enabled {
         let app = app.clone();
         std::thread::spawn(move || {
+            use_phone_name(&app);
             if let Err(e) = turn_on(&app, &connect) {
                 warn!("Soundify Connect could not start: {e}");
                 *error.lock().unwrap() = Some(e.to_string());
@@ -148,15 +232,46 @@ pub fn init(app: &AppHandle, paths: &AppPaths) {
     }
 }
 
-/// On Android mDNS needs a lock on the Wi-Fi radio, or the phone drops the multicast packets it lives on.
+/// An Android phone first called itself «Teléfono Android»: now it uses the name its owner gave it (or its model), unless
+/// the user already chose one. Does nothing elsewhere.
+fn use_phone_name(app: &AppHandle) {
+    if !cfg!(target_os = "android") {
+        return;
+    }
+    let state = app.state::<ConnectState>();
+    if state.config.lock().unwrap().name != LEGACY_PHONE_NAME {
+        return;
+    }
+    let Some(name) = crate::mobile::device_name(app).filter(|name| !name.trim().is_empty()) else { return };
+    let mut config = state.config.lock().unwrap();
+    config.name = name.clone();
+    state.connect.set_name(&name);
+    save_config(&state.file, &config);
+}
+
+const LEGACY_PHONE_NAME: &str = "Teléfono Android";
+
+/// On Android mDNS needs a lock on the Wi-Fi radio, or the phone drops the multicast packets it lives on, and
+/// the app has to stay awake (a foreground service with its notice) or Android closes its network in the background.
 fn turn_on(app: &AppHandle, connect: &Arc<Connect>) -> std::io::Result<()> {
-    crate::mobile::set_multicast(app, true);
+    let (title, text) = notice(app, &connect.identity().name);
+    crate::mobile::set_multicast(app, true, &title, &text);
     connect.start(PREFERRED_PORT)
 }
 
 fn turn_off(app: &AppHandle, connect: &Connect) {
     connect.stop();
-    crate::mobile::set_multicast(app, false);
+    crate::mobile::set_multicast(app, false, "", "");
+}
+
+/// What the notification that keeps Connect awake says, in the app's language.
+fn notice(app: &AppHandle, name: &str) -> (String, String) {
+    let language = settings::load(&LocalStorage, &app.state::<crate::commands::AppState>().paths.settings()).language;
+    match language.as_str() {
+        "en" => ("Soundify Connect is on".into(), format!("Visible on your network as \"{name}\"")),
+        "ca" => ("Soundify Connect activat".into(), format!("Visible a la teva xarxa com a «{name}»")),
+        _ => ("Soundify Connect activado".into(), format!("Visible en tu red como «{name}»")),
+    }
 }
 
 fn load_config(file: &Location) -> Config {
@@ -216,6 +331,7 @@ fn error(error: ConnectError) -> CommandError {
 pub struct ControllerView {
     id: String,
     name: String,
+    kind: String,
 }
 
 #[derive(Serialize)]
@@ -230,6 +346,8 @@ pub struct Status {
     discovery: bool,
     /// Why Connect could not start, if it could not.
     error: Option<String>,
+    /// Android 16+: the permission to use the local network (None where it does not apply). Without it nothing on the Wi-Fi gets through.
+    local_network: Option<bool>,
     running: bool,
     port: Option<u16>,
     name: String,
@@ -242,7 +360,7 @@ pub struct Status {
 }
 
 #[tauri::command]
-pub fn connect_status(state: State<'_, ConnectState>) -> Status {
+pub fn connect_status(app: AppHandle, state: State<'_, ConnectState>) -> Status {
     let config = state.config.lock().unwrap().clone();
     Status {
         enabled: config.enabled,
@@ -250,12 +368,13 @@ pub fn connect_status(state: State<'_, ConnectState>) -> Status {
         addresses: state.connect.addresses(),
         discovery: state.connect.discovers(),
         error: state.error.lock().unwrap().clone(),
+        local_network: crate::mobile::local_network_granted(&app),
         running: state.connect.is_running(),
         port: state.connect.port(),
         name: config.name,
         device_id: config.device_id,
         selected: state.connect.selected(),
-        controllers: state.connect.controllers().into_iter().map(|t| ControllerView { id: t.controller_id, name: t.name }).collect(),
+        controllers: state.connect.controllers().into_iter().map(|t| ControllerView { id: t.controller_id, name: t.name, kind: t.kind }).collect(),
         connected_controllers: state.connect.connected_controllers(),
     }
 }
@@ -283,6 +402,12 @@ pub async fn connect_set_enabled(app: AppHandle, state: State<'_, ConnectState>,
     Ok(())
 }
 
+/// Asks Android for the permission to use the local network (the system's dialog, or the app's settings if it was refused for good).
+#[tauri::command]
+pub fn connect_request_local_network(app: AppHandle) {
+    crate::mobile::request_local_network(&app);
+}
+
 /// Open (devices pair by themselves) or strict (the PIN is asked for).
 #[tauri::command]
 pub fn connect_set_open(state: State<'_, ConnectState>, open: bool) {
@@ -300,6 +425,7 @@ pub fn connect_set_name(state: State<'_, ConnectState>, name: String) -> Result<
         return Err(CommandError::key("connect.error.name"));
     }
     let mut config = state.config.lock().unwrap();
+    state.connect.set_name(&name);
     config.name = name;
     save_config(&state.file, &config);
     Ok(())
@@ -352,23 +478,39 @@ pub fn connect_forget_controller(state: State<'_, ConnectState>, controller_id: 
 
 /// Starts controlling a device; what it is doing right now comes back, to show it at once.
 #[tauri::command]
-pub async fn connect_select(state: State<'_, ConnectState>, device_id: String) -> Result<Option<PlayerState>, CommandError> {
+pub async fn connect_select(app: AppHandle, state: State<'_, ConnectState>, device_id: String) -> Result<Option<PlayerState>, CommandError> {
     let connect = state.connect.clone();
-    tauri::async_runtime::spawn_blocking(move || connect.select(&device_id).map(|()| connect.state_of(&device_id)))
+    let shown = (app.clone(), device_id.clone());
+    let current = tauri::async_runtime::spawn_blocking(move || connect.select(&device_id).map(|()| connect.state_of(&device_id)))
         .await
         .map_err(CommandError::io)?
-        .map_err(error)
+        .map_err(error)?;
+    show_on_phone(&shown.0, &shown.1, current.as_ref());
+    Ok(current)
 }
 
 #[tauri::command]
-pub fn connect_deselect(state: State<'_, ConnectState>) {
+pub fn connect_deselect(app: AppHandle, state: State<'_, ConnectState>) {
     state.connect.deselect();
+    show_on_phone(&app, "", None);
 }
 
 /// An order for the device being controlled.
 #[tauri::command]
 pub fn connect_send(state: State<'_, ConnectState>, command: Command) -> Result<(), CommandError> {
     state.connect.send(command).map(|_| ()).map_err(error)
+}
+
+/// The playlist a device said it is playing (the one being controlled: it is its remote playlist).
+#[tauri::command]
+pub fn connect_queue_of(state: State<'_, ConnectState>, device_id: String) -> Option<QueueInfo> {
+    state.connect.queue_of(&device_id)
+}
+
+/// The playlist this device is playing, for those who control it.
+#[tauri::command]
+pub fn connect_publish_queue(state: State<'_, ConnectState>, queue: Option<QueueInfo>) {
+    state.connect.publish_queue(queue);
 }
 
 /// What this device plays now, for those who control it.

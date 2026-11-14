@@ -47,6 +47,12 @@ export function playlistPicture(playlist: Playlist): Picture | null {
   return id ? { kind: 'thumbnail', id } : null;
 }
 
+/** The picture of a remote playlist (the one on the device being controlled): the thumbnail of its first file, as a local playlist does. */
+export function queuePicture(queue: { items: Array<{ videoId: string }> } | null): Picture | null {
+  const id = queue?.items[0]?.videoId;
+  return id ? { kind: 'thumbnail', id } : null;
+}
+
 /**
  * How the `<img>` sits inside its tile so that only `rect` shows, in
  * percentages of the tile: they need no layout, so the cover can be built

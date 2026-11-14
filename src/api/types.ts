@@ -268,14 +268,19 @@ export interface ConnectPlayerState {
   repeat: 'off' | 'all' | 'one';
 }
 export interface ConnectQueueItem { videoId: string; title: string }
+/** The playlist a device is playing, in its order: what a controller lists to pick a song from (its «remote playlist»). */
+export interface ConnectQueue { playlist: string; items: ConnectQueueItem[] }
 /** What a controller asks a player to do. */
 export type ConnectCommand =
   | { cmd: 'play' | 'pause' | 'toggle' | 'next' | 'previous' }
+  /** This device is the one being controlled from now on (sent when it is chosen): it stops controlling and says who took it. */
+  | { cmd: 'take' }
   | { cmd: 'seek'; seconds: number }
   | { cmd: 'volume'; volume: number }
   | { cmd: 'shuffle'; on?: boolean }
   | { cmd: 'repeat'; mode?: 'off' | 'all' | 'one' }
-  | { cmd: 'load'; playlist: string; queue: ConnectQueueItem[]; index: number; position: number; autoplay: boolean };
+  /** Play this file of the playlist that is playing (a video id of its `ConnectQueue`). */
+  | { cmd: 'playTrack'; videoId: string };
 /** One line of the list of devices (Ajustes and the panel of Reproduciendo). */
 export interface ConnectDevice {
   id: string;
@@ -306,6 +311,8 @@ export interface ConnectStatus {
   discovery: boolean;
   /** Why Connect could not start, if it could not. */
   error: string | null;
+  /** Android 16+: the permission to use the local network (null where it does not apply): without it nothing gets through. */
+  localNetwork: boolean | null;
   running: boolean;
   port: number | null;
   name: string;
@@ -313,7 +320,7 @@ export interface ConnectStatus {
   /** The device being controlled, if any. */
   selected: string | null;
   /** Who may control this device. */
-  controllers: Array<{ id: string; name: string }>;
+  controllers: Array<{ id: string; name: string; kind?: 'desktop' | 'phone' | 'tablet' | '' }>;
   connectedControllers: number;
 }
 /** What Windows' firewall says about this app (Soundify Connect needs to be let in). */

@@ -49,7 +49,7 @@ export function buildSidebar(): HTMLElement {
         entry.route === 'home' ? homeLogo(20) : icon(entry.icon, 20),
         h('span', { class: 'nav-label', text: label }),
         h('span', { class: 'nav-label-short', text: t(entry.short ?? entry.label) }));
-      button.addEventListener('click', () => navigate(entry.route === 'player' ? ui.lastPlayerPage : entry.route));
+      button.addEventListener('click', () => navigate(entry.route === 'player' ? (ui.remote ? 'player' : ui.lastPlayerPage) : entry.route));
       buttons.set(entry.route, button);
       nav.append(button);
     }
@@ -72,7 +72,7 @@ function navButton(route: Route, labelKey: string, iconName: IconName): HTMLButt
   return button;
 }
 export function markActive(route: Route): void {
-  const active: Route = route === 'now-playing' ? 'player' : route;
+  const active: Route = route === 'now-playing' || route === 'remote-playlist' ? 'player' : route;
   buttons.forEach((button, r) => button.classList.toggle('selected', r === active));
   // The phone has one tab for both ways of downloading.
   buttons.get('download')?.classList.toggle('phone-selected', route === 'new-playlist');

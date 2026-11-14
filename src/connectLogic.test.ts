@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { actionsFor, projectPosition, shouldPublish, toWireState, type PlayerView } from './connectLogic';
+import { VOLUME_ECHO_MS, actionsFor, describeCommand, projectPosition, shouldPublish, toWireState, volumeToShow, type PlayerView } from './connectLogic';
 import type { ConnectPlayerState, Track } from './api';
 
 const track: Track = { id: 'abc', number: 1, title: 'Canción', addedDaysAgo: 0, seconds: 200, status: 'ok', file: '/m/a.mp3' };
@@ -85,11 +85,33 @@ describe('actionsFor', () => {
     expect(actionsFor({ cmd: 'repeat' }, now)).toEqual([{ kind: 'repeat', times: 1 }]);
   });
 
-  it('a load names the file at the index of the queue', () => {
-    const queue = [{ videoId: 'a', title: 'A' }, { videoId: 'b', title: 'B' }];
-    expect(actionsFor({ cmd: 'load', playlist: 'Mix', queue, index: 1, position: 30, autoplay: true }, now)).toEqual([
-      { kind: 'load', playlist: 'Mix', videoId: 'b', position: 30, autoplay: true },
-    ]);
-    expect(actionsFor({ cmd: 'load', playlist: 'Mix', queue, index: 9, position: 0, autoplay: true }, now)).toEqual([]);
+  it('repeat with no mode presses once from every mode, so the cycle never gets stuck on «one»', () => {
+    for (const repeat of ['off', 'all', 'one'] as const) {
+      expect(actionsFor({ cmd: 'repeat' }, { ...now, repeat })).toEqual([{ kind: 'repeat', times: 1 }]);
+    }
+  });
+
+  it('only says that a controller took the device over, with its name; what it then does is not worth a notice', () => {
+    expect(describeCommand({ cmd: 'take' }, 'Móvil')).toEqual({ key: 'connect.said.take', args: ['Móvil'] });
+    for (const command of [{ cmd: 'pause' }, { cmd: 'volume', volume: 0.42 }, { cmd: 'repeat' }, { cmd: 'playTrack', videoId: 'a' }] as const) {
+      expect(describeCommand(command, 'Móvil')).toBeNull();
+    }
+    expect(actionsFor({ cmd: 'take' }, now)).toEqual([]);
+  });
+
+  it('picking a track of the remote playlist plays that file', () => {
+    expect(actionsFor({ cmd: 'playTrack', videoId: 'b' }, now)).toEqual([{ kind: 'play', videoId: 'b' }]);
+  });
+});
+
+describe('volumeToShow', () => {
+  it('keeps its own volume while the answers of the other device are still coming in', () => {
+    expect(volumeToShow(0.4, 0.6, 200)).toBe(0.6);
+    expect(volumeToShow(0.4, 0.6, VOLUME_ECHO_MS - 1)).toBe(0.6);
+  });
+
+  it('takes the volume of the other device once the window is over, or when nothing was sent', () => {
+    expect(volumeToShow(0.4, 0.6, VOLUME_ECHO_MS)).toBe(0.4);
+    expect(volumeToShow(0.4, 0.6, Date.now())).toBe(0.4);
   });
 });

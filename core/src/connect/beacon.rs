@@ -18,7 +18,7 @@ use super::protocol::{DeviceInfo, PROTOCOL};
 pub const BEACON_PORT: u16 = 48651;
 /// How often a device says it is here, and how long without hearing it before it is taken as gone.
 const BEACON_EVERY: Duration = Duration::from_secs(3);
-const BEACON_EXPIRES: Duration = Duration::from_secs(10);
+const BEACON_EXPIRES: Duration = Duration::from_secs(30);
 
 /// The address this device uses on the local network (the one the route to the outside would use):
 /// what to type on another device to reach this one, and where to send the directed broadcast.

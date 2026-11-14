@@ -47,10 +47,30 @@ export function shouldPublish(last: ConnectPlayerState | null, next: ConnectPlay
   return Math.abs(projectPosition(last, elapsed) - next.position) > DRIFT_SECONDS;
 }
 
+/** After this controller sent a volume, the other device's states are not allowed to move the slider back for this long. */
+export const VOLUME_ECHO_MS = 1000;
+
+/**
+ * The volume to show for a state that arrived: the other device answers every volume command with its state, and with
+ * several in a row (a slider dragged, the buttons pressed again and again) each answer is already out of date when it
+ * lands. While the controller's own word is recent it stays; the caller shows the real one once the window is over.
+ */
+export function volumeToShow(incoming: number, current: number, sinceOwnMs: number): number {
+  return sinceOwnMs < VOLUME_ECHO_MS ? current : incoming;
+}
+
 /** Where a state that arrived `elapsed` seconds ago is now. */
 export function projectPosition(state: ConnectPlayerState, elapsed: number): number {
   const moved = state.playing ? state.position + Math.max(0, elapsed) : state.position;
   return state.duration > 0 ? Math.min(moved, state.duration) : moved;
+}
+
+/**
+ * What a controller did, for the notice on the device it controls: only that it took it over (what it does afterwards, it is
+ * seen on its own screen). The text's key and arguments (`from` = who); null for everything else.
+ */
+export function describeCommand(command: ConnectCommand, from: string): { key: string; args: string[] } | null {
+  return command.cmd === 'take' ? { key: 'connect.said.take', args: [from] } : null;
 }
 
 /** A stand-in for the track of another device's file: the page only needs its id and title. */
@@ -66,7 +86,7 @@ export type LocalAction =
   | { kind: 'toggle' } | { kind: 'next' } | { kind: 'previous' }
   | { kind: 'seek'; seconds: number } | { kind: 'volume'; volume: number }
   | { kind: 'shuffle' } | { kind: 'repeat'; times: number }
-  | { kind: 'load'; playlist: string; videoId: string; position: number; autoplay: boolean };
+  | { kind: 'play'; videoId: string };
 
 export function actionsFor(command: ConnectCommand, now: { playing: boolean; shuffle: boolean; repeat: 'off' | 'all' | 'one' }): LocalAction[] {
   switch (command.cmd) {
@@ -84,9 +104,7 @@ export function actionsFor(command: ConnectCommand, now: { playing: boolean; shu
       const times = (order.indexOf(command.mode) - order.indexOf(now.repeat) + 3) % 3;
       return times > 0 ? [{ kind: 'repeat', times }] : [];
     }
-    case 'load': {
-      const item = command.queue[command.index];
-      return item ? [{ kind: 'load', playlist: command.playlist, videoId: item.videoId, position: command.position, autoplay: command.autoplay }] : [];
-    }
+    case 'playTrack': return [{ kind: 'play', videoId: command.videoId }];
+    case 'take': return [];
   }
 }

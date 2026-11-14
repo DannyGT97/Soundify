@@ -5,7 +5,7 @@
 import { api, type ConnectDevice, type ConnectFirewall } from '../api';
 import { notify } from '../components/toasts';
 import { closeOverlay, openOverlay } from '../components/overlay';
-import { bringHere, connect, controlDevice, loadConnect, stopControlling, transferTo } from '../connect';
+import { connect, controlDevice, loadConnect, stopControlling } from '../connect';
 import { h } from '../dom';
 import { t } from '../i18n';
 import { icon, type IconName } from '../icons';
@@ -56,6 +56,18 @@ function content(): Node[] {
       h('div', { class: 'section-title', text: t('connect.enable') }),
       h('p', { class: 'subtitle', text: t(status?.enabled ? 'connect.enable.on' : 'connect.enable.off', status?.name ?? '') })),
     connectSwitch()));
+  // Android 17: without the permission to use the local network nothing on the Wi-Fi reaches the app (and it reaches nothing).
+  if (status?.localNetwork === false) {
+    const allow = h('button', { class: 'primary-button', text: t('connect.localNetwork.allow') });
+    allow.addEventListener('click', () => {
+      void api.connectRequestLocalNetwork().then(() => window.setTimeout(() => void loadConnect(), 1500));
+    });
+    nodes.push(h('div', { class: 'cx-firewall card' },
+      h('div', { class: 'grow' },
+        h('div', { class: 'section-title cx-warning', text: t('connect.localNetwork.title') }),
+        h('p', { class: 'subtitle', text: t('connect.localNetwork.desc') })),
+      allow));
+  }
   if (status?.error) nodes.push(h('p', { class: 'help cx-warning', text: t('connect.startError', status.error) }));
   if (!status?.running) return nodes;
   // Where to find this device, for when the other one does not: its address, to type there.
@@ -69,8 +81,7 @@ function content(): Node[] {
     icon(onAndroid ? 'device' : 'monitor', 20),
     h('div', { class: 'grow min0' },
       h('div', { class: 'row-title ellipsis', text: status.name }),
-      h('div', { class: 'subtitle', text: ui.remote ? t('connect.controlling', ui.remote.name) : t('connect.soundsHere') })),
-    ui.remote ? h('button', { class: 'primary-button', text: t('connect.bringHere'), onclick: () => void bringHere() }) : null));
+      h('div', { class: 'subtitle', text: ui.remote ? t('connect.controlling', ui.remote.name) : t('connect.soundsHere') }))));
 
   nodes.push(h('div', { class: 'cx-switch row center gap-10' },
     h('div', { class: 'grow' },
@@ -90,6 +101,7 @@ function content(): Node[] {
     nodes.push(h('div', { class: 'section-label', text: t('connect.controllers') }));
     for (const controller of status.controllers) {
       nodes.push(h('div', { class: 'card cx-device' },
+        icon(KIND_ICON[controller.kind || 'desktop'] ?? 'device', 20),
         h('div', { class: 'grow min0' }, h('div', { class: 'row-title ellipsis', text: controller.name })),
         h('button', { class: 'text-button danger-text', text: t('connect.revoke'), onclick: () => void run(api.connectForgetController(controller.id)) })));
     }
@@ -160,9 +172,7 @@ function deviceRow(device: ConnectDevice): HTMLElement {
   if (device.connected) {
     actions.append(h('button', { class: 'secondary-button', text: t('connect.stop'), onclick: () => void stopControlling() }));
   } else if (device.online && device.ready) {
-    actions.append(
-      h('button', { class: 'primary-button', text: t('connect.control'), onclick: () => void controlDevice(device).then(ok => ok && closeOverlay()) }),
-      h('button', { class: 'secondary-button', text: t('connect.handOver'), onclick: () => void transferTo(device).then(() => closeOverlay()) }));
+    actions.append(h('button', { class: 'primary-button', text: t('connect.control'), onclick: () => void controlDevice(device).then(ok => ok && closeOverlay()) }));
   } else if (device.online && device.needsPin) {
     const pin = h('input', { class: 'input cx-pin-input', attrs: { 'data-keep': `pin-${device.id}`, inputmode: 'numeric', maxlength: '8', placeholder: t('connect.pair.placeholder'), 'aria-label': t('connect.pair.placeholder') } });
     pin.value = typed.get(device.id) ?? '';

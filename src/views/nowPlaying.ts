@@ -1,4 +1,5 @@
 import { api, type PlaybackDevice } from '../api';
+import { connect } from '../connect';
 import { h } from '../dom';
 import { icon } from '../icons';
 import { t } from '../i18n';
@@ -11,7 +12,7 @@ import { subscribe, ui } from '../state';
 import { cover } from '../components/cover';
 import { buildTransport, buildVolume, describe } from '../components/transport';
 import { pipButton } from '../components/pip';
-import { openDevicesOverlay } from '../overlays/devices';
+import { openDevicesSwitcher } from '../overlays/devicesSwitcher';
 
 /** How long the controls stay over a full-screen video after the mouse stops. */
 const CONTROLS_IDLE_MS = 2500;
@@ -41,16 +42,24 @@ export function nowPlayingView(): HTMLElement {
       h('p', { text: t('nowPlaying.empty.body') }),
       h('div', { class: 'row gap-8' },
         h('button', { class: 'secondary-button', onclick: () => navigate('player') }, icon('list', 16), h('span', { text: t('nowPlaying.goToPlayer') })))));
-  // Back to the playlist that is playing, in the Reproductor (its list when nothing is).
-  const back = h('button', { class: 'icon-button np-back', title: t('nowPlaying.back'), attrs: { 'aria-label': t('nowPlaying.back') }, onclick: () => {
-    if (ui.nowPlaying) navigate('player', { b: ui.nowPlaying.blockKey });
+  // Back to the playlist that is playing, in the Reproductor (its list when nothing is); while another device is
+  // controlled, to its playlist (a remote playlist: the songs are there, and one can be picked from here).
+  const back = h('button', { class: 'icon-button np-back', onclick: () => {
+    if (ui.remote) navigate('remote-playlist');
+    else if (ui.nowPlaying) navigate('player', { b: ui.nowPlaying.blockKey });
     else navigate('player');
   } }, icon('back', 22));
+  const paintBack = () => {
+    const label = t(ui.remote ? 'nowPlaying.backRemote' : 'nowPlaying.back');
+    back.title = label;
+    back.setAttribute('aria-label', label);
+    controls.classList.toggle('remote', !!ui.remote);
+  };
   // Where the sound goes: this device, or the headphones / Bluetooth device that is connected.
   const deviceIcon = h('span', { class: 'np-device-icon' });
   const deviceName = h('span', { class: 'np-device-name ellipsis' });
   // It opens the list of devices (Soundify Connect): to control another one, or to bring the music back.
-  const device = h('button', { class: 'np-device', title: t('nowPlaying.device'), onclick: openDevicesOverlay }, deviceIcon, deviceName);
+  const device = h('button', { class: 'np-device', title: t('nowPlaying.device'), onclick: openDevicesSwitcher }, deviceIcon, deviceName);
   const paintDevice = (found: PlaybackDevice) => {
     // Controlling another Soundify: that is where it sounds.
     if (ui.remote) {
@@ -77,12 +86,24 @@ export function nowPlayingView(): HTMLElement {
   };
 
   const info = h('div', { class: 'np-info' }, title, meta, device, autoPip);
+  // The window's title: the playlist that sounds (and, when it is on another device, that it is a remote playlist).
+  const headEyebrow = h('div', { class: 'np-head-eyebrow' });
+  const headTitle = h('div', { class: 'np-head-name ellipsis' });
+  const head = h('div', { class: 'np-head-title grow min0' }, headEyebrow, headTitle);
+  const paintHead = () => {
+    const np = ui.nowPlaying;
+    const name = !np ? '' : ui.remote ? (connect.queue?.playlist ?? '') : findBlock(np.blockKey)?.playlist.title ?? '';
+    headEyebrow.textContent = np && ui.remote ? t('remotePlaylist.eyebrow') : '';
+    headEyebrow.hidden = !(np && ui.remote);
+    headTitle.textContent = name;
+    headTitle.title = name;
+  };
 
   const screen = h('div', { class: 'screen np-screen' },
     backdrop,
     h('div', { class: 'np-tint' }),
     h('div', { class: 'np-content' },
-      h('div', { class: 'np-head' }, h('div', { class: 'grow' }), back),
+      h('div', { class: 'np-head' }, head, back),
       empty,
       art,
       info,
@@ -170,9 +191,11 @@ export function nowPlayingView(): HTMLElement {
     backdrop.replaceChildren(video ? '' : cover(np.track.title, false, 600, { kind: 'thumbnail', id: np.track.id }));
     backdrop.hidden = video;
     title.textContent = np.track.title;
-    meta.textContent = found ? `${found.playlist.title} · ${found.block.format}` : '';
+    meta.textContent = found ? found.block.format : '';
   };
   onLeave(subscribe('player', refresh));
+  onLeave(subscribe('player', paintHead));
+  onLeave(subscribe('connect', paintHead));
   onLeave(subscribe('player', paintAuto));
   onLeave(subscribe('player-placement', refreshControls));
   // Back to its hidden holder in the same task: out of the page, it would pause.
@@ -187,6 +210,9 @@ export function nowPlayingView(): HTMLElement {
   const pullDevice = () => void api.playbackDevice().then(paintDevice).catch(() => {});
   pullDevice();
   onLeave(subscribe('connect', pullDevice));
+  onLeave(subscribe('connect', paintBack));
+  paintBack();
+  paintHead();
   const deviceTimer = window.setInterval(() => document.visibilityState === 'visible' && pullDevice(), DEVICE_POLL_MS);
   onLeave(() => window.clearInterval(deviceTimer));
   refresh();

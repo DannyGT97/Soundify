@@ -3,7 +3,7 @@
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
-use super::discovery::{Discovery, MemoryDiscovery, MemoryNetwork};
+use super::discovery::{Change, Discovery, MemoryDiscovery, MemoryNetwork};
 use super::manager::{Connect, ConnectError, DeviceView, Identity, Listener, Player};
 use super::pairing::{KnownDevices, Pairing, Trusted};
 use super::protocol::*;
@@ -23,6 +23,7 @@ impl Player for Commands {
 #[derive(Default)]
 struct Heard {
     states: Mutex<Vec<(String, PlayerState)>>,
+    queues: Mutex<Vec<(String, Option<QueueInfo>)>>,
     closed: Mutex<Vec<String>>,
 }
 
@@ -31,6 +32,10 @@ impl Listener for Heard {
 
     fn remote_state(&self, device_id: &str, state: PlayerState) {
         self.states.lock().unwrap().push((device_id.to_string(), state));
+    }
+
+    fn remote_queue(&self, device_id: &str, queue: Option<QueueInfo>) {
+        self.queues.lock().unwrap().push((device_id.to_string(), queue));
     }
 
     fn remote_closed(&self, device_id: &str, _: Option<String>) {
@@ -151,8 +156,9 @@ fn one_tap_controls_a_device_it_is_already_connected_to() {
     assert!(device(&controller, "tv").unwrap().connected);
     controller.connect.send(Command::Next).unwrap();
     controller.connect.send(Command::Volume { volume: 0.5 }).unwrap();
-    wait(|| player.commands.0.lock().unwrap().len() == 2);
-    assert_eq!(player.commands.0.lock().unwrap().as_slice(), [Command::Next, Command::Volume { volume: 0.5 }]);
+    // Choosing it told it that it is now controlled from here (`Take`), before anything else.
+    wait(|| player.commands.0.lock().unwrap().len() == 3);
+    assert_eq!(player.commands.0.lock().unwrap().as_slice(), [Command::Take, Command::Next, Command::Volume { volume: 0.5 }]);
     player.connect.publish(PlayerState { playing: true, position: 30.0, ..PlayerState::default() });
     wait(|| controller.heard.states.lock().unwrap().iter().any(|(id, s)| id == "tv" && s.playing && s.position == 30.0));
 }
@@ -209,6 +215,53 @@ fn the_player_that_comes_back_is_connected_to_again() {
     assert!(until(&|| device(&controller, "tv").is_some_and(|d| !d.online)), "first: {:?}", controller.connect.devices());
     player.connect.start(0).unwrap();
     assert!(until(&|| device(&controller, "tv").is_some_and(|d| d.online && d.ready)), "second: {:?}", controller.connect.devices());
+}
+
+#[test]
+fn discovery_losing_a_device_whose_connection_is_up_does_not_make_it_flicker() {
+    // A phone that sleeps loses the broadcasts it is found by, but its connection is the proof that it is there.
+    let (player, controller) = open_pair();
+    controller.connect.saw(Change::Down("tv".into()));
+    std::thread::sleep(Duration::from_millis(200));
+    assert!(device(&controller, "tv").is_some_and(|d| d.online && d.ready), "devices: {:?}", controller.connect.devices());
+    // Once the connection really ends, what discovery said then counts: it is gone (not tried again for a minute).
+    player.connect.stop();
+    wait(|| device(&controller, "tv").is_some_and(|d| !d.online));
+    assert!(controller.connect.selected().is_none());
+}
+
+// === THE PLAYLIST THAT PLAYS ===
+
+fn queue(playlist: &str, ids: &[&str]) -> QueueInfo {
+    QueueInfo { playlist: playlist.into(), items: ids.iter().map(|id| QueueItem { video_id: (*id).into(), title: format!("Canción {id}") }).collect() }
+}
+
+#[test]
+fn the_playlist_a_device_plays_reaches_the_controller_when_it_connects_and_when_it_changes() {
+    let network = Arc::new(MemoryNetwork::default());
+    let player = app(&network, "tv", "Salón", false);
+    let controller = app(&network, "phone", "Móvil", false);
+    player.connect.start(0).unwrap();
+    // Published before anybody was there: whoever connects gets it with the first state.
+    player.connect.publish_queue(Some(queue("Rock", &["a", "b", "c"])));
+    controller.connect.start(0).unwrap();
+    wait(|| controller.connect.queue_of("tv").is_some());
+    assert_eq!(controller.connect.queue_of("tv").unwrap(), queue("Rock", &["a", "b", "c"]));
+    // And a change goes out at once.
+    player.connect.publish_queue(Some(queue("Jazz", &["x", "y"])));
+    wait(|| controller.connect.queue_of("tv").is_some_and(|q| q.playlist == "Jazz"));
+    assert_eq!(controller.heard.queues.lock().unwrap().last().unwrap().0, "tv");
+    player.connect.publish_queue(None);
+    wait(|| controller.connect.queue_of("tv").is_none());
+}
+
+#[test]
+fn a_controller_picks_a_track_of_the_remote_playlist_and_the_player_gets_it() {
+    let (player, controller) = open_pair();
+    controller.connect.select("tv").unwrap();
+    controller.connect.send(Command::PlayTrack { video_id: "b".into() }).unwrap();
+    wait(|| player.commands.0.lock().unwrap().as_slice() == [Command::Take, Command::PlayTrack { video_id: "b".into() }]);
+    assert!(controller.connect.send(Command::PlayTrack { video_id: String::new() }).is_err());
 }
 
 // === STRICT: THE PIN ===
@@ -342,4 +395,24 @@ fn this_device_says_where_it_can_be_reached_only_while_it_runs() {
     if let Some(address) = one.connect.addresses().first() {
         assert!(address.ends_with(&format!(":{}", one.connect.port().unwrap())));
     }
+}
+
+#[test]
+fn a_computer_that_comes_back_with_a_new_id_does_not_leave_its_old_one_in_the_list() {
+    let network = Arc::new(MemoryNetwork::default());
+    let player = app(&network, "tv-new", "Salón", false);
+    // The controller paired once with the same computer under an id it has since lost, and with another one called differently.
+    let storage = Arc::new(MemoryStorage::default());
+    storage.create_dir_all(&Location::path("/data")).unwrap();
+    let shared: Arc<dyn Storage> = storage.clone();
+    let before = KnownDevices::load(shared, Location::path("/data/devices.json"));
+    before.remember(super::pairing::Known { device_id: "tv-old".into(), name: "Salón".into(), kind: "desktop".into(), token: "t".into() }).unwrap();
+    before.remember(super::pairing::Known { device_id: "other".into(), name: "Cocina".into(), kind: "desktop".into(), token: "t".into() }).unwrap();
+    let controller = app_on(&network, "phone", "Móvil", false, storage);
+    assert!(device(&controller, "tv-old").is_some());
+    player.connect.start(0).unwrap();
+    controller.connect.start(0).unwrap();
+    wait(|| device(&controller, "tv-new").is_some_and(|d| d.ready));
+    wait(|| device(&controller, "tv-old").is_none());
+    assert!(device(&controller, "other").is_some(), "a device with another name stays");
 }

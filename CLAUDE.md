@@ -344,6 +344,55 @@ Repositorio: https://github.com/DannyGT97/Soundify (GitHub, rama `main`, GPL-3.0
   si no es válida.
 
 ## Pendiente
+- **Connect, alcance simplificado (13/11/2026; tests en verde, SIN probar entre PC y móvil reales).** Se quitó lo de bajarse lo que no se tiene (streaming, copiar
+  por red, «Pasar mi música»); queda **controlar bien** (detalle en `PLAN-CONNECT.md`, que no va a git, junto con el estudio de viabilidad de «copiar una playlist
+  de otro dispositivo» para más adelante): (1) **playlist remota**: el que suena publica su playlist (`ServerMessage::Queue`, `Connect::publish_queue`/`queue_of`,
+  comandos `connect_publish_queue`/`connect_queue_of`, evento `connect-remote-queue`) y el que controla la lista en `views/remotePlaylist.ts` (ruta `remote-playlist`,
+  «Playlist remota · En «X»»; tocar una canción = `Command::PlayTrack{videoId}` → `player.playTrackById`); la flecha de Reproduciendo va allí mientras se controla.
+  `Command::Load` ya no existe. (2) **Volumen/aleatorio/repetir remotos** ya viajaban; en el móvil Reproduciendo ocultaba el volumen: ahora sale con `.np-controls.remote`.
+  (3) **Parpadeo «sin conexión»**: `Connect::saw` ignora la baja del descubrimiento mientras hay conexión viva (`swallowed`), baliza a 30 s, ping 15 s y corte tras 45 s
+  de silencio en cliente y servidor (`protocol::PING_EVERY/SILENCE_LIMIT`), reconexión 1-2-4-8-16-30-30-30 s y `WifiLock` en Android. (4) **Notificación multimedia
+  del que controla** (Android): segunda sesión Media3 (`RemoteControlPlayer`, `PlaybackService.applyRemote`, comando `remoteSession`) con el título y «En «PC»»; sus botones
+  los contesta Rust (`connect::notification_action`), no la página. Kotlin solo compilado.
+  **Hecho el 14/11/2026 a petición del usuario (tests en verde; SIN probar en el móvil):** (a) el dispositivo CONTROLADO enseña un aviso «<nombre> <lo que hace>»
+  (`connectLogic.describeCommand`, `connect.ts` `sayWhoDid`, claves `connect.said.*`, sin repetir el mismo en 3 s); (b) nombre real del móvil en lugar de «Teléfono Android»
+  (`SoundifyPlugin.deviceName` → `mobile::device_name` → `connect::use_phone_name`, solo si el nombre es el de fábrica; `Connect::set_name` actualiza la identidad) y
+  `PairRequest.kind`/`Trusted.kind` para que «Pueden controlar este dispositivo» dibuje el icono según móvil/tableta/PC; (c) **un solo sitio de gestión**: el icono de
+  dispositivo de la barra y el chip de Reproduciendo abren `overlays/devicesSwitcher.ts` (solo la lista para cambiar entre «Este dispositivo» y los demás, con
+  «¿No ves tu dispositivo? Gestionar dispositivos» → Ajustes + `overlays/devices.ts`, el gestor completo); (d) el Reproductor enseña, mientras se controla otro, la playlist
+  remota (`.pl-card` con el nombre del dispositivo) junto a las locales y la pestaña «Reproductor» ya no salta a Reproduciendo; las filas de la playlist remota cargan miniatura;
+  (e) **gesto/botón atrás de Android cierra las ventanas** (`components/overlay.ts`: una entrada de historial por ventana; `closeOverlayThen`). Connect se activa de serie en
+  instalaciones nuevas (los `connect.json` que ya decían `enabled:false` siguen apagados).
+  **Parpadeo al bloquear el móvil (14/11/2026):** era real (en el log del PC, «Connection reset without closing handshake» en ambos sentidos a la vez). Tras los
+  cambios de robustez (baja del descubrimiento ignorada con conexión viva, baliza a 30 s, ping/silencio, reconexión paciente, `WifiLock`) el usuario lo probó con el
+  S24 bloqueado ~1,5 min y ya no ocurre (el log del PC no muestra cortes). No se sabe cuál de los cambios lo arregló. «Repetir atascado» y el volumen en remoto
+  quedan por confirmar en el móvil. **Arreglado el 14/11/2026 (tests en verde, Kotlin sin compilar, SIN probar en el móvil):** (1) repetir: `Command::Repeat/Shuffle`
+  escribían `mode: null`/`on: null` y el PC lo leía como «modo desconocido» (`actionsFor` solo trata `undefined` como «el siguiente»): desde «off» saltaba a «one» y desde
+  «one» no hacía nada; ahora esos campos se omiten (`skip_serializing_if`, test en `protocol.rs`). (2) miniatura de la playlist remota: la tarjeta y la cabecera usaban
+  una portada sin imagen; ahora `covers.queuePicture` = miniatura del primer archivo. (3) volumen: causa NO demostrada; se corrigió una carrera real (cada orden de volumen
+  se contesta con un estado ya viejo que devolvía el deslizador y `RemoteControlPlayer.info` atrás: `volumeToShow`, `VOLUME_ECHO_MS`). Si sigue sin subir, mirar si el PC ya está al 100 %.
+  **Mismo día, 2.ª tanda (tests en verde, SIN probar en el móvil):** (4) un dispositivo que controlaba a otro ignoraba las órdenes que le llegaban (`onCommand` salía si
+  `ui.remote`) y no publicaba su estado: el PC no podía controlar al móvil si el móvil controlaba al PC. Ahora manda el último que pide: `onCommand` deja de controlar
+  (`connectDeselect` + `leave`) y hace la orden; al empezar a controlar se publica el estado local en pausa (`publishPaused`). (5) «MSI-PC» dos veces: el PC había cambiado
+  de id (su `data/` junto al exe se rehízo) y quedaba la identidad vieja; `Connect::forget_stale_twins` (al conectar) y `Pairing::pair` quitan la vieja del MISMO nombre,
+  solo `kind == desktop` (dos móviles pueden llamarse igual). Los duplicados que sigan existiendo se van al reconectar el PC.
+  **3.ª tanda (14/11/2026, tests y e2e en verde, SIN probar en el móvil):** (6) el dispositivo controlado ya NO avisa de cada orden (pausar, volumen…): solo «X controla ahora
+  este dispositivo» (`describeCommand` solo conoce `take`; claves `connect.said.take`). (7) cambiar de dispositivo se refleja al instante en los dos: `Command::Take` (sin
+  argumentos, protocolo igual) lo manda `Connect::select` al elegirlo; el elegido, si controlaba a otro, lo suelta, publica su estado y cola reales y avisa (`onCommand` en
+  `connect.ts`). Un dispositivo con versión vieja contesta «unknown» al `take` y no pasa nada. (8) Reproduciendo lleva de título (`.np-head-title`) la playlist, y
+  «Playlist remota» encima si es del otro dispositivo; el subtítulo ya solo lleva el formato.
+  Pendiente menor: el PC sigue enseñando el nombre viejo del controlador («Teléfono Android») hasta que se vuelva a emparejar.
+- **Connect en Android 17: la causa de que «no funcionara» (13/11/2026, comprobada con el S24 por adb; Samsung One UI 9 / Android 17, SDK 37).** Dos cosas,
+  las dos necesarias: (1) **sin el permiso `ACCESS_LOCAL_NETWORK`** (Android 16+, grupo «Dispositivos cercanos»; la app apunta a SDK 37) la red local queda
+  cerrada: ahora está en el manifiesto y `SoundifyPlugin.multicastLock` lo pide al activar Connect (en el S24 se concede solo, sin diálogo); además
+  `localNetworkAccess`/`requestLocalNetwork` (Kotlin) → `mobile::local_network_granted`/`request_local_network` → `connect_status.localNetwork` y un aviso con
+  botón «Permitir red local» en la ventana de Dispositivos (abre los ajustes de la app si se rechazó del todo). (2) **Con la app en segundo plano el móvil era
+  inalcanzable** (`Test-NetConnection` al puerto 48650: True en primer plano, False tras Inicio, aunque `ss` lo mostrara en LISTEN): Android duerme la app y cierra
+  su red. Arreglado con un servicio en primer plano `ConnectService` (`foregroundServiceType="connectedDevice"`, permiso `FOREGROUND_SERVICE_CONNECTED_DEVICE`;
+  lo cumple `CHANGE_WIFI_MULTICAST_STATE`) con una notificación fija («Soundify Connect activado / Visible en tu red como …», es/en/ca desde `connect.rs::notice`)
+  mientras Connect esté activado; se quita al desactivarlo. Comprobado: con el servicio y el permiso el móvil responde en segundo plano y con la pantalla apagada
+  (2 min) y la app de escritorio (dev) y el móvil se conectan en los dos sentidos y no se caen. Método para repetirlo: `adb shell ss -ltn`, `Test-NetConnection
+  <ip> -Port 48650` en el PC con la app delante/detrás, `adb logcat -b all` (la S24 sí deja ver logcat) y `dumpsys activity services <paquete>`.
 - **Connect y el cortafuegos de Windows (13/11/2026).** `src-tauri/src/firewall.rs`: `connect_firewall_status` (solo lee: ¿hay regla «Soundify Connect» que apunte
   a ESTE exe? ¿la red es «Pública»?, con `netsh` y `Get-NetConnectionProfile`) y `connect_firewall_allow` (solo si el usuario pulsa «Permitir en el cortafuegos» en
   la ventana de Dispositivos: `netsh advfirewall firewall add rule` en PowerShell con `-Verb RunAs`, o sea con el aviso de administrador de Windows, solo perfil
@@ -378,15 +427,13 @@ Repositorio: https://github.com/DannyGT97/Soundify (GitHub, rama `main`, GPL-3.0
   salen como evento `connect-command` y la página publica su estado con `connect_publish`. Datos en `data/connect/` (`connect.json` = id, nombre y si
   está activado; `trusted.json`; `devices.json`). **Apagado de serie** (abre un puerto en la red; en Windows salta el cortafuegos): Ajustes → General →
   Soundify Connect, o el chip del dispositivo en Reproduciendo → «Dispositivos» (`overlays/devices.ts`). Puerto 48650 (otro libre si está ocupado).
-  Front: `connect.ts` (estado, controlar, ser controlado, pasar la reproducción por **id de vídeo**, no por ruta) y `connectLogic.ts` (lo puro, con
+  Front: `connect.ts` (estado, controlar, ser controlado; lo que viaja se nombra por **id de vídeo**, no por ruta) y `connectLogic.ts` (lo puro, con
   tests); `player.ts` enruta las acciones al otro aparato mientras `ui.remote` (`enterRemote`/`leaveRemote`) y el estado del otro se vuelca en `ui`.
   Mock con `?mockConnect` (`api/mock/connect.ts`, `window.__connect` para los tests; `e2e/connect.spec.ts`). Android: `multicastLock` (Kotlin) y permisos
   `CHANGE_WIFI_MULTICAST_STATE`/`ACCESS_WIFI_STATE`. **Sin comprobar:** mDNS real (en este PC dos demonios en el mismo proceso no se vieron: sospecha del
   cortafuegos o de las interfaces virtuales; el test `two_real_mdns_daemons_see_each_other` está `#[ignore]`), el orden PC↔móvil, y el MulticastLock.
   Si el mDNS no pasa, «Añadir por dirección» (IP del otro, que enseña la lista) funciona igual por TCP. **Límites decididos:** tráfico en claro dentro de
-  la red (TLS con huella fijada al emparejar sería la mejora), solo órdenes de reproducción. **Faltan:** fase 3 (que el destino pida el archivo por HTTP
-  al que lo tiene, `GET /connect/v1/media/<id>`, con Range, para aparatos sin la biblioteca: hoy «Pasar mi música» solo sirve si el destino ya tiene esos
-  vídeos) y fase 4 (DLNA/UPnP y Chromecast para tele y altavoces). Controlar Spotify real solo sería por su Web API (Premium + app registrada).
+  la red (TLS con huella fijada al emparejar sería la mejora), solo órdenes de reproducción. **Faltan:** pasar música entre dispositivos y copiar una playlist de otro (retirado a propósito, ver «alcance simplificado» y `PLAN-CONNECT.md`) y fase 4 (DLNA/UPnP y Chromecast para tele y altavoces). Controlar Spotify real solo sería por su Web API (Premium + app registrada).
 - **Hecho el 12/11/2026 (tests en verde, sin ver en el móvil):** la flecha atrás está arriba a la derecha en el detalle de playlist del Reproductor
   (`.ambient > .icon-button.back`; en la barra fija `.mini` va al final) y en Reproduciendo (`.np-head`), y la de Reproduciendo lleva a la playlist que suena en
   el Reproductor (`navigate('player', { b })`, no `history.back()`); la tarjeta «Sonando ahora» de Inicio abre Reproduciendo y su botón redondo

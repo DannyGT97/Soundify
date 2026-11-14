@@ -7,7 +7,7 @@
 // startup it comes back to the bar PAUSED where it was left.
 
 import { api, playerBackend as engine, type ConnectCommand, type PlayerMemory, type Track } from './api';
-import { findBlock, library, onDisk } from './library';
+import { findBlock, onDisk } from './library';
 import { PlayerQueue, nextRepeat } from './playerQueue';
 import { emit, ui } from './state';
 import { orderOf, sortTracks } from './trackOrder';
@@ -173,21 +173,13 @@ export function currentQueue(): { playlist: string; items: Array<{ videoId: stri
 }
 
 /**
- * Plays the file whose video id another device named, from the library on THIS device (paths mean
- * nothing across devices, the id does). The playlist of the same name is preferred. False if there is none.
+ * Soundify Connect: a controller picked a file of the playlist that sounds here (it only knows the video id, which means
+ * the same on every device). It plays from the start. False if the file is not in this playlist.
  */
-export function playVideoId(videoId: string, position: number, autoplay: boolean, playlist = ''): boolean {
-  let fallback: { blockKey: string; index: number } | null = null;
-  for (const entry of library.playlists) {
-    for (const block of entry.formats) {
-      if (!isPlayable(block.format)) continue;
-      const index = queueOf(block.key).findIndex(tr => tr.id === videoId);
-      if (index < 0) continue;
-      if (entry.title === playlist) return start(block.key, index, autoplay, position);
-      fallback ??= { blockKey: block.key, index };
-    }
-  }
-  return fallback ? start(fallback.blockKey, fallback.index, autoplay, position) : false;
+export function playTrackById(videoId: string): boolean {
+  if (!currentBlock) return false;
+  const index = queueOf(currentBlock).findIndex(tr => tr.id === videoId);
+  return index >= 0 && start(currentBlock, index, true);
 }
 
 export function isPlayable(format: string | null | undefined): boolean {
