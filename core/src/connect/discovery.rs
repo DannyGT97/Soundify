@@ -50,6 +50,11 @@ pub struct Mdns {
 impl Mdns {
     pub fn new() -> io::Result<Self> {
         let daemon = ServiceDaemon::new().map_err(io::Error::other)?;
+        // `_soundify-connect` is 17 bytes and the library only accepts 15 by default (RFC 6763): without this every announcement and
+        // every search was refused («check_service_name_length» in the log, 33 times), and only the UDP beacon found anybody.
+        if let Err(e) = daemon.set_service_name_len_max(30) {
+            warn!("Soundify Connect: could not allow the long service name: {e}");
+        }
         Ok(Self { daemon, announced: Mutex::new(None) })
     }
 }
@@ -230,7 +235,10 @@ mod tests {
         let deadline = std::time::Instant::now() + Duration::from_secs(15);
         let mut found = None;
         while std::time::Instant::now() < deadline && found.is_none() {
-            if let Ok(Change::Up(f)) = seen.recv_timeout(Duration::from_millis(500)) {
+            // Other Soundify apps on the same network (a real one that is open) are seen too: only this one's announcement counts.
+            if let Ok(Change::Up(f)) = seen.recv_timeout(Duration::from_millis(500))
+                && f.info.device_id == "aaaabbbbccccdddd"
+            {
                 found = Some(f);
             }
         }

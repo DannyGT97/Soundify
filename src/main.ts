@@ -23,6 +23,7 @@ import { onLanguageChange, t } from './i18n';
 import { checkDisk, loadLibrary, loadLibrarySoon } from './library';
 import { onOpenRequest, restoreLast, savePosition } from './player';
 import { startConnect } from './connect';
+import { logEvent, startDiagnostics } from './diag';
 import { loadAppInfo } from './appInfo';
 import { watchAppUpdates } from './appUpdate';
 import { messageText, noticeTone, pointsToSettings } from './tasks';
@@ -30,7 +31,7 @@ import { loadTools, missingRequired, openAdvancedSettings, tools, watchTools } f
 import { openToolsSetup } from './overlays/toolsSetup';
 import { installSpaceToPlay } from './keys';
 import { subscribe, ui } from './state';
-import { installPlatform, onAndroid } from './platform';
+import { installPlatform, isPhone, onAndroid } from './platform';
 import { loadStorage, needsStorageAccess } from './storage';
 
 // The shell: menu and page side by side, the player bar under both, and the
@@ -105,6 +106,8 @@ if (app) {
     if (route === 'manager' || route === 'player' || route === 'now-playing') void checkDisk();
   });
   // Soundify Connect: other devices that control this one, and the one this controls.
+  startDiagnostics();
+  logEvent('info', 'app', `page started (${onAndroid ? 'android' : 'desktop'}, ${isPhone() ? 'phone layout' : 'wide layout'})`);
   startConnect();
   // The phone's music notification opens the app on what is playing.
   onOpenRequest(() => navigate('now-playing'));

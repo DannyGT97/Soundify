@@ -140,6 +140,8 @@ pub fn clean_up_after_update(app_dir: &Path, staged: &Path) {
                 }
             }
         }
+        // No folder, nothing to clean (Android has none at the first start): not a problem, so not a warning in the log.
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
         Err(e) => warn!("Could not clean up update leftovers: {e}"),
     }
     delete_tree(staged);

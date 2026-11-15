@@ -20,6 +20,7 @@ use tungstenite::{Message, WebSocket};
 
 use super::http::{self, Request};
 use super::pairing::{PairError, Pairing, Trusted};
+use super::stats::{self, short};
 use super::protocol::{BASE, ClientMessage, Command, DeviceInfo, PING_EVERY, PairRequest, PairResponse, PlayerState, QueueInfo, SILENCE_LIMIT, ServerMessage};
 
 /// Connections served at once (controllers plus whatever else knocks).
@@ -44,13 +45,20 @@ pub trait Host: Send + Sync {
     fn controller_seen(&self, _who: &Trusted, _ip: std::net::IpAddr, _port: u16) {}
 }
 
+/// One controller's queue: its number, the name it gave and where it queues what is to be sent.
+struct Outbox {
+    number: u64,
+    name: String,
+    sender: SyncSender<ServerMessage>,
+}
+
 struct Shared {
     host: Arc<dyn Host>,
     pairing: Arc<Pairing>,
     stop: AtomicBool,
     connections: AtomicUsize,
     /// One per open WebSocket, with the number it is taken out by when it ends.
-    outboxes: Mutex<Vec<(u64, SyncSender<ServerMessage>)>>,
+    outboxes: Mutex<Vec<Outbox>>,
     next_outbox: AtomicU64,
 }
 
@@ -89,20 +97,13 @@ impl Server {
     /// Tells every controller what the player is doing now.
     pub fn publish(&self, state: &PlayerState) {
         let mut outboxes = self.shared.outboxes.lock().unwrap();
-        outboxes.retain(|(_, outbox)| match outbox.try_send(ServerMessage::State { state: state.clone() }) {
-            Ok(()) => true,
-            // A controller that does not keep up is dropped: it reconnects and gets the state again.
-            Err(TrySendError::Full(_)) | Err(TrySendError::Disconnected(_)) => false,
-        });
+        outboxes.retain(|outbox| keep(outbox, ServerMessage::State { state: state.clone() }, &stats::states_sent));
     }
 
     /// Tells every controller which playlist is playing now.
     pub fn publish_queue(&self, queue: &Option<QueueInfo>) {
         let mut outboxes = self.shared.outboxes.lock().unwrap();
-        outboxes.retain(|(_, outbox)| match outbox.try_send(ServerMessage::Queue { queue: queue.clone() }) {
-            Ok(()) => true,
-            Err(TrySendError::Full(_)) | Err(TrySendError::Disconnected(_)) => false,
-        });
+        outboxes.retain(|outbox| keep(outbox, ServerMessage::Queue { queue: queue.clone() }, &stats::queues_sent));
     }
 
     /// Controllers connected right now.
@@ -209,13 +210,21 @@ fn websocket(shared: &Arc<Shared>, mut stream: TcpStream, request: &Request) -> 
 
     let (outbox, inbox) = mpsc::sync_channel(OUTBOX);
     let number = shared.next_outbox.fetch_add(1, Ordering::SeqCst);
-    shared.outboxes.lock().unwrap().push((number, outbox));
-    info!("Soundify Connect: {} controls this device", who.name);
+    let now = {
+        let mut outboxes = shared.outboxes.lock().unwrap();
+        outboxes.push(Outbox { number, name: who.name.clone(), sender: outbox });
+        outboxes.len()
+    };
+    let (from, started) = (stream.peer_addr().map(|a| a.ip().to_string()).unwrap_or_else(|_| "?".into()), Instant::now());
+    stats::accepted(1);
+    info!("Soundify Connect: IN  {} #{} controls this device (from {from}, session {number}, {now} controllers now)", who.name, short(&who.controller_id));
     let result = session(shared, stream, &who, &inbox);
-    shared.outboxes.lock().unwrap().retain(|(n, _)| *n != number);
+    shared.outboxes.lock().unwrap().retain(|o| o.number != number);
+    stats::closed(1);
+    let lasted = format!("after {:.1}s", started.elapsed().as_secs_f32());
     match &result {
-        Ok(reason) => info!("Soundify Connect: {} left ({reason})", who.name),
-        Err(e) => info!("Soundify Connect: {} left (error: {e})", who.name),
+        Ok(reason) => info!("Soundify Connect: IN  {} #{} left ({reason}) session {number} {lasted}", who.name, short(&who.controller_id)),
+        Err(e) => info!("Soundify Connect: IN  {} #{} left (error: {e}) session {number} {lasted}", who.name, short(&who.controller_id)),
     }
     result.map(|_| ())
 }
@@ -253,6 +262,7 @@ fn session(shared: &Shared, stream: TcpStream, who: &Trusted, inbox: &Receiver<S
         }
         match read {
             Ok(Message::Text(text)) => {
+                stats::msgs_in(1);
                 let answer = answer(shared, who, text.as_str());
                 send(&mut socket, &answer)?;
             }
@@ -279,7 +289,28 @@ fn answer(shared: &Shared, who: &Trusted, text: &str) -> ServerMessage {
     }
 }
 
+/// Puts a message in a controller's queue. A controller that does not keep up (its queue is full) is dropped: it reconnects and
+/// gets the state again, and the log says which one and why (a full queue is NOT the same as one that already left).
+fn keep(outbox: &Outbox, message: ServerMessage, sent: &dyn Fn(u64)) -> bool {
+    match outbox.sender.try_send(message) {
+        Ok(()) => {
+            sent(1);
+            true
+        }
+        Err(TrySendError::Full(_)) => {
+            stats::dropped_full(1);
+            warn!("Soundify Connect: dropping {} (session {}): its queue is full ({OUTBOX} waiting), it is not keeping up", outbox.name, outbox.number);
+            false
+        }
+        Err(TrySendError::Disconnected(_)) => {
+            stats::dropped_gone(1);
+            false
+        }
+    }
+}
+
 fn send(socket: &mut WebSocket<TcpStream>, message: &ServerMessage) -> io::Result<()> {
+    stats::msgs_out(1);
     let text = serde_json::to_string(message).map_err(io::Error::other)?;
     socket.send(Message::text(text)).map_err(io::Error::other)
 }

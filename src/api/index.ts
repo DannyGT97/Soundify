@@ -123,6 +123,10 @@ export interface Api {
   openToolsFolder(): Promise<void>;
   /** The version of this build, as the build says it. */
   appVersion(): Promise<string>;
+  /** A line for the log (`app_lib::front`): the page's own events and errors, which used to leave no trace. */
+  log(level: 'info' | 'warn' | 'error', area: string, message: string): void;
+  /** The text «Copiar diagnóstico» copies: version, platform, state of Connect and the end of the log, without personal paths. */
+  diagnostics(): Promise<string>;
   /** Asks GitHub for a newer version; null if this is the newest. Rejects with an `ApiError`. */
   checkAppUpdate(): Promise<AppUpdate | null>;
   /**

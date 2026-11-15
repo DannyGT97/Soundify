@@ -93,6 +93,8 @@ export const tauriApi: Api = {
   checkYtdlpUpdate: () => invoke<YtdlpCheck>('check_ytdlp_update'),
   openToolsFolder: () => invoke('open_tools_folder'),
   appVersion: () => getVersion(),
+  log: (level, area, message) => { void invoke('log_event', { level, area, message }).catch(() => {}); },
+  diagnostics: () => invoke<string>('diagnostics'),
   checkAppUpdate: () => invoke<AppUpdate | null>('check_app_update'),
   installAppUpdate: async onProgress => {
     const stop = await listen<AppUpdateProgress>('app-update-progress', event => onProgress(event.payload));

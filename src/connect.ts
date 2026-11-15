@@ -11,6 +11,7 @@
 
 import { api, type ConnectDevice, type ConnectPlayerState, type ConnectQueue, type ConnectStatus } from './api';
 import { notify } from './components/toasts';
+import { count, logEvent } from './diag';
 import { VOLUME_ECHO_MS, actionsFor, describeCommand, projectPosition, remoteTrack, shouldPublish, toWireState, volumeToShow } from './connectLogic';
 import { t } from './i18n';
 import { findBlock } from './library';
@@ -27,6 +28,8 @@ export const connect = {
 
 /** The device list and who is connected, as the back has them now. */
 export async function loadConnect(): Promise<void> {
+  count('loadConnect');
+  const wasRunning = !!connect.status?.running;
   try {
     const [status, devices] = await Promise.all([api.connectStatus(), api.connectDevices()]);
     connect.status = status;
@@ -34,8 +37,11 @@ export async function loadConnect(): Promise<void> {
   } catch {
     return;
   }
-  // Turned on just now (or a controller is waiting for the first state): say what is playing.
-  publishIfWorth(true);
+  // Turned on just now: say what is playing. Only then: every state that arrives from another device refreshes this list
+  // too, and a forced publish here made each device answer each state with its own, round and round. With three devices
+  // that grew until a controller's queue overflowed and it was dropped, over and over. A controller that connects later is
+  // sent the last state by the back itself, and changes are published by `subscribe('player')`.
+  publishIfWorth(!wasRunning && !!connect.status?.running);
   announcePlaying();
   emit('connect');
 }
@@ -68,7 +74,16 @@ function announcePlaying(): void {
 }
 
 export function startConnect(): void {
-  api.onConnectDevices(() => void loadConnect());
+  // A device that floods this one with states would make the list reload a hundred times a second (the log counted ~4000 per 30 s):
+  // one reload per quarter of a second is as fresh as anybody can see.
+  let refreshing: number | undefined;
+  api.onConnectDevices(() => {
+    if (refreshing !== undefined) return;
+    refreshing = window.setTimeout(() => {
+      refreshing = undefined;
+      void loadConnect();
+    }, 250);
+  });
   api.onConnectRemoteState(onRemoteState);
   api.onConnectRemoteQueue(onRemoteQueue);
   api.onConnectRemoteClosed(onRemoteClosed);
@@ -99,6 +114,7 @@ function publishPaused(local: player.LocalSnapshot): void {
   const state = toWireState({ ...local, playing: false }, blockInfo);
   lastPublished = state;
   lastPublishedAt = Date.now();
+  count('publish');
   api.connectPublish(state);
 }
 
@@ -110,6 +126,7 @@ function publishIfWorth(force = false): void {
   if (!force && !shouldPublish(lastPublished, state, elapsed)) return;
   lastPublished = state;
   lastPublishedAt = Date.now();
+  count(force ? 'publishForced' : 'publish');
   api.connectPublish(state);
   const blockKey = ui.nowPlaying?.blockKey ?? null;
   if (force || blockKey !== publishedBlock) {
@@ -124,6 +141,9 @@ function publishIfWorth(force = false): void {
  * the last to ask wins: if this one was controlling another device, it stops (back to its own player) and does what it is asked.
  */
 function onCommand(command: Parameters<typeof actionsFor>[0], from = ''): void {
+  count('commandIn');
+  // A slider dragged sends dozens: they are counted, not written.
+  if (command.cmd !== 'volume' && command.cmd !== 'seek') logEvent('info', 'connect', `command ${command.cmd} from ${from || '?'}${ui.remote ? ` (this device was controlling ${ui.remote.name}: it stops)` : ''}`);
   if (ui.remote) {
     void api.connectDeselect().catch(() => {});
     leave();
@@ -168,6 +188,7 @@ let volumeSentAt = 0;
 let volumeSettle: number | undefined;
 
 const route = (command: Parameters<typeof actionsFor>[0]): void => {
+  count('commandOut');
   if (command.cmd === 'volume') volumeSentAt = Date.now();
   api.connectSend(command).catch(error => notify({ tone: 'error', text: errorText(error) }));
 };
@@ -175,10 +196,12 @@ const route = (command: Parameters<typeof actionsFor>[0]): void => {
 /** Starts controlling a paired device: from now on the player shows and drives it. */
 export async function controlDevice(device: ConnectDevice): Promise<boolean> {
   if (ui.remote?.deviceId === device.id) return true;
+  logEvent('info', 'connect', `control ${device.name} #${device.id.slice(0, 6)} (ready=${device.ready}, playing=${device.playing})`);
   let current: ConnectPlayerState | null;
   try {
     current = await api.connectSelect(device.id);
   } catch (error) {
+    logEvent('warn', 'connect', `could not control ${device.name}: ${JSON.stringify(error)}`);
     notify({ tone: 'error', text: errorText(error) });
     void loadConnect();
     return false;
@@ -208,6 +231,7 @@ export function playRemoteTrack(videoId: string): void {
 
 /** Back to this device. */
 export async function stopControlling(): Promise<void> {
+  logEvent('info', 'connect', `stop controlling ${ui.remote?.name ?? '-'} (the user chose this device)`);
   await api.connectDeselect().catch(() => {});
   leave();
 }
@@ -219,6 +243,7 @@ export async function stopControlling(): Promise<void> {
 function playHere(): void {
   const was = ui.remote;
   if (!was) return;
+  logEvent('info', 'connect', `playing here: control of ${was.name} let go of, still connected`);
   void api.connectDeselect().catch(() => {});
   leave();
   notify({
@@ -291,6 +316,7 @@ function onRemoteQueue(deviceId: string, queue: ConnectQueue | null): void {
 function onRemoteClosed(deviceId: string): void {
   if (ui.remote?.deviceId !== deviceId) return;
   const name = ui.remote.name;
+  logEvent('warn', 'connect', `lost the connection with ${name} #${deviceId.slice(0, 6)} while controlling it`);
   leave();
   notify({ tone: 'warning', text: t('connect.lost', name) });
 }

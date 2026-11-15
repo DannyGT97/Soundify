@@ -1,8 +1,8 @@
 import { h, titleRow } from '../dom';
-import { icon } from '../icons';
+import { icon, type IconName } from '../icons';
 import { t } from '../i18n';
-import type { FormatBlock, Playlist, Track } from '../api';
-import { countBy, filesText, findBlock, library, onDisk } from '../library';
+import { api, type FormatBlock, type Playlist, type Track } from '../api';
+import { countBy, filesText, findBlock, groupByStatus, library, onDisk, statusText } from '../library';
 import * as player from '../player';
 import { formatTime, isPlayable } from '../player';
 import { filterByTitle } from '../search';
@@ -13,6 +13,9 @@ import { subscribe, ui } from '../state';
 import { cover } from '../components/cover';
 import { connect } from '../connect';
 import { openMenu } from '../components/floating';
+import { liveBar, liveChip, patchLive } from '../components/live';
+import { queuedFor, runningFor } from '../tasks';
+import { canDownload, tools } from '../tools';
 import { canPlayTrack, patchPlaying, trackRow } from '../components/trackRow';
 import { hueOf, playlistPicture, queuePicture } from '../covers';
 import { changeCover, openFolder } from './manager';
@@ -20,11 +23,13 @@ import { changeCover, openFolder } from './manager';
 /**
  * Reproductor: the playlists as cards, or one of them (`?b=<block>`) with its
  * files. Pressing a file plays it and stays on the list; Reproduciendo opens
- * from the bar.
+ * from the bar. The list of one playlist is also where its files are seen by state
+ * (`?f=pending|off|ok` opens it filtered) and synced, so the Gestor sends «Abrir en
+ * el Reproductor» here (`?from=manager` makes the arrow go back to it).
  */
 export function playerView(params: Params): HTMLElement {
   ui.lastPlayerPage = 'player';
-  return params.b && findBlock(params.b) ? detailView(params.b) : libraryView();
+  return params.b && findBlock(params.b) ? detailView(params.b, params) : libraryView();
 }
 
 function relative(days: number): string {
@@ -240,13 +245,48 @@ function libraryCard(playlist: Playlist): HTMLElement {
 
 // === ONE PLAYLIST ===
 
-function detailView(key: string): HTMLElement {
+type StateFilter = 'all' | 'ok' | 'pending' | 'off';
+
+const IN_STATE: Record<StateFilter, (track: Track) => boolean> = {
+  all: () => true,
+  ok: track => track.status === 'ok',
+  pending: track => track.status === 'pending' || track.status === 'failed',
+  off: track => track.status === 'unavailable',
+};
+
+// The same mark on a file and on the filter that finds it. Not on disk yet is yellow, failed or not: both come down with the next sync.
+const MARK: Record<Exclude<StateFilter, 'all'>, { icon: IconName; color: string }> = {
+  ok: { icon: 'ok', color: 'mark-ok' },
+  pending: { icon: 'pending', color: 'mark-warning' },
+  off: { icon: 'close', color: 'mark-failed' },
+};
+
+function mark(filter: Exclude<StateFilter, 'all'>, name: IconName = MARK[filter].icon): HTMLElement {
+  return h('span', { class: `state-mark ${MARK[filter].color}` }, icon(name, 15));
+}
+
+/** What goes on the right of a file: when it arrived, or its state and why it is not there. */
+function stateCell(track: Track): HTMLElement {
+  if (track.status === 'ok') return h('span', { class: 'd', text: relative(track.addedDaysAgo) });
+  const text = statusText(track);
+  if (track.status === 'pending') return h('span', { class: 'st', title: text }, mark('pending'), h('span', { class: 'pill warn', text }));
+  if (track.status === 'failed') return h('span', { class: 'st', title: t('files.failedHint') }, mark('pending', 'warning'), h('span', { class: 'pill warn', text }));
+  return h('span', { class: 'st', title: text }, mark('off'), h('span', { class: 'pill off ellipsis', text }));
+}
+
+const isStateFilter = (value: string | undefined): value is Exclude<StateFilter, 'all'> => value === 'ok' || value === 'pending' || value === 'off';
+
+function detailView(key: string, params: Params): HTMLElement {
   const opened = findBlock(key);
   if (!opened) return libraryView();
   let { playlist, block } = opened;
   let filter = '';
+  let stateFilter: StateFilter = isStateFilter(params.f) ? params.f : 'all';
+  let known = new Set(onDisk(block.tracks).map(track => track.id));
+  let landed = new Set<string>();
+  const from: Params = params.from ? { from: params.from } : {};
 
-  const back = () => navigate('player');
+  const back = () => (params.from === 'manager' ? navigate('manager', { open: playlist.id, focus: block.key }) : navigate('player'));
   const backButton = (extra = '') => h('button', { class: `icon-button${extra}`, title: t('player.back'), onclick: back }, icon('back', 18));
   const playButton = (big: boolean) => h('button', { class: `round-play${big ? ' big' : ''}`, onclick: () => {
     if (ui.nowPlaying?.blockKey === block.key) player.togglePlay();
@@ -289,7 +329,11 @@ function detailView(key: string): HTMLElement {
   const notice = h('div', { class: 'notice' });
   const tracks = h('div', { class: 'tracks' });
   const none = h('p', { class: 'none' });
-  const footNote = h('div', { class: 'foot-note' });
+  // The states of the files (what «Ver archivos» used to show) as filters, and the sync of this playlist: no need to go to the Gestor.
+  const chips = h('div', { class: 'state-chips' });
+  const syncSlot = h('div', { class: 'sync-slot' });
+  const liveRow = h('div', { class: 'sync-live' });
+  const missingCount = () => countBy(block.tracks, 'pending') + countBy(block.tracks, 'failed');
   // The headers sort the list; the arrow marks the active one and its direction.
   const COLUMNS: { key: SortKey; class: string; label: string }[] = [
     { key: 'number', class: 'n', label: '#' },
@@ -340,11 +384,79 @@ function detailView(key: string): HTMLElement {
 
   function fillTracks(): void {
     refreshHeaders();
-    const shown: Track[] = sortTracks(filterByTitle(onDisk(block.tracks), filter), orderOf(block.key));
+    const order = orderOf(block.key);
+    let shown: Track[] = sortTracks(filterByTitle(block.tracks.filter(IN_STATE[stateFilter]), filter), order);
+    // By number with no filter: what is on disk first, then what is missing (each group keeps the playlist's order).
+    if (stateFilter === 'all' && order.key === 'number' && order.dir === 'asc') shown = groupByStatus(shown);
     tracks.replaceChildren(...shown.map(track =>
-      trackRow(block, track, h('span', { class: 'd', text: relative(track.addedDaysAgo) }), { thumbWidth: 68, thumbHeight: 40 })));
+      trackRow(block, track, stateCell(track), { landed: landed.has(track.id), thumbWidth: 68, thumbHeight: 40 })));
     none.hidden = shown.length > 0;
-    none.textContent = filter.trim() ? t('player.search.none', filter.trim()) : t('player.detail.none');
+    none.textContent = filter.trim() ? t('player.search.none', filter.trim()) : t(block.tracks.length ? 'files.none' : 'player.detail.none');
+  }
+
+  function refreshChips(): void {
+    const counts: Record<StateFilter, number> = {
+      all: block.tracks.length,
+      ok: block.tracks.filter(IN_STATE.ok).length,
+      pending: block.tracks.filter(IN_STATE.pending).length,
+      off: block.tracks.filter(IN_STATE.off).length,
+    };
+    // A filter left with nothing to show goes back to all of them.
+    if (counts[stateFilter] === 0) stateFilter = 'all';
+    const shown: StateFilter[] = ['all'];
+    if (counts.ok > 0 && counts.ok < counts.all) shown.push('ok');
+    if (counts.pending > 0) shown.push('pending');
+    if (counts.off > 0) shown.push('off');
+    // A playlist with every file on disk has nothing to filter by.
+    chips.hidden = shown.length === 1;
+    chips.replaceChildren(...shown.map(state => h('button', {
+      class: `fchip${stateFilter === state ? ' on' : ''}`,
+      onclick: () => {
+        stateFilter = state;
+        refreshChips();
+        fillTracks();
+      },
+    }, state === 'all' ? null : mark(state), h('span', { text: t(`files.filter.${state}`) }), h('small', { text: String(counts[state]) }))));
+  }
+
+  let syncShape = '';
+  const currentSyncShape = () => {
+    const task = runningFor(block.key);
+    return `${block.key}|${task ? `live|${task.id}|${task.step}` : queuedFor(block.key) ? 'queued' : 'idle'}|${canDownload(tools.report)}|${missingCount()}`;
+  };
+
+  /** Sincronizar next to play: while it runs, its progress and Detener; queued, «Quitar de la cola». */
+  function refreshSync(): void {
+    syncShape = currentSyncShape();
+    const task = runningFor(block.key);
+    liveRow.replaceChildren();
+    liveRow.hidden = !task;
+    if (task) {
+      syncSlot.replaceChildren(
+        liveChip(task, block.format),
+        h('button', { class: 'secondary-button small-button danger-text', onclick: () => api.stopDownload(task.id) },
+          icon('stopped', 14, true), h('span', { text: t('tasks.stop') })));
+      liveRow.replaceChildren(liveBar(task));
+      return;
+    }
+    const queued = queuedFor(block.key);
+    if (queued) {
+      syncSlot.replaceChildren(
+        h('span', { class: 'pm-badge queued', text: t('tasks.queue.badge') }),
+        h('button', { class: 'secondary-button small-button', onclick: () => api.removeQueued(queued.id) },
+          icon('close', 14), h('span', { text: t('tasks.queue.remove') })));
+      return;
+    }
+    const missing = missingCount();
+    if (missing === 0) {
+      syncSlot.replaceChildren();
+      return;
+    }
+    const sync = h('button', { class: 'sync-head', title: missing === 1 ? t('files.missing.one') : t('files.missing.many', missing), attrs: { 'aria-label': `${t('manager.sync')} (${missing})` }, onclick: () => {
+      if (canDownload(tools.report)) void api.startDownload({ kind: 'update', blockKey: block.key });
+    } }, icon('sync', 16), h('span', { text: t('manager.sync') }), h('span', { class: 'n', text: String(missing) }));
+    sync.disabled = !canDownload(tools.report) || block.accessible === false;
+    syncSlot.replaceChildren(sync);
   }
 
   function refreshInfo(): void {
@@ -352,6 +464,7 @@ function detailView(key: string): HTMLElement {
     sub.textContent = [
       block.format.toUpperCase(),
       filesText(onDisk(block.tracks).length),
+      missingCount() ? t('files.missingShort', missingCount()) : '',
       Number.isFinite(newestHere) ? t('player.library.added', relative(newestHere)) : '',
       block.device ? t('player.detail.on', block.device.deviceName) : '',
     ].filter(Boolean).join(' · ');
@@ -359,7 +472,7 @@ function detailView(key: string): HTMLElement {
     switcher.replaceChildren(...playlist.formats.map(other => h('button', {
       class: other.key === block.key ? 'on' : '',
       text: other.format.toUpperCase(),
-      onclick: () => navigate('player', { b: other.key }),
+      onclick: () => navigate('player', { b: other.key, ...from }),
     })));
     if (block.accessible === false) {
       notice.replaceChildren(icon('warning', 16), h('span', { text: t('files.offline', block.device ? block.device.deviceName : playlist.folder) }));
@@ -370,11 +483,6 @@ function detailView(key: string): HTMLElement {
     } else {
       notice.hidden = true;
     }
-    const missing = countBy(block.tracks, 'pending') + countBy(block.tracks, 'failed');
-    footNote.hidden = missing === 0;
-    footNote.replaceChildren(
-      missing === 1 ? t('files.missing.one') : t('files.missing.many', missing), ' ',
-      h('button', { text: t('player.seeInManager'), onclick: seeInManager }));
   }
 
   let shownKey = '';
@@ -392,13 +500,30 @@ function detailView(key: string): HTMLElement {
       return;
     }
     ({ playlist, block } = found);
+    // Each file that lands while this is open flashes once, to see which one it was.
+    const now = onDisk(block.tracks).map(track => track.id);
+    landed = new Set(now.filter(id => !known.has(id)));
+    known = new Set(now);
     refreshInfo();
+    refreshChips();
     refreshPlay();
+    refreshSync();
     fillTracks();
+    landed.clear();
+  }));
+  onLeave(subscribe('tasks', () => {
+    if (currentSyncShape() === syncShape) {
+      patchLive(syncSlot);
+      patchLive(liveRow);
+    } else {
+      refreshSync();
+    }
   }));
   shownKey = playingKey();
   refreshInfo();
+  refreshChips();
   refreshPlay();
+  refreshSync();
   fillTracks();
 
   const onKey = (event: KeyboardEvent) => {
@@ -433,11 +558,12 @@ function detailView(key: string): HTMLElement {
         h('h1', { text: playlist.title, title: playlist.title }),
         sub)),
     h('div', { class: 'actions' },
-      heroPlay, shuffle, switcher,
+      heroPlay, shuffle, syncSlot, switcher,
       h('div', { class: 'spacer' }),
-      search, searchToggle, more));
+      search, searchToggle, more),
+    liveRow);
 
-  const scroller = h('div', { class: 'scroller' }, hero, notice, cols, tracks, none, footNote);
+  const scroller = h('div', { class: 'scroller' }, hero, notice, chips, cols, tracks, none);
   const detail = h('div', { class: 'detail' },
     h('div', { class: 'mini' },
       miniPlay,

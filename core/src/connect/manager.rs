@@ -21,6 +21,7 @@ use super::discovery::{Change, Discovery};
 use super::pairing::{Known, KnownDevices, Pairing, Trusted};
 use super::protocol::{Command, DeviceInfo, PROTOCOL, PlayerState, QueueInfo, ServerMessage};
 use super::server::{Host, Server};
+use super::stats::{self, short};
 
 /// The port tried first, so a firewall rule or a bookmark keeps working; any free one if it is taken.
 pub const PREFERRED_PORT: u16 = 48650;
@@ -128,6 +129,8 @@ struct Nearby {
 struct Watch {
     generation: u64,
     session: Session,
+    /// When it was opened, for the log (how long a connection lasted says a lot about why it ended).
+    since: Instant,
 }
 
 /// What the server asks the app: its own description and the last state published.
@@ -187,6 +190,8 @@ pub struct Connect {
     departures: Mutex<HashMap<String, Instant>>,
     /// Devices discovery said left while their connection was up: they go when it ends (see `saw`).
     swallowed: Mutex<HashSet<String>>,
+    /// States that arrived from each device in this statistics window (to name the one that floods).
+    received: Mutex<HashMap<String, u64>>,
 }
 
 struct Running {
@@ -223,6 +228,7 @@ impl Connect {
             forgotten: Mutex::new(HashSet::new()),
             departures: Mutex::new(HashMap::new()),
             swallowed: Mutex::new(HashSet::new()),
+            received: Mutex::new(HashMap::new()),
         })
     }
 
@@ -322,7 +328,46 @@ impl Connect {
         };
         info!("Soundify Connect on, port {}", server.port());
         *running = Some(Running { server, discovery });
+        drop(running);
+        self.report_stats();
         Ok(())
+    }
+
+    /// Writes the counters as one line every [`stats::WINDOW`] while Connect is on (as a warning if they look like a storm).
+    fn report_stats(self: &Arc<Self>) {
+        let me = Arc::downgrade(self);
+        let spawned = thread::Builder::new().name("connect-stats".into()).spawn(move || {
+            stats::take();
+            loop {
+                // A second at a time: when Connect is turned off the thread ends within one.
+                for _ in 0..stats::WINDOW.as_secs() {
+                    thread::sleep(Duration::from_secs(1));
+                    if me.upgrade().is_none_or(|connect| !connect.is_running()) {
+                        return;
+                    }
+                }
+                let Some(connect) = me.upgrade() else { return };
+                let snapshot = stats::take();
+                // Who sent too many: its app is looping (an old version does it), and it shows here as the PC's own refreshes.
+                let received: Vec<(String, u64)> = connect.received.lock().unwrap().drain().collect();
+                for (id, n) in received.into_iter().filter(|(_, n)| *n > stats::WARN_STATES) {
+                    let name = connect.nearby.lock().unwrap().get(&id).map(|d| d.info.name.clone()).unwrap_or_else(|| "?".into());
+                    warn!("Soundify Connect: {name} #{} sent {n} states in {}s: it is flooding (its app may be an old version with the publish loop)", short(&id), stats::WINDOW.as_secs());
+                }
+                if snapshot.is_quiet() {
+                    continue;
+                }
+                let line = snapshot.line(stats::WINDOW.as_secs(), connect.controllers().len(), connect.sessions.lock().unwrap().len());
+                if snapshot.is_suspicious() {
+                    warn!("Soundify Connect: {line} <- more than usual: connections or states are bouncing");
+                } else {
+                    info!("Soundify Connect: {line}");
+                }
+            }
+        });
+        if spawned.is_err() {
+            warn!("Could not start the Connect statistics thread");
+        }
     }
 
     /// Turns it off: lets go of every device, stops the server and goes quiet.
@@ -498,11 +543,12 @@ impl Connect {
         });
         match opened {
             Ok(session) => {
-                let old = self.sessions.lock().unwrap().insert(id.to_string(), Watch { generation, session });
+                let old = self.sessions.lock().unwrap().insert(id.to_string(), Watch { generation, session, since: Instant::now() });
                 if let Some(old) = old {
                     old.session.close();
                 }
-                info!("Soundify Connect: connected to {name}");
+                stats::opened(1);
+                info!("Soundify Connect: OUT {name} #{} connected (generation {generation}, {} links now)", short(id), self.sessions.lock().unwrap().len());
                 self.forget_stale_twins(id);
             }
             // A token the device no longer accepts is of no use: forgotten, and tried again as a new device.
@@ -535,6 +581,8 @@ impl Connect {
     }
 
     fn got_state(&self, id: &str, state: PlayerState) {
+        stats::states_received(1);
+        *self.received.lock().unwrap().entry(id.to_string()).or_insert(0) += 1;
         if let Some(nearby) = self.nearby.lock().unwrap().get_mut(id) {
             nearby.state = Some(state.clone());
         }
@@ -557,8 +605,10 @@ impl Connect {
         };
         // Dropped outside the lock, and `Session::close` knows not to wait for the thread it is called from.
         let Some(ended) = ended else { return };
+        let (lasted, name) = (ended.since.elapsed(), self.nearby.lock().unwrap().get(id).map(|n| n.info.name.clone()).unwrap_or_else(|| "?".into()));
         drop(ended);
-        info!("Soundify Connect: the connection to {id} ended ({})", reason.as_deref().unwrap_or("closed by the other side"));
+        stats::closed(1);
+        info!("Soundify Connect: OUT {name} #{} ended after {:.1}s ({})", short(id), lasted.as_secs_f32(), reason.as_deref().unwrap_or("closed by the other side"));
         if let Some(nearby) = self.nearby.lock().unwrap().get_mut(id) {
             nearby.state = None;
             nearby.queue = None;
@@ -630,6 +680,7 @@ impl Connect {
                 if !me.is_running() || !me.nearby.lock().unwrap().contains_key(&id) || me.sessions.lock().unwrap().contains_key(&id) {
                     return;
                 }
+                stats::reconnects(1);
                 me.connect_to(&id);
                 thread::sleep(Duration::from_secs(1));
                 if me.sessions.lock().unwrap().contains_key(&id) {

@@ -13,7 +13,6 @@ import { liveBar, liveChip, livePhase, patchLive, percentText } from '../compone
 import { playlistPicture, refreshPickedCovers } from '../covers';
 import { openDeleteWindow } from '../overlays/deletePlaylist';
 import { deviceLabel } from '../overlays/devicePicker';
-import { openFilesOverlay } from '../overlays/files';
 import { openImportHelp } from '../overlays/help';
 import { copyToDevice, copyToFolder } from '../overlays/transfer';
 import { notify } from '../components/toasts';
@@ -243,8 +242,8 @@ function formatBlock(playlist: Playlist, block: FormatBlock): HTMLElement {
         h('div', { class: 'fl-sub ellipsis' }, ...sub)),
       h('div', { class: 'fl-actions' },
         update,
-        h('button', { class: 'secondary-button compactable', title: t('manager.viewFiles'), onclick: () => openFilesOverlay(playlist, block) },
-          icon('eye', 16), h('span', { text: t('manager.viewFiles') })),
+        h('button', { class: 'secondary-button compactable', title: t('manager.openInPlayer'), onclick: () => navigate('player', { b: block.key, from: 'manager' }) },
+          icon('player', 16), h('span', { text: t('manager.openInPlayer') })),
         moreButton(playlist, block))),
     task && active ? h('div', { class: 'fl-live' },
       h('div', { class: 'row center gap-8' },

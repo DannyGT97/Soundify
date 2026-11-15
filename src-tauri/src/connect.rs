@@ -10,6 +10,7 @@ use serde::{Deserialize, Serialize};
 use soundify_core::Location;
 use soundify_core::connect::beacon::{Beacon, Composite};
 use soundify_core::connect::discovery::{Discovery, Mdns};
+use soundify_core::connect::stats::short;
 use soundify_core::connect::manager::{Connect, ConnectError, DeviceView, Identity, Listener, PREFERRED_PORT, Player};
 use soundify_core::connect::pairing::{KnownDevices, Pairing, Trusted, new_device_id};
 use soundify_core::connect::protocol::{Command, PlayerState, QueueInfo};
@@ -42,6 +43,29 @@ pub struct ConnectState {
     file: Location,
     /// Why it could not start, for the window to say.
     error: Arc<Mutex<Option<String>>>,
+}
+
+impl ConnectState {
+    /// For the diagnostic: is it on, who it is, who it sees and who is connected. Short ids, no addresses beyond the local network.
+    pub fn summary(&self) -> String {
+        let config = self.config.lock().unwrap().clone();
+        let mut lines = vec![format!(
+            "enabled={} running={} open={} name={} id={} port={}",
+            config.enabled, self.connect.is_running(), config.open, config.name, short(&config.device_id), self.connect.port().map_or("-".to_string(), |p| p.to_string())
+        )];
+        if let Some(error) = self.error.lock().unwrap().as_ref() {
+            lines.push(format!("error: {error}"));
+        }
+        lines.push(format!("controllers now: {}", self.connect.controllers().len()));
+        for device in self.connect.devices() {
+            lines.push(format!(
+                "- {} #{} {} online={} ready={} controlled={} playing={} paired={}",
+                device.name, short(&device.id), device.kind, device.online, device.ready, device.connected, device.playing, device.paired
+            ));
+        }
+        lines.join("
+")
+    }
 }
 
 /// What a controller asks goes to the page: it owns the queue.

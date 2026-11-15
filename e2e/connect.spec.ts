@@ -13,6 +13,14 @@ async function openDevices(page: Page, route = '/?mockConnect#/settings'): Promi
 const row = (page: Page, id: string) => page.locator(`[data-device="${id}"]`);
 const barTitle = (page: Page) => page.locator('.player-bar .player-now .row-title');
 
+/** Something sounds on this device: the device button lives in the side menu's mini player, which only shows then. */
+async function playSomething(page: Page, back: string): Promise<void> {
+  await page.evaluate(() => { location.hash = '#/player?b=pl1:MP3'; });
+  await page.locator('.tracks .track-row:not(.off)').first().click();
+  await page.evaluate(hash => { location.hash = hash; }, back);
+  await expect(page.locator('.sidebar .mini-controls')).toBeVisible();
+}
+
 test('an open device just shows up connected: nothing to pair, nothing to type', async ({ page }) => {
   await openDevices(page);
   const salon = row(page, 'tv');
@@ -86,6 +94,7 @@ test('a device that starts playing is noticed, and one tap on the notice control
 
 test('the list says what each device is playing', async ({ page }) => {
   await page.goto('/?mockConnect#/home');
+  await playSomething(page, '#/home');
   await page.evaluate(() => (window as unknown as { __connect: { salonPlays: (on: boolean) => void } }).__connect.salonPlays(true));
   await page.locator('.sidebar .devices-button').click();
   await expect(row(page, 'tv')).toContainText('Sonando: Canción del salón');
@@ -220,6 +229,7 @@ test('Android 17: without the local network permission the window says so and on
 
 test('the device icon only lists the devices to switch between, and points to Ajustes for the rest', async ({ page }) => {
   await page.goto('/?mockConnect#/player');
+  await playSomething(page, '#/player');
   await page.locator('.devices-button:visible').first().click();
   const list = page.locator('.overlay-window');
   await expect(list).toContainText('Este dispositivo');
@@ -316,4 +326,36 @@ test('the remote playlist sorts by # and title like a local one', async ({ page 
   await expect(titles).toHaveText(['Gamma', 'Beta', 'Alfa']);
   await page.locator('.cols .col-sort', { hasText: '#' }).click();
   await expect(titles).toHaveText(['Beta', 'Alfa', 'Gamma']);
+});
+
+test('refreshing the device list does not publish the state again (with three devices that was a storm)', async ({ page }) => {
+  await openDevices(page);
+  const count = () => page.evaluate(() => (window as unknown as { __connect: { published: unknown[] } }).__connect.published.length);
+  await page.waitForTimeout(300);
+  const before = await count();
+  // Each of these makes the list reload, like a state arriving from another device does.
+  for (let i = 0; i < 5; i++) {
+    await page.evaluate(on => (window as unknown as { __connect: { salonPlays: (on: boolean) => void } }).__connect.salonPlays(on), i % 2 === 0);
+    await page.waitForTimeout(50);
+  }
+  await page.waitForTimeout(300);
+  expect(await count()).toBe(before);
+});
+
+test('what the page does with Connect leaves a line in the log (the page used to leave no trace)', async ({ page }) => {
+  await openDevices(page);
+  await row(page, 'tv').getByRole('button', { name: 'Controlar' }).click();
+  await expect(barTitle(page)).toHaveText('Canción del salón');
+  const logged = () => page.evaluate(() => (window as unknown as { __logged: string[] }).__logged);
+  expect((await logged()).some(line => line.includes('[connect] control Salón'))).toBe(true);
+  expect((await logged()).some(line => line.includes('[app] page started'))).toBe(true);
+});
+
+test('Ajustes → Acerca de copies the diagnostics', async ({ page, context }) => {
+  await context.grantPermissions(['clipboard-read', 'clipboard-write']);
+  await page.goto('/?mockConnect#/settings');
+  await page.getByRole('button', { name: 'Acerca de' }).click();
+  await page.getByRole('button', { name: 'Copiar diagnóstico' }).click();
+  await expect(page.locator('.toast', { hasText: 'Diagnóstico copiado' })).toBeVisible();
+  expect(await page.evaluate(() => navigator.clipboard.readText())).toContain('Diagnóstico de Soundify');
 });

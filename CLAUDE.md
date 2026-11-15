@@ -344,6 +344,16 @@ Repositorio: https://github.com/DannyGT97/Soundify (GitHub, rama `main`, GPL-3.0
   si no es válida.
 
 ## Pendiente
+- **Logs para cazar fallos (15/11/2026, hechos (1)–(5) a petición del usuario; tests en verde, SIN ver en un aparato real).** `core/src/connect/stats.rs` = contadores
+  globales (aceptadas, abiertas, cerradas, reconexiones, controladores soltados por cola llena o ya idos, estados/colas/mensajes) que `Connect::report_stats` escribe CADA 30 s en
+  UNA línea `stats (30s): …` (con `WARNING … <- more than usual` si hay >20 conexiones, ≥3 soltados por cola llena o >600 estados). Las líneas de Connect llevan ahora sentido y quién:
+  `IN  <nombre> #<id corto> controls this device (from <ip>, session N, K controllers now)` / `… left (motivo) session N after Xs`, `OUT <nombre> #<id> connected (generation G, N links now)` /
+  `… ended after Xs (motivo)`; al soltar a un controlador: `dropping <nombre> (session N): its queue is full (64 waiting)`. El **front** escribe al mismo archivo (`api.log` → comando
+  `log_event`, línea `app_lib::front`, `[área] texto`): `src/diag.ts` (`logEvent` con tope de 20 líneas/s y repetidos plegados, `count` con resumen cada 30 s y aviso si `publish`>120,
+  `loadConnect`>200…, y captura de `error`, `unhandledrejection` y `console.warn/error`); `connect.ts` deja rastro de controlar, soltar, «suena aquí», conexión perdida y órdenes (volumen y
+  seek solo se cuentan). **Ajustes → Acerca de → «Copiar diagnóstico»** (`diagnostics.rs`: versión, plataforma, estado de Connect y los últimos 48 KB de `soundify-0.log`, con la carpeta
+  `data/` y el home cambiados por `<data>` y `~`; también en Android). En el navegador (mock) lo logado queda en `window.__logged`. **Faltan** (6) el mismo formato `área | evento | clave=valor`
+  para reproductor, descargas y herramientas, y contadores equivalentes fuera de Connect.
 - **Connect, alcance simplificado (13/11/2026; tests en verde, SIN probar entre PC y móvil reales).** Se quitó lo de bajarse lo que no se tiene (streaming, copiar
   por red, «Pasar mi música»); queda **controlar bien** (detalle en `PLAN-CONNECT.md`, que no va a git, junto con el estudio de viabilidad de «copiar una playlist
   de otro dispositivo» para más adelante): (1) **playlist remota**: el que suena publica su playlist (`ServerMessage::Queue`, `Connect::publish_queue`/`queue_of`,
@@ -387,6 +397,47 @@ Repositorio: https://github.com/DannyGT97/Soundify (GitHub, rama `main`, GPL-3.0
   NO tiene causa demostrada (deselect no cierra la sesión): si se repite, mirar el log del PC. (10) La playlist remota ordena por # y título (`trackOrder`,
   clave `remote:<id>:<playlist>`, solo cambia cómo se lista aquí: el otro toca en su orden) y lleva reproducir/pausa, aleatorio y buscar. (11) En móvil el
   detalle de playlist (local y remota) y Reproduciendo ocupan todo el ancho y alto (`phone.css`, sin borde ni radio).
+  **15/11/2026, «Ver archivos» y la playlist del Reproductor son UNA pantalla (tests y e2e en verde, mirado en el navegador, SIN ver en la app real ni en el móvil):**
+  desaparece la ventana `overlays/files.ts`; el botón del Gestor es «Abrir en el Reproductor» (icono `player`, clave `manager.openInPlayer`) y navega a
+  `#/player?b=<bloque>&from=manager` (la flecha atrás vuelve al Gestor, con `open`+`focus`; `&f=pending|off|ok` la abre filtrada). `detailView` (`views/player.ts`)
+  lista TODOS los archivos del bloque (no solo los de disco): chips de estado (`state-chips`, ocultos si todo está en disco), lo que falta sale atenuado con su marca y
+  su motivo (`stateCell`; en móvil solo la marca) y sin sonar; con el orden por # y sin filtro, lo descargado va primero (`groupByStatus`). **Sincronizar va en la cabecera
+  junto a play (variante B del prototipo `design/playlist-unified-prototype.html`)** con el número que falta; corriendo muestra chip + «Detener» y una barra debajo
+  (`sync-live`), en cola «Quitar de la cola»; cada archivo que llega parpadea (`landed`). Sin nada que sincronizar el botón no está.
+  **15/11/2026, tormenta de reconexiones con TRES dispositivos (tests en verde, SIN comprobar con los tres aparatos):** el log del PC (`soundify-0.log`) enseñaba ~50 «X controla
+  este dispositivo» / «X left (dropped by this device: it did not keep up)» / «Connection reset» por minuto entre PC, S24+ y la tablet. Causa probable (NO vista en los móviles, solo
+  encaja con el log): `loadConnect` (`connect.ts`) acababa con `publishIfWorth(true)` y se llama con CADA estado que llega de otro dispositivo (`got_state` → `devices_changed`), así que cada
+  dispositivo contestaba a cada estado con el suyo, y con tres se multiplicaba hasta llenar la cola de un controlador (`OUTBOX` 64, `server.rs`) y el servidor lo soltaba, y vuelta a empezar.
+  Ahora solo fuerza al encenderse Connect (`!wasRunning`); un controlador nuevo ya recibe el último estado del propio back y los cambios salen por `subscribe('player')`. Test en `connect.spec.ts`.
+  Si sigue: mirar si la cola se llena por otra vía (`publish_queue`, `Command::Take`) y los logs de los móviles.
+  **15/11/2026, mini reproductor del menú con controles (tests en verde, visto en el navegador, SIN ver en la app real):** `buildMiniPlayer` (`components/sidebar.ts`) lleva una fila
+  `.mini-controls` con dispositivos, aleatorio, anterior, siguiente y repetir (los mismos botones y estados que la barra), y el icono de dispositivos YA NO está junto al selector de temas.
+  Como el mini reproductor solo se ve con algo en marcha, **sin nada sonando el icono de dispositivos no está en el menú** (queda Ajustes → Dispositivos y el aviso «Controlar»).
+  **15/11/2026, lo que cazaron los logs nuevos (primera pasada real; tests en verde, SIN comprobar entre PC y móviles):** (a) **el mDNS NUNCA funcionó**: `mdns-sd` solo acepta nombres de
+  servicio de 15 bytes y `_soundify-connect` tiene 17, así que cada anuncio y cada búsqueda fallaba con `SEVERE: check_service_name_length` (33 veces en el log; no era el cortafuegos). Arreglado
+  con `set_service_name_len_max(30)` en `Mdns::new`; el test real `two_real_mdns_daemons_see_each_other` (`--ignored`) ahora pasa. Una app con el código viejo sigue sin verse por mDNS (la baliza UDP
+  y «aprender del que se conecta» siguen). (b) **los móviles inundaban de estados** (~4000 recargas de la lista cada 30 s en el PC = ~130 estados/s entre los móviles): el bucle de
+  `loadConnect` de arriba sigue vivo en sus APK viejos; el PC ya agrupa las recargas (250 ms) y su log avisa con `<nombre> #<id> sent N states in 30s: it is flooding`. Hay que instalar el APK nuevo
+  en los dos. (c) un `isPhone is not defined` mío en `main.ts` (cazado por `[page] Uncaught …`, ya arreglado).
+  **Mirar los logs sin que el usuario haga nada:** `node scripts/diagnostics.mjs` (= «Copiar diagnóstico» desde el terminal: versión, Connect, últimos `stats`/avisos, minutos con más conexiones y el
+  final del registro; `--data <carpeta>`, `--lines N`, o `--adb [paquete]` para un móvil con la build de depuración por `run-as`; sin aparato por adb no hay logs de móvil).
+  **15/11/2026, escalas en escritorio (tests en verde, SIN ver en la app real):** el menú lateral hace scroll PROPIO (`.sidebar { overflow-y: auto }`, `overscroll-behavior: contain`) solo cuando con una escala grande
+  no cabe, sin mover la página de al lado. Ctrl + / Ctrl − / Ctrl 0 ya existían (`scale.ts`); ahora también van por `code` (teclado numérico, `Equal`, `Minus`, `Digit0`), en fase de captura (un campo
+  enfocado no los frena) y con **Ctrl + rueda** (un paso por muesca). El zoom nativo del webview reduce la página en píxeles CSS (1280×820 al 175 % = 731×468), y la regla de «móvil en horizontal»
+  (`max-height: 500px`) la convertía en barra de pestañas en escritorio: ahora esa parte solo cuenta con `(pointer: coarse)` (`PHONE_QUERY` en `platform.ts` y `phone.css`); `max-width: 700px` sigue igual.
+  `e2e/scales.spec.ts` comprueba que nada se sale de lado a 80/100/125/150/175 % en 1280×820 y en el mínimo 900×600. En el panel del navegador de Claude las ventanas <768 de ancho emulan táctil, así que ahí
+  no se puede ver el diseño de escritorio con ventanas estrechas: usar Playwright.
+  **15/11/2026, primera prueba con el S24+ por adb (adb en `%LOCALAPPDATA%\Android\Sdk\platform-tools`; compilado y puesto el APK de depuración `…soundify.debug` con el código de hoy, que convive con la release 1.2.0):**
+  (a) con el código NUEVO el móvil no inunda (`states_sent=0`, `publishForced=1`) y el mDNS ya se ve en Android (se conectó al PC y a la release del mismo móvil en 1–4 s tras arrancar); la inundación venía de las
+  apps VIEJAS: al parar la release del S24+ (`am force-stop`), `states_received` del PC bajó de ~1800 a 4–6 por 30 s y `loadConnect` de ~90 a 3. (b) **La tablet (`H MP2 D`) corta la conexión con el PC
+  cada 15,1 s** (`os error 10054`, en los dos sentidos, y vuelve a los 1–2 s): probable APK viejo sin respuesta a los ping de 15 s; sin adb de la tablet no se ha podido ver, actualizarla y repetir
+  `node scripts/diagnostics.mjs`. (c) con dos apps en el mismo móvil la 2.ª no consigue la baliza UDP (`Address already in use`) y toma otro puerto: esperado. (d) A escala 175 % en el móvil (zoom CSS) la barra
+  de pestañas recorta «Descargar»/«Reproductor» con puntos suspensivos y Ajustes en una sola columna se ve bien: **pendiente decidir** si en móvil se limita la escala a 150 % o se acortan las etiquetas.
+  (e) quitado el `WARNING: Could not clean up update leftovers` del primer arranque en Android (era un «no existe la carpeta»).
+  **15/11/2026, por qué la tablet «instala otra APK aparte» al actualizar desde la app (causa por deducción, tablet no vista):** la tablet tiene la **copia de pruebas** (`com.dannygt97.soundify.debug`) y el
+  actualizador bajaba el APK de la release (`com.dannygt97.soundify`, otro paquete y otra clave): Android no lo ve como actualización y lo instala COMO SEGUNDA APP al lado. El S24+ lleva el paquete normal y
+  se actualiza en sitio. Ahora `app_update.rs` (`is_test_copy`: el proceso de Android se llama como su paquete, `/proc/self/cmdline` acabado en `.debug`) rechaza buscar e instalar con
+  `update.android.testCopy` («esta es la copia de pruebas…»). Para actualizar esa tablet: desinstalar la `.debug` e instalar la release (la 1.2.0 ya instalada en el S24+ SÍ se actualiza sola).
   Pendiente menor: el PC sigue enseñando el nombre viejo del controlador («Teléfono Android») hasta que se vuelva a emparejar.
 - **Connect en Android 17: la causa de que «no funcionara» (13/11/2026, comprobada con el S24 por adb; Samsung One UI 9 / Android 17, SDK 37).** Dos cosas,
   las dos necesarias: (1) **sin el permiso `ACCESS_LOCAL_NETWORK`** (Android 16+, grupo «Dispositivos cercanos»; la app apunta a SDK 37) la red local queda

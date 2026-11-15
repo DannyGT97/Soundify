@@ -389,6 +389,16 @@ async function showCookiesStatus(line: HTMLElement, file: string): Promise<void>
   line.classList.add(exists ? 'status-text-ok' : 'status-text-warn');
 }
 
+/** Version, platform, Connect and the end of the log, on the clipboard: one piece to paste when something fails. */
+async function copyDiagnostics(): Promise<void> {
+  try {
+    await navigator.clipboard.writeText(await api.diagnostics());
+    notify({ tone: 'success', text: t('diagnostics.copied') });
+  } catch {
+    notify({ tone: 'error', text: t('diagnostics.failed') });
+  }
+}
+
 function about(): HTMLElement[] {
   return [
     h('section', { class: 'card settings-card' },
@@ -409,6 +419,12 @@ function about(): HTMLElement[] {
       h('p', { class: 'subtitle', text: 'yt-dlp — Unlicense' }),
       h('p', { class: 'subtitle', text: 'FFmpeg — GPL v3' }),
       h('p', { class: 'subtitle', text: 'Deno — MIT' })),
+    h('section', { class: 'card settings-card' },
+      h('div', { class: 'row center gap-14' },
+        h('div', { class: 'grow' },
+          h('div', { class: 'section-title', text: t('diagnostics.title') }),
+          h('p', { class: 'subtitle', text: t('diagnostics.desc') })),
+        h('button', { class: 'secondary-button', onclick: () => void copyDiagnostics() }, icon('copy', 16), h('span', { text: t('diagnostics.copy') })))),
     h('section', { class: 'card settings-card' }, h('p', { class: 'subtitle', text: t('settings.about.author') })),
   ];
 }

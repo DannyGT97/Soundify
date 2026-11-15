@@ -4,7 +4,9 @@
 
 import { emit } from './state';
 
-const PHONE_QUERY = '(max-width: 700px), (max-height: 500px)';
+// A short window is a phone on its side only if it is touched: a desktop with a big scale (the webview's zoom shrinks the page in CSS pixels)
+// is short too, and keeps its menu (which scrolls) instead of turning into a tab bar.
+const PHONE_QUERY = '(max-width: 700px), (max-height: 500px) and (pointer: coarse)';
 
 /** `?mockAndroid` shows in the browser what the APK hides. */
 export const onAndroid: boolean =

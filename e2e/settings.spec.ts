@@ -92,3 +92,40 @@ test('«Descargar más rápido» is one experimental switch that sets the three 
   await expect(page.locator('.toast-text')).toContainText('Configuración restablecida');
   await expect(box).not.toBeChecked();
 });
+
+test('Ctrl + / Ctrl − / Ctrl 0 and Ctrl + wheel change the scale, and Ajustes follows', async ({ page }) => {
+  await page.goto('/#/settings');
+  const zoom = () => page.evaluate(() => document.getElementById('app')?.style.zoom);
+  await page.keyboard.press('Control+=');
+  await expect.poll(zoom).toBe('1.1');
+  await page.keyboard.press('Control++');
+  await expect.poll(zoom).toBe('1.25');
+  await page.keyboard.press('Control+-');
+  await expect.poll(zoom).toBe('1.1');
+  await page.keyboard.press('Control+0');
+  await expect.poll(zoom).toBe('1');
+  await page.mouse.move(400, 300);
+  await page.keyboard.down('Control');
+  await page.mouse.wheel(0, -100);
+  await page.keyboard.up('Control');
+  await expect.poll(zoom).toBe('1.1');
+});
+
+test('with a big scale the side menu scrolls by itself, and the page does not move with it', async ({ page }) => {
+  await page.setViewportSize({ width: 1280, height: 600 });
+  await page.goto('/#/settings');
+  for (let i = 0; i < 4; i++) await page.keyboard.press('Control+=');
+  const info = await page.evaluate(() => {
+    const side = document.querySelector('.sidebar') as HTMLElement;
+    const screen = document.querySelector('.screen') as HTMLElement;
+    return { scrolls: side.scrollHeight > side.clientHeight, overflowY: getComputedStyle(side).overflowY, pageBefore: screen.scrollTop };
+  });
+  expect(info.overflowY).toBe('auto');
+  expect(info.scrolls).toBe(true);
+  await page.evaluate(() => { (document.querySelector('.sidebar') as HTMLElement).scrollTop = 9999; });
+  const after = await page.evaluate(() => ({ side: (document.querySelector('.sidebar') as HTMLElement).scrollTop, page: (document.querySelector('.screen') as HTMLElement).scrollTop }));
+  expect(after.side).toBeGreaterThan(0);
+  expect(after.page).toBe(info.pageBefore);
+  // The last entry (Ajustes) can be reached.
+  await expect(page.locator('.sidebar-version')).toBeVisible();
+});

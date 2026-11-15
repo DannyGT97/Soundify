@@ -14,7 +14,7 @@ import { homeLogo } from './logo';
 import { findBlock } from '../library';
 import * as player from '../player';
 import { pipButton } from './pip';
-import { seekSlider } from './transport';
+import { control, describe, seekSlider } from './transport';
 
 // `short`: the phone's tab, a fifth of the screen wide.
 interface Entry { route: Route; label: string; icon: IconName; short?: string; }
@@ -58,7 +58,6 @@ export function buildSidebar(): HTMLElement {
     h('div', { class: 'sidebar-separator' }),
     navButton('settings', 'nav.settings', 'settings'),
     h('div', { class: 'sidebar-version' }, h('span', { class: 'sidebar-version-text grow', text: `${t('nav.version')} ${appVersion()}` }),
-      devicesButton('side-devices'),
       h('button', { class: 'theme-button', title: t('settings.interface.theme'), onclick: () => openOverlay(t('settings.interface.theme'), [themePicker()]) }, icon('palette', 17))));
   sidebar.append(h('div', { class: 'sidebar-header' }, wordmark, toggle), nav, h('div', { class: 'grow' }), footer);
   sidebar.classList.toggle('collapsed', ui.sidebarCollapsed);
@@ -114,8 +113,15 @@ function buildMiniPlayer(): HTMLElement {
   const toggle = h('button', { class: 'mini-play', title: t('player.play'), onclick: player.togglePlay });
   const progress = seekSlider();
   progress.classList.add('mini-progress');
-  const mini = h('div', { class: 'mini-player' }, art, h('div', { class: 'mini-text' }, title, meta), pipButton(), toggle, progress);
+  // The basic controls, so the side menu alone is enough to drive what sounds (and to change the device it sounds on).
+  const shuffle = control('shuffle', 'player.shuffle', player.toggleShuffle);
+  const previous = control('previous', 'player.previous', player.previous, true);
+  const next = control('next', 'player.next', player.next, true);
+  const repeat = control('repeat', 'player.repeat.off', player.cycleRepeat);
+  const controls = h('div', { class: 'mini-controls' }, devicesButton('side-devices'), shuffle, previous, next, repeat);
+  const mini = h('div', { class: 'mini-player' }, art, h('div', { class: 'mini-text' }, title, meta), pipButton(), toggle, controls, progress);
   let shownKey = '';
+  let shownRepeat = '';
   const refresh = () => {
     const np = ui.nowPlaying; mini.hidden = !np || !['side', 'both'].includes(ui.playerPlacement); if (!np) return;
     const found = findBlock(np.blockKey); title.textContent = np.track.title; meta.textContent = found?.playlist.title ?? '';
@@ -124,6 +130,14 @@ function buildMiniPlayer(): HTMLElement {
     if (key !== shownKey) { shownKey = key; art.replaceChildren(cover(np.track.title, found?.block.video ?? false, 40, { kind: 'thumbnail', id: np.track.id })); }
     toggle.replaceChildren(icon(ui.playing ? 'pause' : 'play', 16, true));
     toggle.title = t(ui.playing ? 'player.pause' : 'player.play');
+    shuffle.classList.toggle('on', ui.shuffle);
+    // Only when it changes: this runs with every tick, and a button whose content is swapped between press and release loses its click.
+    if (ui.repeat !== shownRepeat) {
+      shownRepeat = ui.repeat;
+      repeat.replaceChildren(icon(ui.repeat === 'one' ? 'repeat-one' : 'repeat'));
+      describe(repeat, `player.repeat.${ui.repeat}`);
+    }
+    repeat.classList.toggle('on', ui.repeat !== 'off');
     progress.style.setProperty('--mini-progress', `${ui.duration > 0 ? Math.min(100, ui.position / ui.duration * 100) : 0}%`);
   };
   subscribeWhile(mini, 'player', refresh); subscribeWhile(mini, 'player-placement', refresh); refresh(); return mini;

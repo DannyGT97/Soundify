@@ -134,6 +134,9 @@ pub async fn install_app_update(app: AppHandle, updates: State<'_, AppUpdates>) 
     if cfg!(debug_assertions) && !cfg!(target_os = "android") {
         return Err(CommandError::key("update.devBuild"));
     }
+    if is_test_copy() {
+        return Err(CommandError::key("update.android.testCopy"));
+    }
     let Some(update) = updates.found.lock().unwrap().clone() else {
         return Err(CommandError::key("update.nothingFound"));
     };
@@ -154,7 +157,28 @@ pub async fn install_app_update(app: AppHandle, updates: State<'_, AppUpdates>) 
 
 // === PRIVATE ===
 
+/// The process of an Android app is named after its package: the test copy (`…soundify.debug`) is another app than the one the releases
+/// carry (`…soundify`, other key). Updating it with a release APK does not update it: Android installs the release AS A SECOND APP next to it.
+#[cfg(any(target_os = "android", test))]
+fn is_test_copy_name(cmdline: &[u8]) -> bool {
+    let name = cmdline.split(|b| *b == 0).next().unwrap_or(&[]);
+    name.ends_with(b".debug")
+}
+
+#[cfg(target_os = "android")]
+fn is_test_copy() -> bool {
+    std::fs::read("/proc/self/cmdline").map(|bytes| is_test_copy_name(&bytes)).unwrap_or(false)
+}
+
+#[cfg(not(target_os = "android"))]
+fn is_test_copy() -> bool {
+    false
+}
+
 fn find_newer(app: &AppHandle) -> Result<Option<Update>, CommandError> {
+    if is_test_copy() {
+        return Err(CommandError::key("update.android.testCopy"));
+    }
     let http = ReqwestHttp::new(env!("CARGO_PKG_VERSION")).map_err(CommandError::io)?;
     let found = updater::find_newer(&http, env!("CARGO_PKG_VERSION"), Package::current());
 
@@ -251,4 +275,16 @@ fn exe_name() -> Option<String> {
 
 fn today() -> chrono::NaiveDate {
     Local::now().date_naive()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::is_test_copy_name;
+
+    #[test]
+    fn only_the_debug_package_is_the_test_copy() {
+        assert!(is_test_copy_name(b"com.dannygt97.soundify.debug\0\0"));
+        assert!(!is_test_copy_name(b"com.dannygt97.soundify\0"));
+        assert!(!is_test_copy_name(b""));
+    }
 }

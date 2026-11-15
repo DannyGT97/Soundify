@@ -129,6 +129,12 @@ export const mockApi: Api = {
   watchToolHealth: () => {},
   ...mockTools,
   appVersion: async () => '0.0.0-mock',
+  // What the page logs is kept where a test can read it (`window.__logged`).
+  log: (level, area, message) => {
+    const target = window as unknown as { __logged?: string[] };
+    (target.__logged ??= []).push(`${level} [${area}] ${message}`);
+  },
+  diagnostics: async () => '# Diagnóstico de Soundify (simulado)\nVersión: 0.0.0-mock',
   // Always a newer one, so the window and its states can be seen; installing
   // it ends the way a development build does: nothing to replace.
   checkAppUpdate: async () => ({ ...MOCK_UPDATE }),

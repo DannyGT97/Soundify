@@ -36,17 +36,17 @@ test('the block being downloaded is outlined; its siblings are not dimmed and ca
   await expect(page.locator('.pm-block').nth(0).getByRole('button', { name: 'Sincronizar' })).toBeEnabled();
 });
 
-test('«Ver archivos» shows each file as it lands', async ({ page }) => {
+test('«Abrir en el Reproductor» shows each file as it lands', async ({ page }) => {
   await openPaused(page, '/#/manager?open=pl1');
   const mp3 = page.locator('.pm-block').nth(0);
   await mp3.getByRole('button', { name: 'Sincronizar' }).click();
-  await mp3.getByRole('button', { name: 'Ver archivos' }).click();
-  const pending = page.locator('.fa-list .pill.warn');
+  await mp3.getByRole('button', { name: 'Abrir en el Reproductor' }).click();
+  const pending = page.locator('.tracks .pill.warn');
   await expect(pending).toHaveCount(2);
 
   await page.clock.runFor(2_800 + 400);
   await expect(pending).toHaveCount(1);
-  await expect(page.locator('.fa-list .track.landed')).toHaveCount(1);
+  await expect(page.locator('.tracks .track.landed')).toHaveCount(1);
 
   await page.clock.runFor(700);
   await expect(pending).toHaveCount(0);

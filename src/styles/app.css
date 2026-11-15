@@ -21,7 +21,7 @@ hr { border: none; border-top: 1px solid var(--sp-line); margin: 0; width: 100%;
 
 /* 100%, not 100vh: in the browser the scale is a CSS zoom on #app, and a zoomed vh would grow past the window. */
 #app { height: 100%; display: flex; flex-direction: column; }
-.workspace { flex: 1; min-height: 0; display: flex; gap: 16px; padding: 16px; }
+.workspace { flex: 1; min-height: 0; display: flex; gap: 10px; padding: 10px; }
 .titlebar + .workspace { padding-top: 0; }
 /* Over the backdrop of the windows that open on top: minimizing is always possible. Under a full-screen video. */
 .titlebar { flex: none; height: 36px; display: flex; align-items: stretch; position: relative; z-index: 110; background: var(--sp-bg); color: var(--sp-muted); user-select: none; }
@@ -132,7 +132,9 @@ select.input { cursor: pointer; }
 .switch:checked::after { transform: translateX(16px); background: var(--sp-white); }
 
 /* === SIDE MENU === */
-.sidebar { width: 240px; flex: none; min-height: 0; display: flex; flex-direction: column; gap: 6px; padding: 14px 12px; transition: width 0.2s ease; overflow: hidden; }
+/* With a big scale the menu is taller than the window: it scrolls on its own (the page beside it does not move with it), and only then. */
+.sidebar { width: 240px; flex: none; min-height: 0; display: flex; flex-direction: column; gap: 6px; padding: 14px 12px; transition: width 0.2s ease; overflow-x: hidden; overflow-y: auto; scrollbar-width: thin; scrollbar-color: var(--sp-line) transparent; overscroll-behavior: contain; }
+.sidebar > * { flex-shrink: 0; }
 .sidebar.collapsed { width: 68px; padding: 14px 10px; }
 .sidebar-header { display: flex; align-items: center; gap: 8px; min-height: 40px; padding: 0 4px 8px; }
 .brand-name { color: var(--sp-text-strong); font-size: 20px; font-weight: 800; letter-spacing: -.3px; white-space: nowrap; }
@@ -161,6 +163,10 @@ select.input { cursor: pointer; }
 .mark-ok { color: var(--sp-success); } .mark-stopped { color: var(--sp-muted); } .mark-warning { color: var(--sp-warn); } .mark-failed { color: var(--sp-error); }
 .mini-player { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; padding: 7px; border-radius: 9px; background: var(--sp-field); white-space: nowrap; }
 .mini-cover { width: 40px; height: 40px; flex: none; }
+/* previous, next, shuffle, repeat and the device, in a row of their own under the title. */
+.mini-controls { flex: 0 0 100%; display: flex; align-items: center; justify-content: space-between; }
+.mini-controls .player-control { padding: 6px; }
+.sidebar.collapsed .mini-controls { display: none; }
 .mini-text { min-width: 0; flex: 1; display: flex; flex-direction: column; }
 .mini-text b { color: var(--sp-text-strong); font-size: 12px; }
 .mini-text span { color: var(--sp-muted); font-size: 11px; }
@@ -183,7 +189,7 @@ select.input { cursor: pointer; }
 
 /* === SCREENS === */
 .screen {
-  flex: 1; min-width: 0; overflow-y: auto; display: flex; flex-direction: column; gap: 16px;
+  flex: 1; min-width: 0; overflow-y: auto; display: flex; flex-direction: column; gap: 12px;
   /* Sin margen arriba: el contenido empieza a la altura del borde superior del menú lateral. */
   padding: 0 4px 24px 0;
 }
@@ -301,7 +307,7 @@ select.input { cursor: pointer; }
 .search-hit:hover { border-color: var(--sp-accent); }
 
 /* === PLAYER BAR === */
-.player-bar { display: flex; align-items: center; gap: 18px; padding: 10px 16px 14px; background: var(--sp-bg); animation: enter 0.22s ease-out; }
+.player-bar { display: flex; align-items: center; gap: 18px; padding: 8px 12px 10px; background: var(--sp-bg); animation: enter 0.22s ease-out; }
 .player-now { display: flex; align-items: center; gap: 12px; width: 300px; min-width: 200px; cursor: pointer; }
 .player-cover { width: 48px; height: 48px; flex: none; }
 .player-now-text { min-width: 0; display: flex; flex-direction: column; justify-content: center; gap: 2px; }
@@ -438,5 +444,3 @@ select.input { cursor: pointer; }
 .devices-button { position: relative; }
 .devices-button.on { color: var(--sp-accent); }
 .devices-button.has-dot::after { content: ""; position: absolute; top: 6px; right: 6px; width: 7px; height: 7px; border-radius: 50%; background: var(--sp-accent); }
-.sidebar-version .devices-button { padding: 6px; }
-.sidebar.collapsed .sidebar-version .devices-button { display: none; }

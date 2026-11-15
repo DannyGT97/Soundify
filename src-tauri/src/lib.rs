@@ -8,6 +8,7 @@ mod commands;
 mod connect;
 mod covers;
 mod devices;
+mod diagnostics;
 mod firewall;
 mod downloads;
 mod mobile;
@@ -133,6 +134,8 @@ pub fn run() {
     })
     .invoke_handler(tauri::generate_handler![
       window_menu::show_system_menu,
+      diagnostics::log_event,
+      diagnostics::diagnostics,
       mobile::storage_info,
       mobile::request_all_files,
       mobile::pick_phone_folder,

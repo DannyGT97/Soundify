@@ -108,21 +108,8 @@ button.fmt:hover { background: var(--sp-icon-btn-hover); color: var(--sp-text-st
 .mod-body { padding: 2px 18px 16px; overflow-y: auto; display: flex; flex-direction: column; gap: 12px; min-height: 0; scrollbar-width: thin; scrollbar-color: var(--sp-line) transparent; }
 .mod-foot { display: flex; align-items: center; justify-content: flex-end; gap: 8px; padding: 12px 18px; border-top: 1px solid var(--sp-line); flex: none; flex-wrap: wrap; }
 
-/* === VER ARCHIVOS === */
-.fa-head { --amb: hsl(var(--h) 62% 40% / .7); background: linear-gradient(180deg, var(--amb), transparent); padding: 14px 14px 10px 18px; display: flex; gap: 14px; align-items: flex-end; flex: none; }
-[data-theme^="light"] .fa-head { --amb: hsl(var(--h) 75% 70% / .7); }
-.fa-head .cover { box-shadow: 0 10px 24px var(--sp-shadow-soft); }
-.fa-head h2 { color: var(--sp-text-strong); font-size: 22px; font-weight: 800; line-height: 1.15; }
-[data-theme^="light"] .fa-head .eyebrow, [data-theme^="light"] .fa-head .muted { color: var(--sp-text); }
-.fa-tools { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; padding: 8px 18px 10px; flex: none; }
-.fa-tools .search-box { margin-left: auto; }
-.fa-notice { margin: 0 18px 8px; flex: none; }
-.fa-list { flex: 1; min-height: 0; overflow-y: auto; padding: 0 10px 8px; scrollbar-width: thin; scrollbar-color: var(--sp-line) transparent; }
+/* === FILAS DE ARCHIVOS (la lista de una playlist en el Reproductor) === */
 .track { display: grid; align-items: center; gap: 12px; border-radius: 7px; cursor: pointer; }
-.fa-list .track { grid-template-columns: 30px auto minmax(0, 1fr) 16px 150px; padding: 0 10px; min-height: 52px; }
-/* Its own column for the mark, so the marks line up whatever the text beside them. */
-.fa-state { display: contents; }
-.fa-state > :last-child { justify-self: end; max-width: 100%; }
 .state-mark { display: inline-flex; flex: none; }
 .track:hover { background: var(--sp-nav-hover); }
 .track .n { color: var(--sp-muted); font-variant-numeric: tabular-nums; display: flex; justify-content: flex-end; align-items: center; height: 20px; }
@@ -149,12 +136,6 @@ button.fmt:hover { background: var(--sp-icon-btn-hover); color: var(--sp-text-st
 .eq i:nth-child(3) { animation-delay: -.7s; }
 .eq.paused i { animation-play-state: paused; }
 @keyframes eq { 0%, 100% { transform: scaleY(.3); } 50% { transform: scaleY(1); } }
-.fa-foot { display: flex; align-items: center; gap: 10px; padding: 10px 18px; border-top: 1px solid var(--sp-line); flex: none; font-size: 12px; }
-@container (max-width: 520px) {
-  .fa-list .track { grid-template-columns: 30px auto minmax(0, 1fr) 16px auto; }
-  .fa-list .track .d { display: none; }
-  .fa-tools .search-box { margin-left: 0; max-width: none; }
-}
 
 /* === ELIMINAR === */
 .subject { display: flex; align-items: center; gap: 12px; }
@@ -360,7 +341,7 @@ button.fmt:hover { background: var(--sp-icon-btn-hover); color: var(--sp-text-st
 .detail.stuck .mini { transform: none; }
 .mini b { color: var(--sp-text-strong); font-size: 15px; font-weight: 800; }
 .mini .round-play { width: 36px; height: 36px; }
-.cols, .tracks .track { grid-template-columns: 34px auto minmax(0, 1fr) 118px; padding: 0 12px; }
+.cols, .tracks .track { grid-template-columns: 34px auto minmax(0, 1fr) 150px; padding: 0 12px; }
 .cols { display: grid; align-items: center; gap: 12px; position: sticky; top: 0; z-index: 4; height: 34px; margin: 0 10px; color: var(--sp-muted); font-size: 11px; font-weight: 700; background: var(--sp-card); border-bottom: 1px solid var(--sp-line); }
 .detail.stuck .cols { top: 56px; }
 .cols .n { text-align: right; }
@@ -380,10 +361,24 @@ button.fmt:hover { background: var(--sp-icon-btn-hover); color: var(--sp-text-st
 .tracks .track.off { opacity: .5; }
 .foot-note { padding: 4px 22px 22px; color: var(--sp-muted); font-size: 12px; }
 .foot-note button { color: var(--sp-text-strong); font-weight: 700; text-decoration: underline; }
+/* The states of the files as filters, and Sincronizar next to play (what «Ver archivos» used to hold). */
+.state-chips { display: flex; gap: 8px; flex-wrap: wrap; padding: 6px 22px 10px; }
+.state-chips[hidden], .sync-live[hidden] { display: none; }
+.sync-slot { display: contents; }
+.sync-live { padding: 2px 0 8px; }
+.sync-head { display: inline-flex; align-items: center; gap: 8px; height: 38px; padding: 0 14px 0 12px; border-radius: 19px; background: var(--sp-accent); color: var(--sp-on-accent); font-weight: 800; white-space: nowrap; }
+.sync-head:hover:not(:disabled) { background: var(--sp-accent-hover); }
+.sync-head:disabled { background: var(--sp-field); color: var(--sp-muted); cursor: default; }
+.sync-head .n { background: #0000002e; border-radius: 10px; padding: 0 7px; font-size: 12px; }
+.tracks .track .st { display: inline-flex; align-items: center; justify-content: flex-end; gap: 6px; min-width: 0; }
 @container (max-width: 560px) {
   .hero { gap: 14px; }
   .cols, .tracks .track { grid-template-columns: 30px auto minmax(0, 1fr); }
   .cols .added, .tracks .track .d { display: none; }
+  /* A file that is not there keeps its mark (the reason is in the tooltip) in a column of its own. */
+  .tracks .track:has(.st) { grid-template-columns: 30px auto minmax(0, 1fr) auto; }
+  .tracks .track .st .pill { display: none; }
+  .state-chips { flex-wrap: nowrap; overflow-x: auto; scrollbar-width: none; padding-left: 14px; padding-right: 14px; }
   .track-search.open { width: 130px; }
 }
 
@@ -482,7 +477,7 @@ button.dev-row:hover { background: var(--sp-nav-hover); }
 }
 
 /* The neutral themes are grey through and through: no playlist's own hue behind its header. */
-[data-theme$="neutral"] :is(.fa-head, .resume, .ambient) { --amb: color-mix(in srgb, var(--sp-cover-a) 55%, transparent); }
+[data-theme$="neutral"] :is(.resume, .ambient) { --amb: color-mix(in srgb, var(--sp-cover-a) 55%, transparent); }
 [data-theme$="neutral"] .mini { background: var(--sp-card); }
 
 /* === SOUNDIFY CONNECT === the list of devices (overlays/devices.ts) */

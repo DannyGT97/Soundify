@@ -428,3 +428,32 @@ test('the big cover of a playlist shows a pencil on hover and is editable', asyn
   await cover.click();
   await expect(page.locator('.hero h1')).toBeVisible();
 });
+
+test('a playlist with missing files lists them by state and syncs from the same screen', async ({ page }) => {
+  await page.goto('/#/player?b=pl1:MP3');
+  const chips = page.locator('.state-chips .fchip');
+  await expect(chips.filter({ hasText: 'Pendientes' })).toContainText('2');
+  await chips.filter({ hasText: 'Pendientes' }).click();
+  await expect(page.locator('.tracks .track')).toHaveCount(2);
+  await expect(page.locator('.tracks .track .pill.warn')).toHaveCount(2);
+  // A file that is not on disk does not play: it is not a button.
+  await expect(page.locator('.tracks .track.off')).toHaveCount(2);
+  await page.getByRole('button', { name: /Sincronizar/ }).click();
+  await expect(page.locator('.sync-live .progress')).toBeVisible();
+  await expect(page.locator('.sync-slot .pm-live')).toBeVisible();
+});
+
+test('a playlist with every file on disk has no state chips and no Sincronizar', async ({ page }) => {
+  await page.goto('/#/player?b=pl3:MP4');
+  await expect(page.locator('.hero h1')).toBeVisible();
+  await expect(page.locator('.state-chips')).toBeHidden();
+  await expect(page.locator('.sync-head')).toHaveCount(0);
+});
+
+test('opened from the Gestor, the arrow goes back to it, on the same playlist', async ({ page }) => {
+  await page.goto('/#/manager?open=pl1');
+  await page.locator('.pm-block').nth(0).getByRole('button', { name: 'Abrir en el Reproductor' }).click();
+  await expect(page).toHaveURL(/#\/player\?b=pl1%3AMP3&from=manager/);
+  await page.locator('.ambient > .icon-button.back').click();
+  await expect(page).toHaveURL(/#\/manager\?open=pl1/);
+});

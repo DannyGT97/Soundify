@@ -29,7 +29,9 @@ export function currentScale(): number {
 export function initScale(saved: number): void {
   current = clampToStep(saved);
   void apply(current);
-  document.addEventListener('keydown', onShortcut);
+  // Captured: a focused field or button must not keep the shortcut from reaching it.
+  document.addEventListener('keydown', onShortcut, true);
+  document.addEventListener('wheel', onWheel, { passive: false, capture: true });
 }
 
 export function setScale(percent: number): void {
@@ -71,12 +73,28 @@ async function apply(percent: number): Promise<void> {
   document.getElementById('app')?.style.setProperty('zoom', String(factor));
 }
 
-/** Ctrl + / Ctrl − / Ctrl 0, going through the same steps as the list in Ajustes. */
+/**
+ * Ctrl + / Ctrl − / Ctrl 0 (and Ctrl with the wheel), going through the same steps as the list in Ajustes. By `key` AND by `code`: the numeric pad sends
+ * its own codes, and with the webview's native zoom keys off nothing else would answer them.
+ */
+function direction(e: KeyboardEvent): 1 | -1 | 0 | null {
+  if (e.key === '+' || e.key === '=' || e.code === 'NumpadAdd' || e.code === 'Equal') return 1;
+  if (e.key === '-' || e.key === '_' || e.code === 'NumpadSubtract' || e.code === 'Minus') return -1;
+  if (e.key === '0' || e.code === 'Digit0' || e.code === 'Numpad0') return 0;
+  return null;
+}
+
 function onShortcut(e: KeyboardEvent): void {
   if (!(e.ctrlKey || e.metaKey) || e.altKey) return;
-  if (e.key === '+' || e.key === '=') setScale(stepFrom(current, 1));
-  else if (e.key === '-') setScale(stepFrom(current, -1));
-  else if (e.key === '0') setScale(DEFAULT_SCALE);
-  else return;
+  const step = direction(e);
+  if (step === null) return;
+  setScale(step === 0 ? DEFAULT_SCALE : stepFrom(current, step));
   e.preventDefault();
+}
+
+/** Ctrl + wheel, like a browser: up is bigger. One step per notch, not per pixel. */
+function onWheel(e: WheelEvent): void {
+  if (!(e.ctrlKey || e.metaKey) || e.deltaY === 0) return;
+  e.preventDefault();
+  setScale(stepFrom(current, e.deltaY < 0 ? 1 : -1));
 }
