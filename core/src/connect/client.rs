@@ -1,7 +1,7 @@
 //! The controller's side: ask a device who it is, pair with it, and keep a
 //! WebSocket open to it (state comes in, commands go out).
 
-use std::io::{self, Read, Write};
+use std::io::{self, Write};
 use std::net::{SocketAddr, TcpStream};
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::mpsc::{self, Sender};
@@ -13,6 +13,7 @@ use tungstenite::client::IntoClientRequest;
 use tungstenite::protocol::WebSocketConfig;
 use tungstenite::{Message, WebSocket};
 
+use super::resilient::Resilient;
 use super::protocol::{BASE, ClientMessage, Command, DeviceInfo, PING_EVERY, PROTOCOL, PairRequest, PairResponse, SILENCE_LIMIT, ServerMessage};
 
 const CONNECT_TIMEOUT: Duration = Duration::from_secs(3);
@@ -90,7 +91,7 @@ fn request(addr: SocketAddr, method: &str, route: &str, body: Option<&[u8]>) -> 
     let mut answer = Vec::new();
     let mut chunk = [0u8; 4096];
     loop {
-        let read = stream.read(&mut chunk).map_err(unreachable)?;
+        let read = super::resilient::read_retrying(&mut stream, &mut chunk).map_err(unreachable)?;
         if read == 0 {
             break;
         }
@@ -124,11 +125,11 @@ pub struct Session {
 impl Session {
     /// Connects and does the handshake: a wrong token fails here, not later.
     pub fn open(addr: SocketAddr, token: &str, on_event: impl FnMut(Event) + Send + 'static) -> Result<Session, ClientError> {
-        Self::open_with(addr, token, None, on_event)
+        Self::open_with(addr, token, None, None, on_event)
     }
 
     /// `own_port`: where this device's own server listens, so the other one can find this one back.
-    pub fn open_with(addr: SocketAddr, token: &str, own_port: Option<u16>, mut on_event: impl FnMut(Event) + Send + 'static) -> Result<Session, ClientError> {
+    pub fn open_with(addr: SocketAddr, token: &str, own_port: Option<u16>, own_name: Option<&str>, mut on_event: impl FnMut(Event) + Send + 'static) -> Result<Session, ClientError> {
         let unreachable = |e: io::Error| ClientError::Unreachable(e.to_string());
         let stream = TcpStream::connect_timeout(&addr, CONNECT_TIMEOUT).map_err(unreachable)?;
         stream.set_read_timeout(Some(IO_TIMEOUT)).map_err(unreachable)?;
@@ -140,14 +141,18 @@ impl Session {
         if let Some(port) = own_port.and_then(|p| p.to_string().parse().ok()) {
             request.headers_mut().insert("X-Soundify-Port", port);
         }
+        // Its name as it is NOW: a device paired under a default name (or renamed since) is shown by the one it has.
+        if let Some(name) = own_name.and_then(|n| super::protocol::encode_name(n).parse().ok()) {
+            request.headers_mut().insert("X-Soundify-Name", name);
+        }
         let config = WebSocketConfig::default().max_message_size(Some(MAX_MESSAGE)).max_frame_size(Some(MAX_MESSAGE));
-        let (mut socket, _) = tungstenite::client::client_with_config(request, stream, Some(config)).map_err(|e| match e {
+        let (mut socket, _) = tungstenite::client::client_with_config(request, Resilient::new(stream), Some(config)).map_err(|e| match e {
             tungstenite::HandshakeError::Failure(tungstenite::Error::Http(response)) => {
                 ClientError::Refused { status: response.status().as_u16(), error: "unauthorized".into(), seconds: None }
             }
             other => ClientError::Protocol(other.to_string()),
         })?;
-        socket.get_ref().set_read_timeout(Some(Duration::from_millis(100))).map_err(unreachable)?;
+        socket.get_ref().inner().set_read_timeout(Some(Duration::from_millis(100))).map_err(unreachable)?;
 
         let (outgoing, queue) = mpsc::channel::<String>();
         let stop = Arc::new(AtomicBool::new(false));
@@ -188,7 +193,7 @@ impl Drop for Session {
     }
 }
 
-fn run(socket: &mut WebSocket<TcpStream>, queue: &mpsc::Receiver<String>, stop: &AtomicBool, on_event: &mut impl FnMut(Event)) -> Option<String> {
+fn run(socket: &mut WebSocket<Resilient<TcpStream>>, queue: &mpsc::Receiver<String>, stop: &AtomicBool, on_event: &mut impl FnMut(Event)) -> Option<String> {
     let mut last_ping = Instant::now();
     let mut last_heard = Instant::now();
     while !stop.load(Ordering::SeqCst) {

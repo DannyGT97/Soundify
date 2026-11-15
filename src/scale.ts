@@ -65,6 +65,8 @@ export function stepFrom(percent: number, direction: 1 | -1): number {
 
 async function apply(percent: number): Promise<void> {
   const factor = percent / 100;
+  // For the CSS: with a big scale the phone's tab bar has no room for words (`phone.css`).
+  document.documentElement.dataset.scale = String(percent);
   // The Android webview ignores the native zoom, so there (as in a browser) it is a CSS zoom on #app.
   if (isTauri() && !onAndroid) {
     await getCurrentWebview().setZoom(factor);

@@ -149,6 +149,7 @@ select.input { cursor: pointer; }
 .group-label { font-size: 11px; font-weight: 700; letter-spacing: .06em; text-transform: uppercase; color: var(--sp-muted); padding: 12px 12px 4px; opacity: .8; white-space: nowrap; }
 .sidebar-bottom { display: flex; flex-direction: column; gap: 4px; flex: none; }
 .sidebar-separator { height: 1px; background: var(--sp-line); margin: 8px 6px; }
+.devices-button.gone { display: none !important; }
 .sidebar-version { display: flex; align-items: center; gap: 4px; padding: 2px 4px 0; color: var(--sp-muted); font-size: 11px; white-space: nowrap; }
 .tasks-pill { display: flex; align-items: center; gap: 10px; padding: 7px 8px; border-radius: 9px; background: var(--sp-task-bg); text-align: left; width: 100%; }
 .tasks-pill:hover { background: var(--sp-nav-hover); }

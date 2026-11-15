@@ -1,9 +1,9 @@
 // Packs a release build into the three files a GitHub release carries, which
 // are exactly what the app's updater asks for (see core/src/updater/mod.rs):
 //
-//   Soundify-<version>-tauri.zip         the portable: Soundify/Soundify.exe + tools/ffmpeg/
-//   Soundify-<version>-tauri.zip.sha256  its SHA-256, as `sha256sum` writes it
-//   Soundify-<version>-tauri.zip.sig     Ed25519 signature of the zip, in base64
+//   Soundify-<version>-windows.zip         the portable: Soundify/Soundify.exe + tools/ffmpeg/
+//   Soundify-<version>-windows.zip.sha256  its SHA-256, as `sha256sum` writes it
+//   Soundify-<version>-windows.zip.sig     Ed25519 signature of the zip, in base64
 //
 //   npm run tauri build -- --no-bundle
 //   node scripts/package-portable.mjs --key <private key .pem> [--out <folder>]
@@ -42,7 +42,7 @@ for (const name of ['ffmpeg.exe', 'ffprobe.exe', 'LICENSE']) {
   if (existsSync(join(ffmpeg, name))) copyFileSync(join(ffmpeg, name), join(tools, name));
 }
 
-const name = `Soundify-${version}-tauri.zip`;
+const name = `Soundify-${version}-windows.zip`;
 const zip = join(out, name);
 mkdirSync(out, { recursive: true });
 rmSync(zip, { force: true });

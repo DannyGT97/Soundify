@@ -96,7 +96,7 @@ test('the list says what each device is playing', async ({ page }) => {
   await page.goto('/?mockConnect#/home');
   await playSomething(page, '#/home');
   await page.evaluate(() => (window as unknown as { __connect: { salonPlays: (on: boolean) => void } }).__connect.salonPlays(true));
-  await page.locator('.sidebar .devices-button').click();
+  await page.locator('.sidebar .devices-button:visible').click();
   await expect(row(page, 'tv')).toContainText('Sonando: Canción del salón');
 });
 
@@ -358,4 +358,12 @@ test('Ajustes → Acerca de copies the diagnostics', async ({ page, context }) =
   await page.getByRole('button', { name: 'Copiar diagnóstico' }).click();
   await expect(page.locator('.toast', { hasText: 'Diagnóstico copiado' })).toBeVisible();
   expect(await page.evaluate(() => navigator.clipboard.readText())).toContain('Diagnóstico de Soundify');
+});
+
+test('the devices button is in the side menu with nothing playing, and moves into the mini player when something does', async ({ page }) => {
+  await page.goto('/?mockConnect#/home');
+  await expect(page.locator('.sidebar .side-devices-idle:visible')).toHaveCount(1);
+  await playSomething(page, '#/home');
+  await expect(page.locator('.sidebar .side-devices-idle:visible')).toHaveCount(0);
+  await expect(page.locator('.sidebar .mini-controls .devices-button:visible')).toHaveCount(1);
 });

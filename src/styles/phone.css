@@ -41,6 +41,8 @@
   }
   .sidebar .nav-label { display: none; }
   .nav-label-short { display: block; max-width: 100%; overflow: hidden; text-overflow: ellipsis; }
+  /* Big scale: «Descargar» and «Reproductor» would be cut to «Desc…» and «Repro…»: icons only (the tab keeps its title for screen readers). */
+  :root[data-scale="150"] .nav-label-short, :root[data-scale="175"] .nav-label-short { display: none; }
   .nav-button.selected, .nav-button.phone-selected { background: transparent; color: var(--sp-text-strong); }
   .nav-button.phone-selected .icon, .nav-button.selected .icon { color: var(--sp-accent); }
 
@@ -153,6 +155,17 @@
 :root[data-typing] .player-bar,
 :root[data-typing] .tasks-pill,
 :root[data-typing] .fp-foot { display: none !important; }
+
+/* === TOUCH === */
+/* No pinch zoom (the scale is Ajustes' business), no double-tap zoom, no grey/blue box where a finger lands, no text selection by long press on the interface,
+   and no focus ring on what was tapped (a ring is for the keyboard). The time bar and the sliders keep their own `touch-action: none`. */
+@media (pointer: coarse) {
+  html, body { touch-action: pan-x pan-y; }
+  * { -webkit-tap-highlight-color: transparent; -webkit-touch-callout: none; }
+  body { -webkit-user-select: none; user-select: none; }
+  input, textarea, [contenteditable], .cx-address b { -webkit-user-select: text; user-select: text; }
+  button:focus, [role="button"]:focus, input[type="range"]:focus, select:focus, a:focus { outline: none; }
+}
 
 /* A finger needs a bigger «x» than a pointer */
 :root[data-platform="android"] .input[type="search"]::-webkit-search-cancel-button { width: 24px; height: 24px; margin-left: 2px; }

@@ -8,6 +8,7 @@ import android.net.Uri
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
+import android.util.Log
 import androidx.media3.common.C
 import androidx.media3.common.MediaItem
 import androidx.media3.common.MediaMetadata
@@ -34,26 +35,57 @@ class NativePlayer(private val context: Context, private val emit: (JSObject) ->
   private var controller: MediaController? = null
   private var connecting = false
   private val waiting = ArrayList<(MediaController) -> Unit>()
-  private var durationSent = false
+  // The length of the file loaded, as last told to the page (UNSET until it is known), and how many more times to look for it.
+  private var sentDuration = C.TIME_UNSET
+  private var durationPolls = 0
+  private var loads = 0
 
   private val ticker = object : Runnable {
     override fun run() {
-      val c = controller
-      if (c != null && c.isPlaying) {
-        emit(event("time").put("seconds", c.currentPosition / 1000.0))
+      val c = controller ?: return
+      reportDuration(c)
+      if (c.isPlaying) emit(event("time").put("seconds", c.currentPosition / 1000.0))
+      // It goes on while it plays, and for a few seconds more while a file is loaded and its length is not known yet: the
+      // «ready» change can be missed (a small local file goes idle → buffering → ready faster than the controller reports), and
+      // then nothing else would ever tell the page the length, leaving the time bar at 0:00 and impossible to move.
+      val lookingForLength = c.mediaItemCount > 0 && sentDuration == C.TIME_UNSET && durationPolls++ < MAX_DURATION_POLLS
+      if (c.isPlaying || lookingForLength) {
         main.postDelayed(this, TICK_MS)
+      } else if (c.mediaItemCount > 0 && sentDuration == C.TIME_UNSET) {
+        Log.w(TAG, "load #$loads: the length of the file is still unknown after ${MAX_DURATION_POLLS * TICK_MS} ms")
       }
     }
+  }
+
+  private fun startTicker() {
+    main.removeCallbacks(ticker)
+    main.post(ticker)
+  }
+
+  /** Tells the page the length of the file once it is known (and again if it changes: a VBR mp3 refines it while it plays). */
+  private fun reportDuration(c: MediaController) {
+    val duration = c.duration
+    if (duration == C.TIME_UNSET || duration <= 0 || duration == sentDuration) return
+    sentDuration = duration
+    Log.d(TAG, "load #$loads: length ${duration / 1000.0} s")
+    emit(event("duration").put("seconds", duration / 1000.0))
   }
 
   private val listener = object : Player.Listener {
     override fun onPlaybackStateChanged(state: Int) {
       val c = controller ?: return
-      if (state == Player.STATE_READY && !durationSent && c.duration != C.TIME_UNSET) {
-        durationSent = true
-        emit(event("duration").put("seconds", c.duration / 1000.0))
-      }
+      reportDuration(c)
+      startTicker()
       if (state == Player.STATE_ENDED) emit(event("ended"))
+    }
+
+    // The length can arrive with the timeline, after «ready», or never produce a state change at all.
+    override fun onTimelineChanged(timeline: androidx.media3.common.Timeline, reason: Int) {
+      controller?.let { reportDuration(it) }
+    }
+
+    override fun onMediaItemTransition(mediaItem: MediaItem?, reason: Int) {
+      startTicker()
     }
 
     override fun onPlayWhenReadyChanged(playWhenReady: Boolean, reason: Int) {
@@ -61,8 +93,7 @@ class NativePlayer(private val context: Context, private val emit: (JSObject) ->
     }
 
     override fun onIsPlayingChanged(isPlaying: Boolean) {
-      main.removeCallbacks(ticker)
-      if (isPlaying) main.post(ticker)
+      startTicker()
     }
 
     override fun onPlayerError(error: PlaybackException) {
@@ -71,7 +102,10 @@ class NativePlayer(private val context: Context, private val emit: (JSObject) ->
   }
 
   fun load(path: String, title: String, subtitle: String, autoplay: Boolean, artwork: String) = withController { c ->
-    durationSent = false
+    loads++
+    sentDuration = C.TIME_UNSET
+    durationPolls = 0
+    Log.d(TAG, "load #$loads: ${File(path).name} autoplay=$autoplay")
     val meta = MediaMetadata.Builder().setTitle(title).setArtist(subtitle).setAlbumTitle(subtitle)
     // Without this the notification shows whatever picture the file happens to carry inside, and
     // the app's logo when it carries none: so it comes from the thumbnail the page already has.
@@ -79,6 +113,7 @@ class NativePlayer(private val context: Context, private val emit: (JSObject) ->
     c.setMediaItem(MediaItem.Builder().setUri(Uri.fromFile(File(path))).setMediaMetadata(meta.build()).build())
     c.playWhenReady = autoplay
     c.prepare()
+    startTicker()
   }
 
   /**
@@ -158,7 +193,10 @@ class NativePlayer(private val context: Context, private val emit: (JSObject) ->
   private fun event(kind: String): JSObject = JSObject().put("kind", kind)
 
   companion object {
+    private const val TAG = "SoundifyPlayer"
     private const val TICK_MS = 500L
+    /** 20 looks of half a second: ten seconds at most for a length that is not there (a stream of unknown size). */
+    private const val MAX_DURATION_POLLS = 20
     private const val COVER_SIZE = 512
   }
 }

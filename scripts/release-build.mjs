@@ -1,4 +1,4 @@
-// Compila la release (`tauri build --no-bundle`) sin que el .exe lleve rutas de este equipo.
+// Compila la release (`tauri build --bundles nsis`: el .exe suelto para el ZIP portable Y el instalador) sin que el .exe lleve rutas de este equipo.
 //
 // rustc deja en el binario las rutas de los fuentes que compila (el registro de cargo, la
 // biblioteca estándar y el propio repositorio), y esas rutas llevan el nombre de usuario de
@@ -7,7 +7,7 @@
 //
 //   node scripts/release-build.mjs
 //
-// Luego: `node scripts/package-portable.mjs --key "<ruta de la clave>"`.
+// Luego: `node scripts/package-portable.mjs --key "<ruta de la clave>"` y `node scripts/package-installer.mjs`.
 
 import { spawnSync } from 'node:child_process';
 import { homedir } from 'node:os';
@@ -27,7 +27,7 @@ const remaps = [
 ].map(([from, to]) => `--remap-path-prefix=${from}=${to}`);
 
 const rustflags = [process.env.RUSTFLAGS, ...remaps].filter(Boolean).join(' ');
-const run = spawnSync('npm', ['run', 'tauri', 'build', '--', '--no-bundle'], {
+const run = spawnSync('npm', ['run', 'tauri', 'build', '--', '--bundles', 'nsis'], {
   cwd: root,
   stdio: 'inherit',
   shell: true,

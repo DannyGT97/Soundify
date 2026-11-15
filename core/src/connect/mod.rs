@@ -8,6 +8,7 @@ pub mod http;
 pub mod manager;
 pub mod pairing;
 pub mod protocol;
+pub mod resilient;
 pub mod server;
 pub mod stats;
 

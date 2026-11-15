@@ -25,10 +25,14 @@
 //! is no possible update: with no hash and no signature there is no way of
 //! knowing that what arrives is what was published.
 //!
-//! **Why `-tauri` in the suffixes**: the Java portable is also a
+//! **Why a suffix at all** (`-windows.zip`, `-android.apk`): the Java portable is also a
 //! `Soundify-<version>.zip` holding a `Soundify.exe` that would be recognised
 //! as the app, so one attached by mistake would install the Java app over
 //! this one. Only the releases carrying this app's own three assets count.
+//!
+//! **Two ways of naming, both accepted.** Up to 1.2.1 the assets ended in `-tauri.zip` / `-tauri.apk` (the apps already installed look ONLY for those,
+//! so they cannot see a release named otherwise: that one has to be installed by hand once). From then on the stack is not in the name of anything
+//! published, and this code takes the new names first and the old ones after, so it goes on seeing the old releases.
 
 mod download;
 mod install;
@@ -55,13 +59,29 @@ pub const REPOSITORY: &str = "DannyGT97/Soundify";
 
 const RELEASES_URL: &str = "https://api.github.com/repos/DannyGT97/Soundify/releases";
 
-pub const ZIP_SUFFIX: &str = "-tauri.zip";
-pub const HASH_SUFFIX: &str = "-tauri.zip.sha256";
-pub const SIGNATURE_SUFFIX: &str = "-tauri.zip.sig";
+pub const ZIP_SUFFIX: &str = "-windows.zip";
+pub const HASH_SUFFIX: &str = "-windows.zip.sha256";
+pub const SIGNATURE_SUFFIX: &str = "-windows.zip.sig";
 
-pub const APK_SUFFIX: &str = "-tauri.apk";
-pub const APK_HASH_SUFFIX: &str = "-tauri.apk.sha256";
-pub const APK_SIGNATURE_SUFFIX: &str = "-tauri.apk.sig";
+pub const APK_SUFFIX: &str = "-android.apk";
+pub const APK_HASH_SUFFIX: &str = "-android.apk.sha256";
+pub const APK_SIGNATURE_SUFFIX: &str = "-android.apk.sig";
+
+/// The names of the releases up to 1.2.1 (see the top of this file).
+pub const LEGACY_ZIP_SUFFIX: &str = "-tauri.zip";
+pub const LEGACY_HASH_SUFFIX: &str = "-tauri.zip.sha256";
+pub const LEGACY_SIGNATURE_SUFFIX: &str = "-tauri.zip.sig";
+pub const LEGACY_APK_SUFFIX: &str = "-tauri.apk";
+pub const LEGACY_APK_HASH_SUFFIX: &str = "-tauri.apk.sha256";
+pub const LEGACY_APK_SIGNATURE_SUFFIX: &str = "-tauri.apk.sig";
+
+/// The three file-name endings of ONE way of naming a release's assets.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Names {
+    pub package: &'static str,
+    pub hash: &'static str,
+    pub signature: &'static str,
+}
 
 /// What a release ships for one platform: the portable ZIP on Windows, the
 /// APK on Android. Both come with the same two companions (hash and Ed25519
@@ -80,26 +100,28 @@ impl Package {
         if cfg!(target_os = "android") { Self::Apk } else { Self::Zip }
     }
 
-    /// The end of the package's file name (`Soundify-<version><suffix>`).
+    /// The ways a release may name this package's three files, the current one first.
+    pub const fn names(self) -> [Names; 2] {
+        match self {
+            Self::Zip => [
+                Names { package: ZIP_SUFFIX, hash: HASH_SUFFIX, signature: SIGNATURE_SUFFIX },
+                Names { package: LEGACY_ZIP_SUFFIX, hash: LEGACY_HASH_SUFFIX, signature: LEGACY_SIGNATURE_SUFFIX },
+            ],
+            Self::Apk => [
+                Names { package: APK_SUFFIX, hash: APK_HASH_SUFFIX, signature: APK_SIGNATURE_SUFFIX },
+                Names { package: LEGACY_APK_SUFFIX, hash: LEGACY_APK_HASH_SUFFIX, signature: LEGACY_APK_SIGNATURE_SUFFIX },
+            ],
+        }
+    }
+
+    /// The end of the package's file name in the current naming (`Soundify-<version><suffix>`).
     pub const fn suffix(self) -> &'static str {
-        match self {
-            Self::Zip => ZIP_SUFFIX,
-            Self::Apk => APK_SUFFIX,
-        }
+        self.names()[0].package
     }
 
-    pub const fn hash_suffix(self) -> &'static str {
-        match self {
-            Self::Zip => HASH_SUFFIX,
-            Self::Apk => APK_HASH_SUFFIX,
-        }
-    }
-
-    pub const fn signature_suffix(self) -> &'static str {
-        match self {
-            Self::Zip => SIGNATURE_SUFFIX,
-            Self::Apk => APK_SIGNATURE_SUFFIX,
-        }
+    /// The suffix a downloaded package URL actually ends in (either naming), for naming the file on disk.
+    pub fn suffix_of(self, url: &str) -> &'static str {
+        self.names().iter().map(|n| n.package).find(|suffix| ends_with(url, suffix)).unwrap_or_else(|| self.suffix())
     }
 }
 
@@ -224,12 +246,8 @@ pub fn find_newer(http: &dyn Http, current: &str, package: Package) -> Result<Op
     let Some(newest) = newest_installable(releases.iter().flatten(), package) else {
         // Warned about loudly: a release without its three pieces is a slip
         // when publishing, and from the outside it looks as if the app detects nothing.
-        warn!(
-            "No release on GitHub carries the three assets ({}, {}, {}).",
-            package.suffix(),
-            package.hash_suffix(),
-            package.signature_suffix()
-        );
+        let names = package.names()[0];
+        warn!("No release on GitHub carries the three assets ({}, {}, {}) or the old names.", names.package, names.hash, names.signature);
         return Ok(None);
     };
     if !version::is_newer_than(Some(&newest.version), Some(current)) {
@@ -267,14 +285,11 @@ pub fn to_update(release: &Release, package: Package) -> Option<Update> {
         return None;
     }
     let version = release.tag_name.as_deref().filter(|t| !t.trim().is_empty())?;
-    Some(Update {
-        version: version.to_string(),
-        notes: to_plain_text(release.body.as_deref()),
-        package,
-        package_url: asset_url(release, package.suffix())?,
-        hash_url: asset_url(release, package.hash_suffix())?,
-        signature_url: asset_url(release, package.signature_suffix())?,
-    })
+    // The current naming first, the old one after: the first that has all three.
+    let (package_url, hash_url, signature_url) = package.names().iter().find_map(|names| {
+        Some((asset_url(release, names.package)?, asset_url(release, names.hash)?, asset_url(release, names.signature)?))
+    })?;
+    Some(Update { version: version.to_string(), notes: to_plain_text(release.body.as_deref()), package, package_url, hash_url, signature_url })
 }
 
 /// The URL of the asset whose file ends in `suffix`.
@@ -566,5 +581,37 @@ mod tests {
     #[test]
     fn a_broken_answer_is_an_error_not_an_empty_list() {
         assert!(matches!(find_newer(&Releases("<html>".into()), "0.1.0", Package::Zip), Err(UpdateError::Io(_))));
+    }
+
+    #[test]
+    fn a_release_with_the_new_names_is_installable_and_the_old_names_still_are() {
+        let new = Release {
+            tag_name: Some("v1.3.0".into()),
+            assets: Some(vec![
+                Some(Asset { name: None, browser_download_url: Some("https://github.com/DannyGT97/Soundify/releases/download/v1.3.0/Soundify-1.3.0-windows.zip".into()) }),
+                Some(Asset { name: None, browser_download_url: Some("https://github.com/DannyGT97/Soundify/releases/download/v1.3.0/Soundify-1.3.0-windows.zip.sha256".into()) }),
+                Some(Asset { name: None, browser_download_url: Some("https://github.com/DannyGT97/Soundify/releases/download/v1.3.0/Soundify-1.3.0-windows.zip.sig".into()) }),
+            ]),
+            ..Release::default()
+        };
+        let update = to_update(&new, Package::Zip).expect("the new names count");
+        assert!(update.package_url.ends_with("-windows.zip") && update.hash_url.ends_with(".sha256") && update.signature_url.ends_with(".sig"));
+        // An APK needs its own three: the Windows ones are not it.
+        assert!(to_update(&new, Package::Apk).is_none());
+        assert_eq!(Package::Zip.suffix_of(&update.package_url), "-windows.zip");
+
+        let old = Release {
+            tag_name: Some("v1.2.1".into()),
+            assets: Some(vec![
+                Some(Asset { name: None, browser_download_url: Some("https://github.com/DannyGT97/Soundify/releases/download/v1.2.1/Soundify-1.2.1-tauri.apk".into()) }),
+                Some(Asset { name: None, browser_download_url: Some("https://github.com/DannyGT97/Soundify/releases/download/v1.2.1/Soundify-1.2.1-tauri.apk.sha256".into()) }),
+                Some(Asset { name: None, browser_download_url: Some("https://github.com/DannyGT97/Soundify/releases/download/v1.2.1/Soundify-1.2.1-tauri.apk.sig".into()) }),
+            ]),
+            ..Release::default()
+        };
+        let update = to_update(&old, Package::Apk).expect("the old names still count");
+        assert_eq!(Package::Apk.suffix_of(&update.package_url), "-tauri.apk");
+        // The newest of both namings wins, whichever it uses.
+        assert_eq!(newest_installable([&old, &new], Package::Zip).map(|u| u.version), Some("v1.3.0".into()));
     }
 }

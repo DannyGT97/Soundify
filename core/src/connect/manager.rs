@@ -532,7 +532,7 @@ impl Connect {
         };
         let generation = self.generation.fetch_add(1, Ordering::SeqCst) + 1;
         let (me, device) = (Arc::downgrade(self), id.to_string());
-        let opened = Session::open_with(addr, &token, self.port(), move |event| {
+        let opened = Session::open_with(addr, &token, self.port(), Some(&self.identity().name), move |event| {
             let Some(connect) = me.upgrade() else { return };
             match event {
                 Event::Message(ServerMessage::State { state }) => connect.got_state(&device, state),

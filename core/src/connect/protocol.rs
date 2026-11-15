@@ -11,6 +11,61 @@ pub const SERVICE_TYPE: &str = "_soundify-connect._tcp.local.";
 /// Where the HTTP routes live (`/info`, `/pair`, `/ws`).
 pub const BASE: &str = "/connect/v1";
 
+/// A device name as an HTTP header value (percent-encoded: a header carries visible ASCII only, a name may have accents or emoji).
+pub fn encode_name(name: &str) -> String {
+    let mut out = String::new();
+    for byte in name.bytes() {
+        if byte.is_ascii_alphanumeric() || matches!(byte, b'-' | b'_' | b'.' | b' ') {
+            out.push(byte as char);
+        } else {
+            out.push_str(&format!("%{byte:02X}"));
+        }
+    }
+    out
+}
+
+/// The name a header carried, or None if it is not a name worth keeping (empty, too long, or with control characters).
+pub fn decode_name(value: &str) -> Option<String> {
+    let bytes = value.as_bytes();
+    let mut raw = Vec::with_capacity(bytes.len());
+    let mut i = 0;
+    while i < bytes.len() {
+        if bytes[i] == b'%' {
+            let hex = value.get(i + 1..i + 3)?;
+            raw.push(u8::from_str_radix(hex, 16).ok()?);
+            i += 3;
+        } else {
+            raw.push(bytes[i]);
+            i += 1;
+        }
+    }
+    let name = String::from_utf8(raw).ok()?;
+    let name = name.trim();
+    (!name.is_empty() && name.chars().count() <= 40 && !name.chars().any(char::is_control)).then(|| name.to_string())
+}
+
+#[cfg(test)]
+mod name_tests {
+    use super::{decode_name, encode_name};
+
+    #[test]
+    fn a_name_goes_through_a_header_and_comes_back() {
+        for name in ["MSI-PC", "S24+ D", "Móvil de Dani 🎵", "H MP2 D"] {
+            let encoded = encode_name(name);
+            assert!(encoded.is_ascii() && !encoded.contains(['\r', '\n']), "{encoded}");
+            assert_eq!(decode_name(&encoded).as_deref(), Some(name));
+        }
+    }
+
+    #[test]
+    fn a_bad_name_is_not_kept() {
+        assert_eq!(decode_name(""), None);
+        assert_eq!(decode_name("%0A"), None);
+        assert_eq!(decode_name("%zz"), None);
+        assert_eq!(decode_name(&"a".repeat(41)), None);
+    }
+}
+
 /// Both ends of a WebSocket ping every so often and let go of it if nothing at all arrived for this long: a locked phone or a
 /// Wi-Fi that drops closes nothing, and without this the dead connection would only be noticed minutes later.
 pub const PING_EVERY: std::time::Duration = std::time::Duration::from_secs(15);

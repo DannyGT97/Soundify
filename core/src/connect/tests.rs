@@ -239,3 +239,22 @@ fn stopping_the_server_closes_the_controllers_sessions() {
     }
     assert!(closed, "the session was told it is over");
 }
+
+#[test]
+fn a_controller_that_says_its_new_name_is_stored_under_it() {
+    let rig = rig();
+    // Paired under a default name (what an old Android app called itself).
+    let token = paired(&rig);
+    let old = rig.pairing.trusted()[0].name.clone();
+    let (_session, events) = {
+        let (tx, rx) = mpsc::channel();
+        let session = Session::open_with(rig.addr, &token, None, Some("S24+ D 🎵"), move |event| {
+            let _ = tx.send(event);
+        })
+        .unwrap();
+        (session, rx)
+    };
+    wait_for(&events, |m| matches!(m, ServerMessage::Hello { .. }));
+    assert_ne!(old, "S24+ D 🎵");
+    assert_eq!(rig.pairing.trusted()[0].name, "S24+ D 🎵");
+}

@@ -3,7 +3,7 @@
 //! not justify an async runtime, and what comes in from the network is bounded
 //! here (size of the head, of the body, how long it may take).
 
-use std::io::{self, Read, Write};
+use std::io::{self, Write};
 use std::net::TcpStream;
 
 /// The head (request line and headers) may not be longer than this.
@@ -49,7 +49,7 @@ pub fn read_request(stream: &mut TcpStream) -> io::Result<Request> {
         if data.len() > MAX_HEAD {
             return Err(invalid("the head is too long"));
         }
-        let read = stream.read(&mut chunk)?;
+        let read = super::resilient::read_retrying(stream, &mut chunk)?;
         if read == 0 {
             return Err(io::Error::new(io::ErrorKind::UnexpectedEof, "closed before the request ended"));
         }
@@ -65,7 +65,7 @@ pub fn read_request(stream: &mut TcpStream) -> io::Result<Request> {
         return Err(invalid("the body is too long"));
     }
     while body.len() < length {
-        let read = stream.read(&mut chunk)?;
+        let read = super::resilient::read_retrying(stream, &mut chunk)?;
         if read == 0 {
             return Err(io::Error::new(io::ErrorKind::UnexpectedEof, "closed before the body ended"));
         }

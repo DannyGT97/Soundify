@@ -171,6 +171,18 @@ impl Pairing {
         self.state.lock().unwrap().trusted.clone()
     }
 
+    /// A controller that is already trusted says its name now (it was renamed, or it was paired under a default one): the stored name follows.
+    /// True if it changed.
+    pub fn rename(&self, controller_id: &str, name: &str) -> bool {
+        let mut state = self.state.lock().unwrap();
+        let Some(entry) = state.trusted.iter_mut().find(|t| t.controller_id == controller_id && t.name != name) else { return false };
+        entry.name = name.to_string();
+        if let Err(e) = self.save(&state.trusted) {
+            log::warn!("Could not save the new name of a controller: {e}");
+        }
+        true
+    }
+
     /// Takes a controller's access away.
     pub fn forget(&self, controller_id: &str) -> io::Result<()> {
         let mut state = self.state.lock().unwrap();

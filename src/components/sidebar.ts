@@ -54,10 +54,13 @@ export function buildSidebar(): HTMLElement {
       nav.append(button);
     }
   }
-  const footer = h('div', { class: 'sidebar-bottom' }, buildTasksPill(), buildMiniPlayer(),
+  // With nothing playing the mini player is not there, and the devices button with it: this one takes its place, so «Dispositivos» is always within reach.
+  const idleDevices = devicesButton('side-devices-idle');
+  const footer = h('div', { class: 'sidebar-bottom' }, buildTasksPill(), buildMiniPlayer(idleDevices),
     h('div', { class: 'sidebar-separator' }),
     navButton('settings', 'nav.settings', 'settings'),
     h('div', { class: 'sidebar-version' }, h('span', { class: 'sidebar-version-text grow', text: `${t('nav.version')} ${appVersion()}` }),
+      idleDevices,
       h('button', { class: 'theme-button', title: t('settings.interface.theme'), onclick: () => openOverlay(t('settings.interface.theme'), [themePicker()]) }, icon('palette', 17))));
   sidebar.append(h('div', { class: 'sidebar-header' }, wordmark, toggle), nav, h('div', { class: 'grow' }), footer);
   sidebar.classList.toggle('collapsed', ui.sidebarCollapsed);
@@ -103,7 +106,7 @@ function progressRing(pct: number | null): SVGSVGElement {
   for (const cls of ['ring-track', 'ring-arc']) { const circle = document.createElementNS(ns, 'circle'); circle.setAttribute('cx', '13'); circle.setAttribute('cy', '13'); circle.setAttribute('r', String(radius)); circle.setAttribute('class', cls); if (cls === 'ring-arc') { const shown = pct === null ? .25 : pct / 100; circle.setAttribute('stroke-dasharray', `${length * shown} ${length}`); } svg.append(circle); }
   if (pct === null) svg.classList.add('ring-spin'); return svg;
 }
-function buildMiniPlayer(): HTMLElement {
+function buildMiniPlayer(idleDevices: HTMLElement): HTMLElement {
   // Cover and title open Reproduciendo; the playlist's name, that playlist in the Reproductor.
   const art = h('div', { class: 'mini-cover', onclick: () => navigate('now-playing') });
   const title = h('b', { class: 'ellipsis player-link', onclick: () => navigate('now-playing') });
@@ -123,7 +126,9 @@ function buildMiniPlayer(): HTMLElement {
   let shownKey = '';
   let shownRepeat = '';
   const refresh = () => {
-    const np = ui.nowPlaying; mini.hidden = !np || !['side', 'both'].includes(ui.playerPlacement); if (!np) return;
+    const np = ui.nowPlaying; mini.hidden = !np || !['side', 'both'].includes(ui.playerPlacement);
+    idleDevices.classList.toggle('gone', !mini.hidden);
+    if (!np) return;
     const found = findBlock(np.blockKey); title.textContent = np.track.title; meta.textContent = found?.playlist.title ?? '';
     // Only when the track changes: this runs on every tick, and a new tile would fetch its picture again.
     const key = `${np.blockKey}/${np.track.id}`;

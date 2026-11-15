@@ -46,6 +46,13 @@
     ],
     "android": {
       "debugApplicationIdSuffix": ".debug"
+    },
+    "windows": {
+      "nsis": {
+        "installMode": "currentUser",
+        "languages": ["Spanish", "English"],
+        "displayLanguageSelector": false
+      }
     }
   }
 }

@@ -52,3 +52,7 @@ PLAN-CONNECT.md
 PLAN-DESCARGA-SIMULTANEA.md
 plan-seguridad.md
 TEST-MAP.md
+
+# Contexto y notas locales de Claude (no van al repositorio)
+context.md
+HISTORIAL.md

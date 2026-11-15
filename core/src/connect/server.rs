@@ -9,7 +9,6 @@
 use std::io;
 use std::net::{Ipv4Addr, SocketAddr, TcpListener, TcpStream};
 use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering};
-use std::sync::mpsc::{self, Receiver, SyncSender, TrySendError};
 use std::sync::{Arc, Mutex};
 use std::thread::{self, JoinHandle};
 use std::time::{Duration, Instant};
@@ -20,6 +19,7 @@ use tungstenite::{Message, WebSocket};
 
 use super::http::{self, Request};
 use super::pairing::{PairError, Pairing, Trusted};
+use super::resilient::Resilient;
 use super::stats::{self, short};
 use super::protocol::{BASE, ClientMessage, Command, DeviceInfo, PING_EVERY, PairRequest, PairResponse, PlayerState, QueueInfo, SILENCE_LIMIT, ServerMessage};
 
@@ -27,8 +27,6 @@ use super::protocol::{BASE, ClientMessage, Command, DeviceInfo, PING_EVERY, Pair
 pub const MAX_CONNECTIONS: usize = 16;
 /// The most one message may weigh: a queue of [`super::protocol::MAX_QUEUE`] files.
 const MAX_MESSAGE: usize = 2 * 1024 * 1024;
-/// What waits to go out to one controller before it is dropped as too slow.
-const OUTBOX: usize = 64;
 
 /// What the app plays with: the server only knows how to ask.
 pub trait Host: Send + Sync {
@@ -45,11 +43,39 @@ pub trait Host: Send + Sync {
     fn controller_seen(&self, _who: &Trusted, _ip: std::net::IpAddr, _port: u16) {}
 }
 
-/// One controller's queue: its number, the name it gave and where it queues what is to be sent.
+/// What is waiting to go out to ONE controller: only the LAST state and the LAST playlist. A controller that reads slowly (or a device that
+/// publishes a hundred states a second) gets the latest, not a queue to overflow: an old state is of no use once there is a newer one, and a
+/// controller was once dropped over and over because a flood filled a queue of 64.
+#[derive(Default)]
+struct Mailbox {
+    pending: Mutex<Pending>,
+}
+
+#[derive(Default)]
+struct Pending {
+    state: Option<PlayerState>,
+    queue: Option<Option<QueueInfo>>,
+}
+
+impl Mailbox {
+    fn put_state(&self, state: &PlayerState) {
+        self.pending.lock().unwrap().state = Some(state.clone());
+    }
+
+    fn put_queue(&self, queue: &Option<QueueInfo>) {
+        self.pending.lock().unwrap().queue = Some(queue.clone());
+    }
+
+    /// What is waiting, and the mailbox is empty again.
+    fn take(&self) -> Pending {
+        std::mem::take(&mut *self.pending.lock().unwrap())
+    }
+}
+
+/// One controller's mailbox, with the number it is taken out by when it leaves.
 struct Outbox {
     number: u64,
-    name: String,
-    sender: SyncSender<ServerMessage>,
+    mailbox: Arc<Mailbox>,
 }
 
 struct Shared {
@@ -96,14 +122,18 @@ impl Server {
 
     /// Tells every controller what the player is doing now.
     pub fn publish(&self, state: &PlayerState) {
-        let mut outboxes = self.shared.outboxes.lock().unwrap();
-        outboxes.retain(|outbox| keep(outbox, ServerMessage::State { state: state.clone() }, &stats::states_sent));
+        for outbox in self.shared.outboxes.lock().unwrap().iter() {
+            outbox.mailbox.put_state(state);
+            stats::states_sent(1);
+        }
     }
 
     /// Tells every controller which playlist is playing now.
     pub fn publish_queue(&self, queue: &Option<QueueInfo>) {
-        let mut outboxes = self.shared.outboxes.lock().unwrap();
-        outboxes.retain(|outbox| keep(outbox, ServerMessage::Queue { queue: queue.clone() }, &stats::queues_sent));
+        for outbox in self.shared.outboxes.lock().unwrap().iter() {
+            outbox.mailbox.put_queue(queue);
+            stats::queues_sent(1);
+        }
     }
 
     /// Controllers connected right now.
@@ -195,7 +225,7 @@ fn pair(shared: &Shared, stream: &mut TcpStream, request: &Request) -> io::Resul
 }
 
 fn websocket(shared: &Arc<Shared>, mut stream: TcpStream, request: &Request) -> io::Result<()> {
-    let who = match request.bearer().and_then(|token| shared.pairing.authenticate(token)) {
+    let mut who = match request.bearer().and_then(|token| shared.pairing.authenticate(token)) {
         Some(who) => who,
         None => return http::respond_json(&mut stream, 401, &serde_json::json!({ "error": "unauthorized" })),
     };
@@ -203,22 +233,29 @@ fn websocket(shared: &Arc<Shared>, mut stream: TcpStream, request: &Request) -> 
         return http::respond_json(&mut stream, 400, &serde_json::json!({ "error": "badRequest" }));
     };
     http::respond_switching(&mut stream, key)?;
+    // The name the controller has now, if it says one: the stored one (the one it was paired under) follows it.
+    if let Some(name) = request.header("x-soundify-name").and_then(super::protocol::decode_name)
+        && shared.pairing.rename(&who.controller_id, &name)
+    {
+        info!("Soundify Connect: {} #{} is now called {name}", who.name, short(&who.controller_id));
+        who.name = name;
+    }
     stream.set_read_timeout(Some(Duration::from_millis(100)))?;
     if let (Some(port), Ok(peer)) = (request.header("x-soundify-port").and_then(|p| p.trim().parse::<u16>().ok()), stream.peer_addr()) {
         shared.host.controller_seen(&who, peer.ip(), port);
     }
 
-    let (outbox, inbox) = mpsc::sync_channel(OUTBOX);
+    let mailbox = Arc::new(Mailbox::default());
     let number = shared.next_outbox.fetch_add(1, Ordering::SeqCst);
     let now = {
         let mut outboxes = shared.outboxes.lock().unwrap();
-        outboxes.push(Outbox { number, name: who.name.clone(), sender: outbox });
+        outboxes.push(Outbox { number, mailbox: mailbox.clone() });
         outboxes.len()
     };
     let (from, started) = (stream.peer_addr().map(|a| a.ip().to_string()).unwrap_or_else(|_| "?".into()), Instant::now());
     stats::accepted(1);
     info!("Soundify Connect: IN  {} #{} controls this device (from {from}, session {number}, {now} controllers now)", who.name, short(&who.controller_id));
-    let result = session(shared, stream, &who, &inbox);
+    let result = session(shared, stream, &who, &mailbox);
     shared.outboxes.lock().unwrap().retain(|o| o.number != number);
     stats::closed(1);
     let lasted = format!("after {:.1}s", started.elapsed().as_secs_f32());
@@ -230,9 +267,9 @@ fn websocket(shared: &Arc<Shared>, mut stream: TcpStream, request: &Request) -> 
 }
 
 /// Serves one controller until it ends; `Ok` says why.
-fn session(shared: &Shared, stream: TcpStream, who: &Trusted, inbox: &Receiver<ServerMessage>) -> io::Result<&'static str> {
+fn session(shared: &Shared, stream: TcpStream, who: &Trusted, mailbox: &Mailbox) -> io::Result<&'static str> {
     let config = WebSocketConfig::default().max_message_size(Some(MAX_MESSAGE)).max_frame_size(Some(MAX_MESSAGE));
-    let mut socket = WebSocket::from_raw_socket(stream, Role::Server, Some(config));
+    let mut socket = WebSocket::from_raw_socket(Resilient::new(stream), Role::Server, Some(config));
     send(&mut socket, &ServerMessage::Hello { device: shared.host.info() })?;
     send(&mut socket, &ServerMessage::State { state: shared.host.state() })?;
     if let Some(queue) = shared.host.queue() {
@@ -241,13 +278,13 @@ fn session(shared: &Shared, stream: TcpStream, who: &Trusted, inbox: &Receiver<S
     let mut last_ping = Instant::now();
     let mut last_heard = Instant::now();
     while !shared.stop.load(Ordering::SeqCst) {
-        loop {
-            match inbox.try_recv() {
-                Ok(message) => send(&mut socket, &message)?,
-                Err(mpsc::TryRecvError::Empty) => break,
-                // The server dropped this controller (too slow, or a new state could not be queued).
-                Err(mpsc::TryRecvError::Disconnected) => return Ok("dropped by this device: it did not keep up"),
-            }
+        // The latest state and playlist that were published since the last look (each one replaces the one before).
+        let pending = mailbox.take();
+        if let Some(state) = pending.state {
+            send(&mut socket, &ServerMessage::State { state })?;
+        }
+        if let Some(queue) = pending.queue {
+            send(&mut socket, &ServerMessage::Queue { queue })?;
         }
         if last_heard.elapsed() >= SILENCE_LIMIT {
             return Ok("it stopped answering");
@@ -289,28 +326,32 @@ fn answer(shared: &Shared, who: &Trusted, text: &str) -> ServerMessage {
     }
 }
 
-/// Puts a message in a controller's queue. A controller that does not keep up (its queue is full) is dropped: it reconnects and
-/// gets the state again, and the log says which one and why (a full queue is NOT the same as one that already left).
-fn keep(outbox: &Outbox, message: ServerMessage, sent: &dyn Fn(u64)) -> bool {
-    match outbox.sender.try_send(message) {
-        Ok(()) => {
-            sent(1);
-            true
-        }
-        Err(TrySendError::Full(_)) => {
-            stats::dropped_full(1);
-            warn!("Soundify Connect: dropping {} (session {}): its queue is full ({OUTBOX} waiting), it is not keeping up", outbox.name, outbox.number);
-            false
-        }
-        Err(TrySendError::Disconnected(_)) => {
-            stats::dropped_gone(1);
-            false
-        }
-    }
-}
-
-fn send(socket: &mut WebSocket<TcpStream>, message: &ServerMessage) -> io::Result<()> {
+fn send(socket: &mut WebSocket<Resilient<TcpStream>>, message: &ServerMessage) -> io::Result<()> {
     stats::msgs_out(1);
     let text = serde_json::to_string(message).map_err(io::Error::other)?;
     socket.send(Message::text(text)).map_err(io::Error::other)
+}
+
+#[cfg(test)]
+mod mailbox_tests {
+    use super::*;
+
+    fn state(position: f64) -> PlayerState {
+        PlayerState { position, ..PlayerState::default() }
+    }
+
+    #[test]
+    fn only_the_latest_state_and_playlist_wait_for_a_slow_controller() {
+        let mailbox = Mailbox::default();
+        for position in 0..1000 {
+            mailbox.put_state(&state(position as f64));
+        }
+        mailbox.put_queue(&None);
+        let pending = mailbox.take();
+        assert_eq!(pending.state.map(|s| s.position), Some(999.0));
+        assert!(matches!(pending.queue, Some(None)));
+        // Taken: nothing is sent twice.
+        let again = mailbox.take();
+        assert!(again.state.is_none() && again.queue.is_none());
+    }
 }

@@ -382,9 +382,49 @@ class SoundifyPlugin(private val activity: Activity) : Plugin(activity) {
   private var multicast: android.net.wifi.WifiManager.MulticastLock? = null
   private var wifiLock: android.net.wifi.WifiManager.WifiLock? = null
 
+  // The two locks keep the Wi-Fi radio awake, which is what costs battery: they are held only while they are of use, that is
+  // with Connect on AND (the app in front OR music sounding). In the background with nothing playing the connections already open
+  // stay open (they are plain TCP) and the other device is found by them; only finding NEW devices by name waits for the app to come back.
+  private var connectOn = false
+  private var inFront = true
+  private var playingNow = false
+
+  private fun applyLocks() {
+    try {
+      val wifi = activity.applicationContext.getSystemService(Context.WIFI_SERVICE) as android.net.wifi.WifiManager
+      if (connectOn && (inFront || playingNow)) {
+        if (multicast == null) multicast = wifi.createMulticastLock("soundify-connect").apply { setReferenceCounted(false) }
+        multicast?.takeIf { !it.isHeld }?.acquire()
+        // Without this the Wi-Fi radio sleeps when the screen is off and the connection to the other device flickers.
+        if (wifiLock == null) {
+          val mode = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) android.net.wifi.WifiManager.WIFI_MODE_FULL_LOW_LATENCY else android.net.wifi.WifiManager.WIFI_MODE_FULL_HIGH_PERF
+          wifiLock = wifi.createWifiLock(mode, "soundify-connect").apply { setReferenceCounted(false) }
+        }
+        wifiLock?.takeIf { !it.isHeld }?.acquire()
+      } else {
+        multicast?.takeIf { it.isHeld }?.release()
+        wifiLock?.takeIf { it.isHeld }?.release()
+      }
+    } catch (e: Exception) {
+      // Without the lock the devices are found by address instead of by name; nothing else is lost.
+    }
+  }
+
+  init {
+    activity.application.registerActivityLifecycleCallbacks(object : android.app.Application.ActivityLifecycleCallbacks {
+      override fun onActivityStarted(a: Activity) { inFront = true; applyLocks() }
+      override fun onActivityStopped(a: Activity) { inFront = false; applyLocks() }
+      override fun onActivityCreated(a: Activity, savedInstanceState: android.os.Bundle?) {}
+      override fun onActivityResumed(a: Activity) {}
+      override fun onActivityPaused(a: Activity) {}
+      override fun onActivitySaveInstanceState(a: Activity, outState: android.os.Bundle) {}
+      override fun onActivityDestroyed(a: Activity) {}
+    })
+  }
+
   /**
    * Android drops the multicast packets mDNS lives on (to save battery) unless the app holds this lock.
-   * Held only while Soundify Connect is on (together with a Wi-Fi lock, so the radio does not sleep with the screen off).
+   * See `applyLocks` for when it is held.
    */
   @Command
   fun multicastLock(invoke: Invoke) {
@@ -405,23 +445,8 @@ class SoundifyPlugin(private val activity: Activity) : Plugin(activity) {
       } else {
         activity.applicationContext.stopService(service)
       }
-      if (on) {
-        if (multicast == null) {
-          val wifi = activity.applicationContext.getSystemService(Context.WIFI_SERVICE) as android.net.wifi.WifiManager
-          multicast = wifi.createMulticastLock("soundify-connect").apply { setReferenceCounted(false) }
-        }
-        multicast?.acquire()
-        // Without this the Wi-Fi radio sleeps when the screen is off and the connection to the other device flickers.
-        if (wifiLock == null) {
-          val wifi = activity.applicationContext.getSystemService(Context.WIFI_SERVICE) as android.net.wifi.WifiManager
-          val mode = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) android.net.wifi.WifiManager.WIFI_MODE_FULL_LOW_LATENCY else android.net.wifi.WifiManager.WIFI_MODE_FULL_HIGH_PERF
-          wifiLock = wifi.createWifiLock(mode, "soundify-connect").apply { setReferenceCounted(false) }
-        }
-        wifiLock?.acquire()
-      } else {
-        multicast?.takeIf { it.isHeld }?.release()
-        wifiLock?.takeIf { it.isHeld }?.release()
-      }
+      connectOn = on
+      applyLocks()
     } catch (e: Exception) {
       // Without the lock the devices are found by address instead of by name; nothing else is lost.
     }
@@ -464,7 +489,14 @@ class SoundifyPlugin(private val activity: Activity) : Plugin(activity) {
 
   // === PLAYER ===
 
-  private val player = NativePlayer(activity.applicationContext) { event -> trigger("player", event) }
+  private val player = NativePlayer(activity.applicationContext) { event ->
+    // Sound in the background keeps the locks (the device may be controlled from another one while the screen is off).
+    if (event.optString("kind") == "playing") {
+      playingNow = event.optBoolean("playing", false)
+      applyLocks()
+    }
+    trigger("player", event)
+  }
 
   private val volume = DeviceVolume(activity.applicationContext) { event -> trigger("player", event) }
 

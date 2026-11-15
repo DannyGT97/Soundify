@@ -33,7 +33,7 @@ Repositorio: https://github.com/DannyGT97/Soundify (GitHub, rama `main`, GPL-3.0
   **Perder el keystore = ninguna copia instalada podrá volver a actualizarse** (hay que desinstalar e instalar de cero): tener copia de seguridad.
   Publicar el APK: con `ANDROID_HOME` y `NDK_HOME`, `node scripts/android-release-build.mjs --keystore-props "<ruta>"` (borra los APK
   anteriores, compila release con R8 para aarch64 y x86_64 y comprueba con `apksigner` que está firmado y NO con la clave de depuración) →
-  `node scripts/package-apk.mjs --key "<ruta clave de actualización>"` → los tres `-tauri.apk*` de `release/` se suben a la MISMA release que el ZIP (seis archivos).
+  `node scripts/package-apk.mjs --key "<ruta clave de actualización>"` → los tres `-android.apk*` de `release/` se suben a la MISMA release que el ZIP (seis archivos).
   El release usa R8: **comprobar en el aparato que arranca, descarga y suena** antes de publicar (reflexión de Tauri, youtubedl-android y Media3).
   Ya rompió una vez (11/11/2026): youtubedl-android desempaqueta Python con `commons-compress`, que crea clases por nombre, y R8 las quitaba
   (`ExceptionInInitializerError … AsiExtraField is not a concrete class`): las herramientas se quedaban en «Preparando…» para siempre y
@@ -48,8 +48,9 @@ Repositorio: https://github.com/DannyGT97/Soundify (GitHub, rama `main`, GPL-3.0
   `tauri build --no-bundle` con `--remap-path-prefix` para que el .exe NO lleve la carpeta del usuario de Windows: rustc
   incrusta las rutas de `.cargo`/`.rustup`; comprobar con `grep -a` que no sale el nombre de usuario) →
   `node scripts/package-portable.mjs --key "<ruta>"` (se niega si la clave no es la que acepta la app) →
+  **NORMA (pedida el 15/11/2026): cada release lleva TAMBIÉN el instalador `.exe` de Windows** (además del ZIP portable y del APK; PENDIENTE de montar, ver «Pendiente») y **NUNCA la palabra «Tauri»** en nombres, título ni notas (assets `-windows.zip`, `-android.apk`, `-setup.exe`).
   `gh release create vX.Y.Z -R DannyGT97/Soundify --target <hash COMPLETO> --title "Soundify X.Y.Z" --notes "..."` con solo
-  los tres archivos de `release/` (`-tauri.zip`, `.sha256`, `.sig`) —más los tres `-tauri.apk*` si la release lleva Android (ver arriba)— y notas
+  los tres archivos de `release/` (`-windows.zip`, `.sha256`, `.sig`) —más los tres `-android.apk*` si la release lleva Android (ver arriba)— y notas
   `## Novedades` en español. Comprobar después lo subido
 
 ## Estructura (raíz)
@@ -343,247 +344,29 @@ Repositorio: https://github.com/DannyGT97/Soundify (GitHub, rama `main`, GPL-3.0
 - `appInfo.ts` — la versión real de la app (`loadAppInfo()` al arrancar, `appVersion()`), «desconocida»
   si no es válida.
 
+## Norma de trabajo (leer primero)
+- **Al empezar: leer `context.md`** (resumen del proyecto, comandos, trampas y estado; local, ignorado por git) y NO releer este archivo entero ni explorar a ciegas: buscar con `grep` la
+  sección que haga falta (`grep -n "palabra" CLAUDE.md HISTORIAL.md`). El detalle histórico de decisiones y fallos está en `HISTORIAL.md` (local, ignorado).
+- **Al terminar algo: actualizar SIEMPRE `context.md`** (estado, trampas nuevas) **y `CLAUDE.md` si cambia la estructura, un comando, una regla o lo pendiente.** Lo que solo es historia de un arreglo va a `HISTORIAL.md`, no aquí.
+- Mantener `CLAUDE.md` corto: es lo que se carga en cada sesión. Una nota nueva de más de 3–4 líneas va a `HISTORIAL.md` con un puntero de una línea.
+
 ## Pendiente
-- **Logs para cazar fallos (15/11/2026, hechos (1)–(5) a petición del usuario; tests en verde, SIN ver en un aparato real).** `core/src/connect/stats.rs` = contadores
-  globales (aceptadas, abiertas, cerradas, reconexiones, controladores soltados por cola llena o ya idos, estados/colas/mensajes) que `Connect::report_stats` escribe CADA 30 s en
-  UNA línea `stats (30s): …` (con `WARNING … <- more than usual` si hay >20 conexiones, ≥3 soltados por cola llena o >600 estados). Las líneas de Connect llevan ahora sentido y quién:
-  `IN  <nombre> #<id corto> controls this device (from <ip>, session N, K controllers now)` / `… left (motivo) session N after Xs`, `OUT <nombre> #<id> connected (generation G, N links now)` /
-  `… ended after Xs (motivo)`; al soltar a un controlador: `dropping <nombre> (session N): its queue is full (64 waiting)`. El **front** escribe al mismo archivo (`api.log` → comando
-  `log_event`, línea `app_lib::front`, `[área] texto`): `src/diag.ts` (`logEvent` con tope de 20 líneas/s y repetidos plegados, `count` con resumen cada 30 s y aviso si `publish`>120,
-  `loadConnect`>200…, y captura de `error`, `unhandledrejection` y `console.warn/error`); `connect.ts` deja rastro de controlar, soltar, «suena aquí», conexión perdida y órdenes (volumen y
-  seek solo se cuentan). **Ajustes → Acerca de → «Copiar diagnóstico»** (`diagnostics.rs`: versión, plataforma, estado de Connect y los últimos 48 KB de `soundify-0.log`, con la carpeta
-  `data/` y el home cambiados por `<data>` y `~`; también en Android). En el navegador (mock) lo logado queda en `window.__logged`. **Faltan** (6) el mismo formato `área | evento | clave=valor`
-  para reproductor, descargas y herramientas, y contadores equivalentes fuera de Connect.
-- **Connect, alcance simplificado (13/11/2026; tests en verde, SIN probar entre PC y móvil reales).** Se quitó lo de bajarse lo que no se tiene (streaming, copiar
-  por red, «Pasar mi música»); queda **controlar bien** (detalle en `PLAN-CONNECT.md`, que no va a git, junto con el estudio de viabilidad de «copiar una playlist
-  de otro dispositivo» para más adelante): (1) **playlist remota**: el que suena publica su playlist (`ServerMessage::Queue`, `Connect::publish_queue`/`queue_of`,
-  comandos `connect_publish_queue`/`connect_queue_of`, evento `connect-remote-queue`) y el que controla la lista en `views/remotePlaylist.ts` (ruta `remote-playlist`,
-  «Playlist remota · En «X»»; tocar una canción = `Command::PlayTrack{videoId}` → `player.playTrackById`); la flecha de Reproduciendo va allí mientras se controla.
-  `Command::Load` ya no existe. (2) **Volumen/aleatorio/repetir remotos** ya viajaban; en el móvil Reproduciendo ocultaba el volumen: ahora sale con `.np-controls.remote`.
-  (3) **Parpadeo «sin conexión»**: `Connect::saw` ignora la baja del descubrimiento mientras hay conexión viva (`swallowed`), baliza a 30 s, ping 15 s y corte tras 45 s
-  de silencio en cliente y servidor (`protocol::PING_EVERY/SILENCE_LIMIT`), reconexión 1-2-4-8-16-30-30-30 s y `WifiLock` en Android. (4) **Notificación multimedia
-  del que controla** (Android): segunda sesión Media3 (`RemoteControlPlayer`, `PlaybackService.applyRemote`, comando `remoteSession`) con el título y «En «PC»»; sus botones
-  los contesta Rust (`connect::notification_action`), no la página. Kotlin solo compilado.
-  **Hecho el 14/11/2026 a petición del usuario (tests en verde; SIN probar en el móvil):** (a) el dispositivo CONTROLADO enseña un aviso «<nombre> <lo que hace>»
-  (`connectLogic.describeCommand`, `connect.ts` `sayWhoDid`, claves `connect.said.*`, sin repetir el mismo en 3 s); (b) nombre real del móvil en lugar de «Teléfono Android»
-  (`SoundifyPlugin.deviceName` → `mobile::device_name` → `connect::use_phone_name`, solo si el nombre es el de fábrica; `Connect::set_name` actualiza la identidad) y
-  `PairRequest.kind`/`Trusted.kind` para que «Pueden controlar este dispositivo» dibuje el icono según móvil/tableta/PC; (c) **un solo sitio de gestión**: el icono de
-  dispositivo de la barra y el chip de Reproduciendo abren `overlays/devicesSwitcher.ts` (solo la lista para cambiar entre «Este dispositivo» y los demás, con
-  «¿No ves tu dispositivo? Gestionar dispositivos» → Ajustes + `overlays/devices.ts`, el gestor completo); (d) el Reproductor enseña, mientras se controla otro, la playlist
-  remota (`.pl-card` con el nombre del dispositivo) junto a las locales y la pestaña «Reproductor» ya no salta a Reproduciendo; las filas de la playlist remota cargan miniatura;
-  (e) **gesto/botón atrás de Android cierra las ventanas** (`components/overlay.ts`: una entrada de historial por ventana; `closeOverlayThen`). Connect se activa de serie en
-  instalaciones nuevas (los `connect.json` que ya decían `enabled:false` siguen apagados).
-  **Parpadeo al bloquear el móvil (14/11/2026):** era real (en el log del PC, «Connection reset without closing handshake» en ambos sentidos a la vez). Tras los
-  cambios de robustez (baja del descubrimiento ignorada con conexión viva, baliza a 30 s, ping/silencio, reconexión paciente, `WifiLock`) el usuario lo probó con el
-  S24 bloqueado ~1,5 min y ya no ocurre (el log del PC no muestra cortes). No se sabe cuál de los cambios lo arregló. «Repetir atascado» y el volumen en remoto
-  quedan por confirmar en el móvil. **Arreglado el 14/11/2026 (tests en verde, Kotlin sin compilar, SIN probar en el móvil):** (1) repetir: `Command::Repeat/Shuffle`
-  escribían `mode: null`/`on: null` y el PC lo leía como «modo desconocido» (`actionsFor` solo trata `undefined` como «el siguiente»): desde «off» saltaba a «one» y desde
-  «one» no hacía nada; ahora esos campos se omiten (`skip_serializing_if`, test en `protocol.rs`). (2) miniatura de la playlist remota: la tarjeta y la cabecera usaban
-  una portada sin imagen; ahora `covers.queuePicture` = miniatura del primer archivo. (3) volumen: causa NO demostrada; se corrigió una carrera real (cada orden de volumen
-  se contesta con un estado ya viejo que devolvía el deslizador y `RemoteControlPlayer.info` atrás: `volumeToShow`, `VOLUME_ECHO_MS`). Si sigue sin subir, mirar si el PC ya está al 100 %.
-  **Mismo día, 2.ª tanda (tests en verde, SIN probar en el móvil):** (4) un dispositivo que controlaba a otro ignoraba las órdenes que le llegaban (`onCommand` salía si
-  `ui.remote`) y no publicaba su estado: el PC no podía controlar al móvil si el móvil controlaba al PC. Ahora manda el último que pide: `onCommand` deja de controlar
-  (`connectDeselect` + `leave`) y hace la orden; al empezar a controlar se publica el estado local en pausa (`publishPaused`). (5) «MSI-PC» dos veces: el PC había cambiado
-  de id (su `data/` junto al exe se rehízo) y quedaba la identidad vieja; `Connect::forget_stale_twins` (al conectar) y `Pairing::pair` quitan la vieja del MISMO nombre,
-  solo `kind == desktop` (dos móviles pueden llamarse igual). Los duplicados que sigan existiendo se van al reconectar el PC.
-  **3.ª tanda (14/11/2026, tests y e2e en verde, SIN probar en el móvil):** (6) el dispositivo controlado ya NO avisa de cada orden (pausar, volumen…): solo «X controla ahora
-  este dispositivo» (`describeCommand` solo conoce `take`; claves `connect.said.take`). (7) cambiar de dispositivo se refleja al instante en los dos: `Command::Take` (sin
-  argumentos, protocolo igual) lo manda `Connect::select` al elegirlo; el elegido, si controlaba a otro, lo suelta, publica su estado y cola reales y avisa (`onCommand` en
-  `connect.ts`). Un dispositivo con versión vieja contesta «unknown» al `take` y no pasa nada. (8) Reproduciendo lleva de título (`.np-head-title`) la playlist, y
-  «Playlist remota» encima si es del otro dispositivo; el subtítulo ya solo lleva el formato.
-  **4.ª tanda (14/11/2026, tests y e2e en verde, SIN probar en el móvil):** (9) reproducir algo LOCAL mientras se controla otro (fila, tarjeta o
-  «Reproducir todo») suelta el control (`connect_deselect`, la conexión sigue) y suena aquí, con el aviso `connect.playingHere` y «Volver a controlarlo»
-  (`player.enterRemote(route, release)` → `takeBackLocal` en `play`/`playAll`; antes se ignoraba). El corte «Se perdió la conexión» que vio el usuario al hacerlo
-  NO tiene causa demostrada (deselect no cierra la sesión): si se repite, mirar el log del PC. (10) La playlist remota ordena por # y título (`trackOrder`,
-  clave `remote:<id>:<playlist>`, solo cambia cómo se lista aquí: el otro toca en su orden) y lleva reproducir/pausa, aleatorio y buscar. (11) En móvil el
-  detalle de playlist (local y remota) y Reproduciendo ocupan todo el ancho y alto (`phone.css`, sin borde ni radio).
-  **15/11/2026, «Ver archivos» y la playlist del Reproductor son UNA pantalla (tests y e2e en verde, mirado en el navegador, SIN ver en la app real ni en el móvil):**
-  desaparece la ventana `overlays/files.ts`; el botón del Gestor es «Abrir en el Reproductor» (icono `player`, clave `manager.openInPlayer`) y navega a
-  `#/player?b=<bloque>&from=manager` (la flecha atrás vuelve al Gestor, con `open`+`focus`; `&f=pending|off|ok` la abre filtrada). `detailView` (`views/player.ts`)
-  lista TODOS los archivos del bloque (no solo los de disco): chips de estado (`state-chips`, ocultos si todo está en disco), lo que falta sale atenuado con su marca y
-  su motivo (`stateCell`; en móvil solo la marca) y sin sonar; con el orden por # y sin filtro, lo descargado va primero (`groupByStatus`). **Sincronizar va en la cabecera
-  junto a play (variante B del prototipo `design/playlist-unified-prototype.html`)** con el número que falta; corriendo muestra chip + «Detener» y una barra debajo
-  (`sync-live`), en cola «Quitar de la cola»; cada archivo que llega parpadea (`landed`). Sin nada que sincronizar el botón no está.
-  **15/11/2026, tormenta de reconexiones con TRES dispositivos (tests en verde, SIN comprobar con los tres aparatos):** el log del PC (`soundify-0.log`) enseñaba ~50 «X controla
-  este dispositivo» / «X left (dropped by this device: it did not keep up)» / «Connection reset» por minuto entre PC, S24+ y la tablet. Causa probable (NO vista en los móviles, solo
-  encaja con el log): `loadConnect` (`connect.ts`) acababa con `publishIfWorth(true)` y se llama con CADA estado que llega de otro dispositivo (`got_state` → `devices_changed`), así que cada
-  dispositivo contestaba a cada estado con el suyo, y con tres se multiplicaba hasta llenar la cola de un controlador (`OUTBOX` 64, `server.rs`) y el servidor lo soltaba, y vuelta a empezar.
-  Ahora solo fuerza al encenderse Connect (`!wasRunning`); un controlador nuevo ya recibe el último estado del propio back y los cambios salen por `subscribe('player')`. Test en `connect.spec.ts`.
-  Si sigue: mirar si la cola se llena por otra vía (`publish_queue`, `Command::Take`) y los logs de los móviles.
-  **15/11/2026, mini reproductor del menú con controles (tests en verde, visto en el navegador, SIN ver en la app real):** `buildMiniPlayer` (`components/sidebar.ts`) lleva una fila
-  `.mini-controls` con dispositivos, aleatorio, anterior, siguiente y repetir (los mismos botones y estados que la barra), y el icono de dispositivos YA NO está junto al selector de temas.
-  Como el mini reproductor solo se ve con algo en marcha, **sin nada sonando el icono de dispositivos no está en el menú** (queda Ajustes → Dispositivos y el aviso «Controlar»).
-  **15/11/2026, lo que cazaron los logs nuevos (primera pasada real; tests en verde, SIN comprobar entre PC y móviles):** (a) **el mDNS NUNCA funcionó**: `mdns-sd` solo acepta nombres de
-  servicio de 15 bytes y `_soundify-connect` tiene 17, así que cada anuncio y cada búsqueda fallaba con `SEVERE: check_service_name_length` (33 veces en el log; no era el cortafuegos). Arreglado
-  con `set_service_name_len_max(30)` en `Mdns::new`; el test real `two_real_mdns_daemons_see_each_other` (`--ignored`) ahora pasa. Una app con el código viejo sigue sin verse por mDNS (la baliza UDP
-  y «aprender del que se conecta» siguen). (b) **los móviles inundaban de estados** (~4000 recargas de la lista cada 30 s en el PC = ~130 estados/s entre los móviles): el bucle de
-  `loadConnect` de arriba sigue vivo en sus APK viejos; el PC ya agrupa las recargas (250 ms) y su log avisa con `<nombre> #<id> sent N states in 30s: it is flooding`. Hay que instalar el APK nuevo
-  en los dos. (c) un `isPhone is not defined` mío en `main.ts` (cazado por `[page] Uncaught …`, ya arreglado).
-  **Mirar los logs sin que el usuario haga nada:** `node scripts/diagnostics.mjs` (= «Copiar diagnóstico» desde el terminal: versión, Connect, últimos `stats`/avisos, minutos con más conexiones y el
-  final del registro; `--data <carpeta>`, `--lines N`, o `--adb [paquete]` para un móvil con la build de depuración por `run-as`; sin aparato por adb no hay logs de móvil).
-  **15/11/2026, escalas en escritorio (tests en verde, SIN ver en la app real):** el menú lateral hace scroll PROPIO (`.sidebar { overflow-y: auto }`, `overscroll-behavior: contain`) solo cuando con una escala grande
-  no cabe, sin mover la página de al lado. Ctrl + / Ctrl − / Ctrl 0 ya existían (`scale.ts`); ahora también van por `code` (teclado numérico, `Equal`, `Minus`, `Digit0`), en fase de captura (un campo
-  enfocado no los frena) y con **Ctrl + rueda** (un paso por muesca). El zoom nativo del webview reduce la página en píxeles CSS (1280×820 al 175 % = 731×468), y la regla de «móvil en horizontal»
-  (`max-height: 500px`) la convertía en barra de pestañas en escritorio: ahora esa parte solo cuenta con `(pointer: coarse)` (`PHONE_QUERY` en `platform.ts` y `phone.css`); `max-width: 700px` sigue igual.
-  `e2e/scales.spec.ts` comprueba que nada se sale de lado a 80/100/125/150/175 % en 1280×820 y en el mínimo 900×600. En el panel del navegador de Claude las ventanas <768 de ancho emulan táctil, así que ahí
-  no se puede ver el diseño de escritorio con ventanas estrechas: usar Playwright.
-  **15/11/2026, primera prueba con el S24+ por adb (adb en `%LOCALAPPDATA%\Android\Sdk\platform-tools`; compilado y puesto el APK de depuración `…soundify.debug` con el código de hoy, que convive con la release 1.2.0):**
-  (a) con el código NUEVO el móvil no inunda (`states_sent=0`, `publishForced=1`) y el mDNS ya se ve en Android (se conectó al PC y a la release del mismo móvil en 1–4 s tras arrancar); la inundación venía de las
-  apps VIEJAS: al parar la release del S24+ (`am force-stop`), `states_received` del PC bajó de ~1800 a 4–6 por 30 s y `loadConnect` de ~90 a 3. (b) **La tablet (`H MP2 D`) corta la conexión con el PC
-  cada 15,1 s** (`os error 10054`, en los dos sentidos, y vuelve a los 1–2 s): probable APK viejo sin respuesta a los ping de 15 s; sin adb de la tablet no se ha podido ver, actualizarla y repetir
-  `node scripts/diagnostics.mjs`. (c) con dos apps en el mismo móvil la 2.ª no consigue la baliza UDP (`Address already in use`) y toma otro puerto: esperado. (d) A escala 175 % en el móvil (zoom CSS) la barra
-  de pestañas recorta «Descargar»/«Reproductor» con puntos suspensivos y Ajustes en una sola columna se ve bien: **pendiente decidir** si en móvil se limita la escala a 150 % o se acortan las etiquetas.
-  (e) quitado el `WARNING: Could not clean up update leftovers` del primer arranque en Android (era un «no existe la carpeta»).
-  **15/11/2026, por qué la tablet «instala otra APK aparte» al actualizar desde la app (causa por deducción, tablet no vista):** la tablet tiene la **copia de pruebas** (`com.dannygt97.soundify.debug`) y el
-  actualizador bajaba el APK de la release (`com.dannygt97.soundify`, otro paquete y otra clave): Android no lo ve como actualización y lo instala COMO SEGUNDA APP al lado. El S24+ lleva el paquete normal y
-  se actualiza en sitio. Ahora `app_update.rs` (`is_test_copy`: el proceso de Android se llama como su paquete, `/proc/self/cmdline` acabado en `.debug`) rechaza buscar e instalar con
-  `update.android.testCopy` («esta es la copia de pruebas…»). Para actualizar esa tablet: desinstalar la `.debug` e instalar la release (la 1.2.0 ya instalada en el S24+ SÍ se actualiza sola).
-  Pendiente menor: el PC sigue enseñando el nombre viejo del controlador («Teléfono Android») hasta que se vuelva a emparejar.
-- **Connect en Android 17: la causa de que «no funcionara» (13/11/2026, comprobada con el S24 por adb; Samsung One UI 9 / Android 17, SDK 37).** Dos cosas,
-  las dos necesarias: (1) **sin el permiso `ACCESS_LOCAL_NETWORK`** (Android 16+, grupo «Dispositivos cercanos»; la app apunta a SDK 37) la red local queda
-  cerrada: ahora está en el manifiesto y `SoundifyPlugin.multicastLock` lo pide al activar Connect (en el S24 se concede solo, sin diálogo); además
-  `localNetworkAccess`/`requestLocalNetwork` (Kotlin) → `mobile::local_network_granted`/`request_local_network` → `connect_status.localNetwork` y un aviso con
-  botón «Permitir red local» en la ventana de Dispositivos (abre los ajustes de la app si se rechazó del todo). (2) **Con la app en segundo plano el móvil era
-  inalcanzable** (`Test-NetConnection` al puerto 48650: True en primer plano, False tras Inicio, aunque `ss` lo mostrara en LISTEN): Android duerme la app y cierra
-  su red. Arreglado con un servicio en primer plano `ConnectService` (`foregroundServiceType="connectedDevice"`, permiso `FOREGROUND_SERVICE_CONNECTED_DEVICE`;
-  lo cumple `CHANGE_WIFI_MULTICAST_STATE`) con una notificación fija («Soundify Connect activado / Visible en tu red como …», es/en/ca desde `connect.rs::notice`)
-  mientras Connect esté activado; se quita al desactivarlo. Comprobado: con el servicio y el permiso el móvil responde en segundo plano y con la pantalla apagada
-  (2 min) y la app de escritorio (dev) y el móvil se conectan en los dos sentidos y no se caen. Método para repetirlo: `adb shell ss -ltn`, `Test-NetConnection
-  <ip> -Port 48650` en el PC con la app delante/detrás, `adb logcat -b all` (la S24 sí deja ver logcat) y `dumpsys activity services <paquete>`.
-- **Connect y el cortafuegos de Windows (13/11/2026).** `src-tauri/src/firewall.rs`: `connect_firewall_status` (solo lee: ¿hay regla «Soundify Connect» que apunte
-  a ESTE exe? ¿la red es «Pública»?, con `netsh` y `Get-NetConnectionProfile`) y `connect_firewall_allow` (solo si el usuario pulsa «Permitir en el cortafuegos» en
-  la ventana de Dispositivos: `netsh advfirewall firewall add rule` en PowerShell con `-Verb RunAs`, o sea con el aviso de administrador de Windows, solo perfil
-  **privado**, ruta del exe por variable de entorno). La ventana avisa si la red es Pública (hay que cambiarla a Privada: una regla privada no ayuda). **En este
-  PC, el 13/11/2026, `public_network=true` y sin regla: probable causa de que el mDNS no funcionara ni entre dos copias locales.** Mock: `?mockFirewall`.
-  Sin probar el botón de verdad (necesita confirmar el UAC).
-- **Connect: descubrimiento más robusto (13/11/2026, tras probar el usuario con PC y móvil: solo funcionaba añadiendo la IP desde el móvil).** (1) Segunda vía
-  de descubrimiento, la **baliza UDP** (`core/src/connect/beacon.rs`, puerto 48651, difusión cada 3 s; `Composite` la junta con mDNS: un dispositivo
-  está mientras ALGUNA vía lo vea; solo un proceso por máquina puede tenerla, el segundo sigue con mDNS). (2) **Aprender del que se conecta:** el que
-  controla manda su puerto en la cabecera `X-Soundify-Port` del WebSocket y el destino lo añade y se conecta de vuelta (`Host::controller_seen` →
-  `Connect::learn`), así que basta con escribir la IP en UN lado. Lo aprendido así (`Nearby.learned`) se quita en cuanto falla su conexión (nadie
-  anuncia su marcha). (3) El **arranque es tolerante**: si no hay descubrimiento el servidor arranca igual (`Connect::discovers()`); la ventana
-  enseña la **dirección propia** (`addresses()`, `local_ipv4`) para teclearla en el otro, avisa si no hay descubrimiento y el error si no pudo arrancar
-  (`ConnectState.error`). Probado en core (`beacon.rs`, `manager_tests.rs`, 30 pasadas seguidas sin fallos); **sin probar entre PC y móvil reales**.
-- **Soundify Connect, sin PIN por defecto (13/11/2026, a petición del usuario: «en Spotify simplemente detecta el otro dispositivo»).** Cada
-  dispositivo es **abierto** de serie (`Pairing::set_open`, `connect.json` → `open`, `/info` lo dice en `open`): el que controla se empareja SOLO, sin PIN
-  (`Connect::attach`/`pair_by_itself`) y mantiene un WebSocket con cada dispositivo emparejado que ve (`sessions`), así que sabe qué suena en cada uno
-  (`DeviceView.playing/nowPlaying/ready`); elegirlo es un toque (`select` devuelve su estado al momento). Un aviso («X está reproduciendo Y» + «Controlar»,
-  `connect.ts` `announcePlaying`) salta cuando otro empieza a sonar y este no; el botón de dispositivos (`components/devicesButton.ts`, barra y menú lateral)
-  se enciende al controlar y lleva un punto si otro suena. El modo **estricto** (interruptor «Pedir un PIN», `connectSetOpen`) vuelve al PIN. Activado de serie
-  en instalaciones nuevas (las que ya tenían `connect.json` con `enabled:false` siguen apagadas). Un dispositivo olvidado no se vuelve a emparejar solo
-  (`forgotten`) hasta que el usuario lo pide. **Riesgo asumido:** en modo abierto cualquiera de tu red puede controlar la reproducción. La explicación de abajo
-  del PIN vale para el modo estricto.
-- **Soundify Connect (13/11/2026, fases 1 y 2 hechas; SIN probar entre dos aparatos reales).** Control entre dispositivos como Spotify Connect, sin nube:
-  el plan completo y cómo lo hace Spotify están en `PLAN-CONNECT.md` (no va a git). Resumen: cada Soundify anuncia `_soundify-connect._tcp` por mDNS y
-  sirve `GET /connect/v1/info`, `POST /connect/v1/pair` (PIN de 6 cifras que enseña el destino: 2 min, un uso, 5 fallos = bloqueo de 60 s → token de
-  32 bytes; el destino solo guarda su SHA-256) y `GET /connect/v1/ws` (WebSocket con `Authorization: Bearer`; el destino empuja `state`, recibe `cmd` y
-  contesta `ack`). `core/src/connect/`: `protocol` (mensajes y validación), `pairing` (+ `KnownDevices` del lado del que controla), `http` (el mínimo de
-  HTTP/1.1, con límites), `server`, `client`, `discovery` (trait; `Mdns` con `mdns-sd`; `MemoryDiscovery` para tests) y `manager::Connect` (los dos
-  papeles a la vez: lista de aparatos, emparejar, controlar uno, publicar estado). Probado en `core` con dos instancias sobre sockets reales
-  (`connect/tests.rs`, `manager_tests.rs`). `src-tauri/src/connect.rs`: comandos `connect_*`; la cola vive en la página, así que las órdenes entrantes
-  salen como evento `connect-command` y la página publica su estado con `connect_publish`. Datos en `data/connect/` (`connect.json` = id, nombre y si
-  está activado; `trusted.json`; `devices.json`). **Apagado de serie** (abre un puerto en la red; en Windows salta el cortafuegos): Ajustes → General →
-  Soundify Connect, o el chip del dispositivo en Reproduciendo → «Dispositivos» (`overlays/devices.ts`). Puerto 48650 (otro libre si está ocupado).
-  Front: `connect.ts` (estado, controlar, ser controlado; lo que viaja se nombra por **id de vídeo**, no por ruta) y `connectLogic.ts` (lo puro, con
-  tests); `player.ts` enruta las acciones al otro aparato mientras `ui.remote` (`enterRemote`/`leaveRemote`) y el estado del otro se vuelca en `ui`.
-  Mock con `?mockConnect` (`api/mock/connect.ts`, `window.__connect` para los tests; `e2e/connect.spec.ts`). Android: `multicastLock` (Kotlin) y permisos
-  `CHANGE_WIFI_MULTICAST_STATE`/`ACCESS_WIFI_STATE`. **Sin comprobar:** mDNS real (en este PC dos demonios en el mismo proceso no se vieron: sospecha del
-  cortafuegos o de las interfaces virtuales; el test `two_real_mdns_daemons_see_each_other` está `#[ignore]`), el orden PC↔móvil, y el MulticastLock.
-  Si el mDNS no pasa, «Añadir por dirección» (IP del otro, que enseña la lista) funciona igual por TCP. **Límites decididos:** tráfico en claro dentro de
-  la red (TLS con huella fijada al emparejar sería la mejora), solo órdenes de reproducción. **Faltan:** pasar música entre dispositivos y copiar una playlist de otro (retirado a propósito, ver «alcance simplificado» y `PLAN-CONNECT.md`) y fase 4 (DLNA/UPnP y Chromecast para tele y altavoces). Controlar Spotify real solo sería por su Web API (Premium + app registrada).
-- **Hecho el 12/11/2026 (tests en verde, sin ver en el móvil):** la flecha atrás está arriba a la derecha en el detalle de playlist del Reproductor
-  (`.ambient > .icon-button.back`; en la barra fija `.mini` va al final) y en Reproduciendo (`.np-head`), y la de Reproduciendo lleva a la playlist que suena en
-  el Reproductor (`navigate('player', { b })`, no `history.back()`); la tarjeta «Sonando ahora» de Inicio abre Reproduciendo y su botón redondo
-  pausa/reproduce. En móvil la píldora de tareas flota arriba a la derecha: las pantallas ya empiezan 54 px más abajo mientras se ve (`phone.css`).
-  Las miniaturas en Android ya funcionan (confirmado por el usuario).
-- **Hecho el 12/11/2026, SIN ver en la app real ni en el móvil** (tests en verde; el Kotlin solo se ha compilado):
-  - **Carpetas movidas o renombradas, detección inmediata.** Antes solo corría `reconcile_all` al arrancar. Ahora el comando `refresh_library`
-    (`commands.rs`: espera si hay una descarga en marcha o en cola y, en Android, si no hay acceso a archivos) la repite, y `checkDisk()`
-    (`library.ts`, como mucho cada 2 s, solo redibuja si cambió algo) se llama al volver a la ventana (`focus`/`visibilitychange`) y al entrar en Gestor,
-    Reproductor y Reproduciendo (`main.ts`). Una carpeta que se renombra sigue sin enlazarse sola (el archive guarda la ruta vieja): se ve como
-    inaccesible/pendiente, no se reubica.
-  - **Barra del reproductor arrastrable en móvil** (`phone.css`): franja de 28 px, línea fina, el pomo sale al sujetar.
-  - **Notificación de descarga/sincronización** (`BusyService.kt`): título con el estado y el porcentaje («Sincronizando · 45 %», «Descargando», «Segunda pasada»,
-    «N tareas»), debajo la playlist y «+N en cola», y barra de progreso (indeterminada mientras se prepara). Los textos salen de `busy_notice`
-    (`downloads.rs`, es/en/ca según el ajuste) y se refresca en cada cambio de la tarea.
-  - **Reproduciendo:** sin título; flecha atrás (`history.back()`, o el Reproductor) en lugar de «Ver la playlist»; y el dispositivo de salida
-    (`api.playbackDevice`: en Android `SoundifyPlugin.playerOutputDevice` = auriculares/Bluetooth con el nombre que anuncian, si no el nombre del
-    teléfono; en escritorio «Este dispositivo»). Se pregunta cada 3 s con la pantalla abierta. Para reproducir en otro aparato de la red (plan futuro) este es el hueco.
-  - **Notificación multimedia** (`PlaybackService.kt`): botones de aleatorio (izquierda) y repetir (derecha) como `customLayout` de Media3 1.5.1
-    (el estado es de la página: `PlayerBackend.setModes` / `onRemoteMode`, comandos de sesión `soundify.*`); pulsarla abre la app en Reproduciendo
-    (`setSessionActivity` → `MainActivity.onNewIntent` → `SoundifyPlugin.openFrom` → `playerPendingOpen`). **Que no aparecía a veces:** causa probable,
-    no reproducida: al acabar un archivo Media3 sacaba el servicio de primer plano y el siguiente, lanzado por la página con la app en segundo plano,
-    no podía volver a ponerlo (Android lo prohíbe), así que sonaba sin notificación. Ahora `onUpdateNotification` lo mantiene mientras haya archivo y
-    `playWhenReady`, y 20 s después del final de la cola pausa para soltarlo. Si vuelve a pasar: `adb logcat` con la app en segundo plano.
-- **Hecho el 11/11/2026, sin ver en la app real** (tests en verde):
-  - **ZIP de actualización limitados.** `updater/download.rs`: tras descargar y verificar, `prune_old_zips` deja en `data/updates/` solo
-    los `KEPT_ZIPS` (2) `Soundify-*-tauri.zip` más recientes por fecha de modificación (el recién bajado siempre se queda) y borra el
-    resto; no toca `staged/` ni otros archivos, y una descarga rechazada no borra nada. Tests en el mismo archivo.
-  - **Tabla de archivos del Reproductor ordenable.** Las cabeceras «#», «Título» y «Descargado» de una playlist son botones
-    (`views/player.ts`, `aria-sort`, flecha en la activa): pulsar la activa invierte; otra empieza ascendente (1 primero, A primero, el más
-    reciente primero). Lógica en `trackOrder.ts` (con test); el orden se recuerda por playlist **solo mientras la app está abierta** y la
-    cola suena en el orden mostrado (`queueOf` en `player.ts`; al reordenar la playlist que suena, `reorderQueue` reconstruye la cola desde
-    el archivo actual sin cortarlo; con aleatorio se vuelve a barajar el resto). El buscador y el orden se combinan. Test e2e en
-    `player.spec.ts`. En pantallas estrechas la columna «Descargado» ya se ocultaba, así que ahí solo se ordena por # y título.
-- **Arreglado el 09/11/2026, SIN comprobar con datos reales** (los tests lo cubren; falta verlo en la app de verdad. Si
-  alguno vuelve a pasar, reabrirlo aquí con lo que se vea):
-  - **Orden de los archivos distinto entre dev y build.** `reconcile_entries` (`core/src/archive/sync.rs`) enlaza ahora
-    por este orden: id heredado de Java → manifiesto de la carpeta → número del nombre (`NNN - Título`) SOLO si el título
-    coincide (`same_title`); el número sale del nombre del archivo, no de la posición. Antes un número bastaba y los
-    archives importados de Java acababan con otro título en cada posición. Dos tests de regresión en `archive/tests.rs`.
-    No se ha probado contra la carpeta `data/` de la build del usuario (nunca se localizó): al abrir «Canciones» en la
-    build, comprobar que el orden es el de dev. Los archives ya mal enlazados no se rehacen solos.
-  - **Miniaturas que parpadean al reproducir.** Reproducir ya no rehace la lista: `patchPlaying`
-    (`components/trackRow.ts`) toca solo el estado de cada fila (`row.dataset.state`: playing|paused|idle), lo usan el
-    Reproductor y Ver archivos; y `covers.ts` recuerda las miniaturas ya cargadas (`loaded`) para ponerlas en el acto
-    (las portadas elegidas no: siempre se llaman `cover.jpg`). Test e2e: «pressing play does not rebuild the rows».
-  - **Cortes de reproducción seguidos.** Causa probable, no reproducida: un fallo transitorio del `<video>` saltaba al
-    siguiente archivo de una cola de cientos y encadenaba saltos. Ahora `afterFailure` (`player.ts`): primero se reintenta
-    el MISMO archivo una vez (600 ms después, en el mismo segundo), luego salta, y para tras `MAX_SKIPS` (3) seguidos.
-    `htmlPlayer.ts` deja `console.warn('player: media error', código, mensaje, src)` en la consola del webview: si vuelve
-    a pasar, mirar ahí el código del error antes de teorizar más.
-  - **Progreso de la descarga que mentía, bot-check de YouTube y segunda pasada.** `ProgressParser::set_skipped`: los
-    vídeos con `ERROR: [youtube] <id>` ya no hacen avanzar el porcentaje. Cinco vídeos DISTINTOS seguidos con
-    «Sign in to confirm you're not a bot» (`BOT_STREAK_LIMIT`, un éxito reinicia la racha; el mismo id repetido por
-    cada cliente cuenta una vez) paran la tanda (`watch_bot_streak`, `engine/download.rs`) con el aviso
-    `activity.botcheck.streakNotice` y SIN segunda pasada; la segunda pasada (`safety_net.rs`) corta igual y avisa con
-    `activity.botcheck.retryNotice`. Los dos avisos tienen variante `…NoCookies` (`botcheck_key`, `download.rs`: sin cookies
-    en Ajustes → «añade cookies»; con ellas → «pueden haber caducado»). En el front `pointsToSettings` (`tasks.ts`) los
-    hace persistentes con el botón «Ir a Ajustes» (`openAdvancedSettings`, pestaña Avanzado); en el navegador,
-    `?mockBotCheck` lo dispara (`e2e/botcheck.spec.ts`). Lo que queda pendiente se reintenta en la siguiente sincronización. **Confirmado con los logs reales
-    de «Canciones» (`soundify-activity-0.log` y `-retries-0.log`, 04 y 06/11/2026, sin cookies):** 1.ª tanda 233
-    descargados y 378 fallados (366 bot-check, 11 no disponibles, 1 «Please sign in»); tras el primer bot-check (19:26)
-    hubo UN solo éxito más en 84 min. 2.ª tanda (367 = 611 − 233 − 11 no disponibles, así que la cuenta cuadra) 96
-    descargados y luego 270 bot-check seguidos. Ni 403 ni red ni ffmpeg. Las dos segundas pasadas (`retries`)
-    recuperaron 0: 217 vídeos × 3 clientes (web_safari, mweb, android) = ~1.080 peticiones inútiles. YouTube corta tras
-    ~100–230 descargas (~15 s por vídeo) y NO se recupera en horas, así que el corte rápido (5 seguidos) es lo correcto.
-    Probado solo con yt-dlp simulado, nunca contra YouTube.
-- **Sin pausa entre descargas (11/11/2026, medido en escritorio contra la playlist real, sin cookies, yt-dlp 2026.10.26):** `command.rs` ya no
-  lleva `--sleep-requests` / `--min-sleep-interval` / `--max-sleep-interval`. 254 vídeos seguidos sin pausa, ~5,8 s cada uno (con la pausa, ~10 s),
-  ni un 403; YouTube cortó con «Sign in to confirm you're not a bot» a los ~300 vídeos en ~1 h, una cuota por hora y no un asunto de ritmo (la
-  pausa no la evitaba, solo tardaba más en llegar). Si vuelven los 403 en ráfagas, `--sleep-requests 1` es la palanca. **Sin probar con cookies
-  ni en el móvil**. OJO al probar `player_client=web` a mano: sin PO token solo da imágenes («Requested format is not available»); sirve el cliente por defecto.
-- **La migración de la lógica sigue [MIGRATION-PLAN.md](MIGRATION-PLAN.md)** (fases 1–10), y cada
-  test portado se apunta en [TEST-MAP.md](TEST-MAP.md)
-- **Android: la playlist «Canciones» de YouTube, de +700 vídeos, en el móvil (tablet) solo enseñaba 100** (anotado el 09/11/2026 por el
-  usuario). Encontrado: en el código no hay ningún límite (`--playlist-end` no existe), pero `pick_cookies_file` usaba el plugin
-  `dialog`, que en Android devuelve un `content://` y `into_path()` falla: el selector de `cookies.txt` nunca ponía nada, así que
-  en el móvil no había forma de tener cookies. Arreglado: en Android lo elige Kotlin (`SoundifyPlugin.pickCookies`, `ACTION_OPEN_DOCUMENT`),
-  lo copia a `filesDir/cookies.txt` y devuelve esa ruta (`mobile::pick_cookies_now`). El APK compila, **SIN probar en la tablet** (estaba
-  desconectada) ni contra YouTube: falta elegir un `cookies.txt` en Ajustes → Avanzado y ver si la lista pasa de 100. OJO: el log de
-  escritorio de «Canciones» sin cookies llegó a 611 vídeos, así que el límite de 100 sin cookies no está demostrado; si con cookies
-  sigue en 100, mirar la salida de yt-dlp en Actividad.
-  **Resuelto y comprobado en la tablet (09/11/2026):** la causa era el yt-dlp viejo del APK (youtubedl-android 0.18.1 trae la
-  2025.11.12; en Android nada lo actualizaba). Ahora `SoundifyPlugin.updateYtDlp` (`YoutubeDL.updateYoutubeDL`, canal estable, se guarda en
-  `noBackupFilesDir`) lo llama `install_tool("ytdlp")` y `mobile::prepare_in_background` al arrancar si `autoUpdates` está activo
-  (`update_ytdlp_claimed`); en Ajustes → Herramientas la tarjeta ofrece «Buscar actualización» y solo «Actualizar yt-dlp» si hay otra
-  versión. Tras actualizar (2026.10.26) y pulsar Sincronizar, «Canciones» listó 775 vídeos y registró 674 nuevos (antes 101). OJO: una
-  playlist registrada con el yt-dlp viejo NO se rehace sola: hay que pulsar Sincronizar. La consulta de la lista
-  (`playlist_entries_args`) ya no lleva `--no-warnings` y `fetch_entries` deja en el log «playlist listing: N videos, M remarks» con los
-  WARNING/ERROR de yt-dlp, para explicar una lista corta
-- Android (fase 10): escrito entero (almacenamiento con rutas reales, descargas con yt-dlp del APK, reproductor Media3, importar) y
-  el APK arranca en emulador x86_64 y en la tablet, pero **SIN comprobar de punta a punta**: faltan una descarga real contra
-  YouTube, reproducir con la pantalla apagada, la notificación, importar una carpeta y vídeo por `asset://`. Al arrancar sale en la
-  consola del webview `Uncaught (in promise) #<Object>` sin diagnosticar (`logcat -s Tauri/Console`). Si algo falla, reabrirlo aquí
-- Herramientas: «Cancelar» una descarga de herramienta a medias y la comprobación de yt-dlp «una vez al
-  día» del prototipo (`design/tools-setup-prototype.html`, fuera de git) no se hicieron
+- **Batería en Android (15/11/2026; tests en verde, SIN comprobar en la tablet):** (a) EINTR: `core/src/connect/resilient.rs` reintenta lo interrumpido bajo los WebSockets y en HTTP (era lo que hacía rebotar Connect en la tablet); (b) `SoundifyPlugin.kt` `applyLocks`: `MulticastLock` y `WifiLock` solo con Connect activo Y (app delante O sonando); (c) cola de Connect: cada controlador tiene un buzón con solo el ÚLTIMO estado y la última playlist (`Mailbox` en `server.rs`), ya no se le suelta por lento.
+- **«Tauri» fuera de las releases (norma del usuario, 15/11/2026; HECHO en el código, sin publicar nada con ello; tests en verde):** los assets nuevos se llaman `Soundify-X.Y.Z-windows.zip` y `Soundify-X.Y.Z-android.apk` (+ `.sha256`
+  y `.sig`; el instalador, cuando exista, `Soundify-X.Y.Z-setup.exe`) y ni el título, ni las notas, ni los nombres llevan la palabra. `core/src/updater/mod.rs`: `Package::names()` da los dos nombrados (el nuevo primero y el viejo
+  `-tauri.*`) y `to_update` coge el primero que trae los tres archivos; `suffix_of(url)` nombra el archivo bajado y `prune_old_zips` cuenta ambos. `scripts/package-portable.mjs` y `package-apk.mjs` ya generan los nombres nuevos.
+  **Consecuencia:** las apps ya instaladas (≤ 1.2.1) solo buscan `-tauri` y NO verán la primera release con nombres nuevos: instalarla a mano una vez (PC, S24+, tablet). Las v1.x ya publicadas se dejan como están.
+- **Instalador `.exe` en cada release (norma del usuario, 15/11/2026; HECHO, probado instalando y desinstalando en una carpeta de prueba):** `scripts/release-build.mjs` compila con `--bundles nsis` (el `.exe` suelto del ZIP y el
+  instalador salen de la MISMA compilación, con las rutas remapeadas) y `node scripts/package-installer.mjs` deja en `release/` `Soundify-X.Y.Z-setup.exe` + `.sha256` (NSIS por usuario en `%LOCALAPPDATA%\Programs`, que se puede escribir:
+  `data/` va junto al `.exe`; lleva `tools/ffmpeg`; `bundle.windows.nsis` en `tauri.conf.json`, es/en). NO lo usa el actualizador (solo toma `-windows.zip`/`-android.apk` + `.sha256` + `.sig`): se sube como un asset más.
+
+- **Sin comprobar en aparatos reales (lo más valioso):** descarga real contra YouTube en la build de release de Android, sonido con la pantalla apagada, notificación multimedia, importar una
+  carpeta, vídeo por `asset://`, abrir carpeta y elegir portada/cookies en Android; Connect con tres aparatos en 1.2.1 (actualizar la tablet y el S24+ y repetir `node scripts/diagnostics.mjs`:
+  no debe salir `flooding` ni el corte de 15 s de la tablet). La tablet suele llevar la copia `.debug`: desinstalarla e instalar la release.
+- **Móvil:** a escala 150–175 % la barra de pestañas recorta «Descargar»/«Reproductor» (decidir: limitar la escala a 150 % o acortar etiquetas); sin nada sonando el icono de dispositivos no
+  está en el menú; probar la regla táctil de `PHONE_QUERY` (la altura solo cuenta con `pointer: coarse`).
+- **Logs:** falta el punto (6): formato común `área | evento | clave=valor` y contadores fuera de Connect (reproductor, descargas, herramientas).
+- **Connect:** faltan copiar una playlist de otro dispositivo (`PLAN-CONNECT.md`), DLNA/Chromecast y TLS. (Hecho el 15/11: el controlador manda su nombre actual en la cabecera `X-Soundify-Name` y el destino actualiza el guardado — `Pairing::rename`, `protocol::encode_name/decode_name`; y cada controlador tiene un buzón con solo lo último, `Mailbox`.)
+- **Descargas:** sin probar contra YouTube el interruptor «Descargar más rápido (experimental)» ni con cookies / en el móvil; YouTube corta con bot-check a los ~100–300 vídeos sin cookies.
+- **Herramientas:** «Cancelar» una descarga de herramienta a medias y la comprobación de yt-dlp «una vez al día» no se hicieron.
+- **Migración de la lógica:** fases 1–10 en `MIGRATION-PLAN.md` (local).

@@ -42,7 +42,7 @@ fn download_with_key(
     let expected_hash = http.get_string(&update.hash_url, &[])?;
     let signature = decode_signature(&http.get_string(&update.signature_url, &[])?)?;
 
-    let suffix = update.package.suffix();
+    let suffix = update.package.suffix_of(&update.package_url);
     let zip = updates_dir.join(format!("Soundify-{}{suffix}", safe_name(&update.version)));
     std::fs::create_dir_all(updates_dir)?;
     http.to_file(&update.package_url, &zip, on_progress)?;
@@ -54,7 +54,7 @@ fn download_with_key(
         return Err(e);
     }
     info!("Update {} downloaded and verified at {}", update.version, zip.display());
-    prune_old_zips(updates_dir, &zip, suffix, KEPT_ZIPS);
+    prune_old_zips(updates_dir, &zip, update.package, KEPT_ZIPS);
     Ok(zip)
 }
 
@@ -65,13 +65,14 @@ pub const KEPT_ZIPS: usize = 2;
 /// Deletes the oldest `Soundify-*<suffix>` of `updates_dir` until only `keep`
 /// are left. `current` (the one just downloaded) is never deleted. Only files
 /// with that exact name pattern are touched: `staged/` and anything else stay.
-fn prune_old_zips(updates_dir: &Path, current: &Path, suffix: &str, keep: usize) {
+fn prune_old_zips(updates_dir: &Path, current: &Path, package: super::Package, keep: usize) {
     let Ok(entries) = std::fs::read_dir(updates_dir) else { return };
     let mut zips: Vec<(std::time::SystemTime, PathBuf)> = entries
         .flatten()
         .filter_map(|entry| {
             let name = entry.file_name().to_string_lossy().into_owned();
-            let is_ours = name.starts_with("Soundify-") && name.ends_with(suffix);
+            // Either naming counts: someone who updated across the change would otherwise keep both for ever.
+            let is_ours = name.starts_with("Soundify-") && package.names().iter().any(|names| name.ends_with(names.package));
             let meta = entry.metadata().ok()?;
             (is_ours && meta.is_file()).then(|| (meta.modified().unwrap_or(std::time::UNIX_EPOCH), entry.path()))
         })
@@ -240,10 +241,11 @@ mod tests {
 
         let path = download_with_key(&http, &apk, &updates, &mut |_| {}, &keys.public()).unwrap();
 
-        assert_eq!(path, updates.join("Soundify-v0.2.0-tauri.apk"));
+        // The URL of the test's fake release does not end in either APK name: the file takes the current one, and the old APKs (either naming) are pruned.
+        assert_eq!(path, updates.join("Soundify-v0.2.0-android.apk"));
         let mut left: Vec<String> = fs::read_dir(&updates).unwrap().flatten().map(|e| e.file_name().to_string_lossy().into_owned()).collect();
         left.sort();
-        assert_eq!(left, ["Soundify-v0.2.0-tauri.apk", "Soundify-v1.0.0-tauri.zip", "Soundify-v1.1.3-tauri.apk"]);
+        assert_eq!(left, ["Soundify-v0.2.0-android.apk", "Soundify-v1.0.0-tauri.zip", "Soundify-v1.1.3-tauri.apk"]);
         assert!(zip.exists(), "a ZIP is not an APK");
     }
 
