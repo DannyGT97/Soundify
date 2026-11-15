@@ -2,9 +2,9 @@
 // phone, which are exactly what the app's updater asks for on Android (see
 // core/src/updater/mod.rs, `Package::Apk`):
 //
-//   Soundify-<version>-android.apk         the APK
-//   Soundify-<version>-android.apk.sha256  its SHA-256, as `sha256sum` writes it
-//   Soundify-<version>-android.apk.sig     Ed25519 signature of the APK, in base64
+//   Soundify-<version>-tauri.apk         the APK
+//   Soundify-<version>-tauri.apk.sha256  its SHA-256, as `sha256sum` writes it
+//   Soundify-<version>-tauri.apk.sig     Ed25519 signature of the APK, in base64
 //
 //   node scripts/android-release-build.mjs --keystore-props <soundify-android.properties>
 //   node scripts/package-apk.mjs --key <private key .pem> [--apk <file.apk>] [--out <folder>]
@@ -33,7 +33,7 @@ if (!keyFile) throw new Error('No signing key: pass --key <file.pem> or set SOUN
 const source = argument('--apk') ?? findApk();
 if (!existsSync(source)) throw new Error(`${source} does not exist (build the APK first)`);
 
-const name = `Soundify-${version}-android.apk`;
+const name = `Soundify-${version}-tauri.apk`;
 const apk = join(out, name);
 mkdirSync(out, { recursive: true });
 rmSync(apk, { force: true });

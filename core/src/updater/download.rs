@@ -241,11 +241,11 @@ mod tests {
 
         let path = download_with_key(&http, &apk, &updates, &mut |_| {}, &keys.public()).unwrap();
 
-        // The URL of the test's fake release does not end in either APK name: the file takes the current one, and the old APKs (either naming) are pruned.
-        assert_eq!(path, updates.join("Soundify-v0.2.0-android.apk"));
+        // The URL of the test's fake release does not end in either APK name: the file takes the usual one, and the old APKs (either naming) are pruned.
+        assert_eq!(path, updates.join("Soundify-v0.2.0-tauri.apk"));
         let mut left: Vec<String> = fs::read_dir(&updates).unwrap().flatten().map(|e| e.file_name().to_string_lossy().into_owned()).collect();
         left.sort();
-        assert_eq!(left, ["Soundify-v0.2.0-android.apk", "Soundify-v1.0.0-tauri.zip", "Soundify-v1.1.3-tauri.apk"]);
+        assert_eq!(left, ["Soundify-v0.2.0-tauri.apk", "Soundify-v1.0.0-tauri.zip", "Soundify-v1.1.3-tauri.apk"]);
         assert!(zip.exists(), "a ZIP is not an APK");
     }
 

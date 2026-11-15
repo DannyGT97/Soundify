@@ -30,9 +30,8 @@
 //! as the app, so one attached by mistake would install the Java app over
 //! this one. Only the releases carrying this app's own three assets count.
 //!
-//! **Two ways of naming, both accepted.** Up to 1.2.1 the assets ended in `-tauri.zip` / `-tauri.apk` (the apps already installed look ONLY for those,
-//! so they cannot see a release named otherwise: that one has to be installed by hand once). From then on the stack is not in the name of anything
-//! published, and this code takes the new names first and the old ones after, so it goes on seeing the old releases.
+//! **Names.** Releases carry `-tauri.zip` / `-tauri.apk` (+ `.sha256`, `.sig`): the apps already installed look ONLY for those, and keeping them is what lets every installed
+//! app update itself. The `-windows.zip` / `-android.apk` names (1.2.2 carried both sets once) are also understood, as a second choice.
 
 mod download;
 mod install;
@@ -100,16 +99,16 @@ impl Package {
         if cfg!(target_os = "android") { Self::Apk } else { Self::Zip }
     }
 
-    /// The ways a release may name this package's three files, the current one first.
+    /// The ways a release may name this package's three files, the one releases are published with first (`-tauri.*`; `-windows.zip` / `-android.apk` is also understood: 1.2.2 carries both).
     pub const fn names(self) -> [Names; 2] {
         match self {
             Self::Zip => [
-                Names { package: ZIP_SUFFIX, hash: HASH_SUFFIX, signature: SIGNATURE_SUFFIX },
                 Names { package: LEGACY_ZIP_SUFFIX, hash: LEGACY_HASH_SUFFIX, signature: LEGACY_SIGNATURE_SUFFIX },
+                Names { package: ZIP_SUFFIX, hash: HASH_SUFFIX, signature: SIGNATURE_SUFFIX },
             ],
             Self::Apk => [
-                Names { package: APK_SUFFIX, hash: APK_HASH_SUFFIX, signature: APK_SIGNATURE_SUFFIX },
                 Names { package: LEGACY_APK_SUFFIX, hash: LEGACY_APK_HASH_SUFFIX, signature: LEGACY_APK_SIGNATURE_SUFFIX },
+                Names { package: APK_SUFFIX, hash: APK_HASH_SUFFIX, signature: APK_SIGNATURE_SUFFIX },
             ],
         }
     }
@@ -247,7 +246,7 @@ pub fn find_newer(http: &dyn Http, current: &str, package: Package) -> Result<Op
         // Warned about loudly: a release without its three pieces is a slip
         // when publishing, and from the outside it looks as if the app detects nothing.
         let names = package.names()[0];
-        warn!("No release on GitHub carries the three assets ({}, {}, {}) or the old names.", names.package, names.hash, names.signature);
+        warn!("No release on GitHub carries the three assets ({}, {}, {}).", names.package, names.hash, names.signature);
         return Ok(None);
     };
     if !version::is_newer_than(Some(&newest.version), Some(current)) {
@@ -285,7 +284,7 @@ pub fn to_update(release: &Release, package: Package) -> Option<Update> {
         return None;
     }
     let version = release.tag_name.as_deref().filter(|t| !t.trim().is_empty())?;
-    // The current naming first, the old one after: the first that has all three.
+    // The current naming first, the old one after: the first that has all three (`-tauri.*` first: that is what the releases carry).
     let (package_url, hash_url, signature_url) = package.names().iter().find_map(|names| {
         Some((asset_url(release, names.package)?, asset_url(release, names.hash)?, asset_url(release, names.signature)?))
     })?;

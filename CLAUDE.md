@@ -33,7 +33,7 @@ Repositorio: https://github.com/DannyGT97/Soundify (GitHub, rama `main`, GPL-3.0
   **Perder el keystore = ninguna copia instalada podrá volver a actualizarse** (hay que desinstalar e instalar de cero): tener copia de seguridad.
   Publicar el APK: con `ANDROID_HOME` y `NDK_HOME`, `node scripts/android-release-build.mjs --keystore-props "<ruta>"` (borra los APK
   anteriores, compila release con R8 para aarch64 y x86_64 y comprueba con `apksigner` que está firmado y NO con la clave de depuración) →
-  `node scripts/package-apk.mjs --key "<ruta clave de actualización>"` → los tres `-android.apk*` de `release/` se suben a la MISMA release que el ZIP (seis archivos).
+  `node scripts/package-apk.mjs --key "<ruta clave de actualización>"` → los tres `-tauri.apk*` de `release/` se suben a la MISMA release que el ZIP (seis archivos).
   El release usa R8: **comprobar en el aparato que arranca, descarga y suena** antes de publicar (reflexión de Tauri, youtubedl-android y Media3).
   Ya rompió una vez (11/11/2026): youtubedl-android desempaqueta Python con `commons-compress`, que crea clases por nombre, y R8 las quitaba
   (`ExceptionInInitializerError … AsiExtraField is not a concrete class`): las herramientas se quedaban en «Preparando…» para siempre y
@@ -48,9 +48,9 @@ Repositorio: https://github.com/DannyGT97/Soundify (GitHub, rama `main`, GPL-3.0
   `tauri build --no-bundle` con `--remap-path-prefix` para que el .exe NO lleve la carpeta del usuario de Windows: rustc
   incrusta las rutas de `.cargo`/`.rustup`; comprobar con `grep -a` que no sale el nombre de usuario) →
   `node scripts/package-portable.mjs --key "<ruta>"` (se niega si la clave no es la que acepta la app) →
-  **NORMA (pedida el 15/11/2026): cada release lleva TAMBIÉN el instalador `.exe` de Windows** (además del ZIP portable y del APK; PENDIENTE de montar, ver «Pendiente») y **NUNCA la palabra «Tauri»** en nombres, título ni notas (assets `-windows.zip`, `-android.apk`, `-setup.exe`).
+  **NORMA (pedida el 15/11/2026): cada release lleva TAMBIÉN el instalador `.exe` de Windows** (además del ZIP portable y del APK; PENDIENTE de montar, ver «Pendiente») y los archivos siguen llamándose `-tauri.zip` / `-tauri.apk` (un solo juego; ver «Pendiente»); título y notas sin nombrar el stack.
   `gh release create vX.Y.Z -R DannyGT97/Soundify --target <hash COMPLETO> --title "Soundify X.Y.Z" --notes "..."` con solo
-  los tres archivos de `release/` (`-windows.zip`, `.sha256`, `.sig`) —más los tres `-android.apk*` si la release lleva Android (ver arriba)— y notas
+  los tres archivos de `release/` (`-tauri.zip`, `.sha256`, `.sig`) —más los tres `-tauri.apk*` si la release lleva Android (ver arriba)— y notas
   `## Novedades` en español. Comprobar después lo subido
 
 ## Estructura (raíz)
@@ -352,11 +352,9 @@ Repositorio: https://github.com/DannyGT97/Soundify (GitHub, rama `main`, GPL-3.0
 
 ## Pendiente
 - **Batería en Android (15/11/2026; tests en verde, SIN comprobar en la tablet):** (a) EINTR: `core/src/connect/resilient.rs` reintenta lo interrumpido bajo los WebSockets y en HTTP (era lo que hacía rebotar Connect en la tablet); (b) `SoundifyPlugin.kt` `applyLocks`: `MulticastLock` y `WifiLock` solo con Connect activo Y (app delante O sonando); (c) cola de Connect: cada controlador tiene un buzón con solo el ÚLTIMO estado y la última playlist (`Mailbox` en `server.rs`), ya no se le suelta por lento.
-- **«Tauri» fuera de las releases (norma del usuario, 15/11/2026; HECHO en el código, sin publicar nada con ello; tests en verde):** los assets nuevos se llaman `Soundify-X.Y.Z-windows.zip` y `Soundify-X.Y.Z-android.apk` (+ `.sha256`
-  y `.sig`; el instalador, cuando exista, `Soundify-X.Y.Z-setup.exe`) y ni el título, ni las notas, ni los nombres llevan la palabra. `core/src/updater/mod.rs`: `Package::names()` da los dos nombrados (el nuevo primero y el viejo
-  `-tauri.*`) y `to_update` coge el primero que trae los tres archivos; `suffix_of(url)` nombra el archivo bajado y `prune_old_zips` cuenta ambos. `scripts/package-portable.mjs` y `package-apk.mjs` ya generan los nombres nuevos.
-  **PUENTE (decidido y hecho el 15/11/2026): la release v1.2.2 lleva además 6 copias `Soundify-1.2.2-tauri.zip/.apk` (+ `.sha256`, `.sig`; mismos bytes, el hash y la firma no dependen del nombre) para que las apps ≤ 1.2.1 la vean. Es la ÚNICA release con ese sufijo: de la 1.2.3 en adelante, solo nombres nuevos. Probado en el S24+ con la 1.2.0 (copia `.debug`, anterior a `is_test_copy`): detecta la 1.2.2 al arrancar, la descarga y «hash and signature are correct».**
-  Las apps ya instaladas (≤ 1.2.1) solo buscan `-tauri` y NO verán la primera release con nombres nuevos: instalarla a mano una vez (PC, S24+, tablet). Las v1.x ya publicadas se dejan como están.
+- **Nombres de los archivos de una release (decisión FINAL del usuario, 15/11/2026): se quedan como siempre, `Soundify-X.Y.Z-tauri.zip` y `Soundify-X.Y.Z-tauri.apk` (+ `.sha256`, `.sig`), UN solo juego por plataforma, sin copias con otros nombres.** Motivo: las apps instaladas
+  solo buscan `-tauri` y renombrar rompe su «Buscar actualización» (se probó el 15/11: una app 1.2.0 sí actualiza con el puente, pero no se quieren dos juegos). La v1.2.2 SÍ lleva los dos juegos (`-tauri.*` y `-windows.zip`/`-android.apk`) por ese cambio de idea; de la 1.2.3 en adelante solo `-tauri`.
+  El actualizador sigue entendiendo ambos nombres (`Package::names()`, `-tauri` primero). En el título y en las notas de la release no se nombra el stack. El instalador de Windows se llama `Soundify-X.Y.Z-setup.exe` (+ `.sha256`).
 - **Instalador `.exe` en cada release (norma del usuario, 15/11/2026; HECHO, probado instalando y desinstalando en una carpeta de prueba):** `scripts/release-build.mjs` compila con `--bundles nsis` (el `.exe` suelto del ZIP y el
   instalador salen de la MISMA compilación, con las rutas remapeadas) y `node scripts/package-installer.mjs` deja en `release/` `Soundify-X.Y.Z-setup.exe` + `.sha256` (NSIS por usuario en `%LOCALAPPDATA%\Programs`, que se puede escribir:
   `data/` va junto al `.exe`; lleva `tools/ffmpeg`; `bundle.windows.nsis` en `tauri.conf.json`, es/en). NO lo usa el actualizador (solo toma `-windows.zip`/`-android.apk` + `.sha256` + `.sig`): se sube como un asset más.
