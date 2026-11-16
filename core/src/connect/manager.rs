@@ -18,7 +18,7 @@ use serde::Serialize;
 
 use super::client::{self, ClientError, Event, Session};
 use super::discovery::{Change, Discovery};
-use super::pairing::{Known, KnownDevices, Pairing, Trusted};
+use super::pairing::{self, Known, KnownDevices, Pairing, Trusted};
 use super::protocol::{Command, DeviceInfo, PROTOCOL, PlayerState, QueueInfo, ServerMessage};
 use super::server::{Host, Server};
 use super::stats::{self, short};
@@ -297,6 +297,15 @@ impl Connect {
         let mut running = self.running.lock().unwrap();
         if running.is_some() {
             return Ok(());
+        }
+        // An older version could pair with itself (its mDNS name renamed, read as another device): that entry and the
+        // known «device» are let go of, so it neither shows in the lists nor is connected to.
+        let own = self.identity().device_id;
+        if self.pairing.trusted().iter().any(|t| t.controller_id == own) {
+            let _ = self.pairing.forget(&own);
+        }
+        if self.known.get(&own).is_some() {
+            let _ = self.known.forget(&own);
         }
         let host = Arc::new(HostAdapter { me: Arc::downgrade(self), info: self.info(), pairing: self.pairing.clone(), state: self.state.clone(), queue: self.queue.clone(), player: self.player.clone() });
         let server = match Server::start(preferred_port, host.clone(), self.pairing.clone()) {
@@ -857,6 +866,10 @@ impl Connect {
 
     /// Who may control this device.
     pub fn controllers(&self) -> Vec<Trusted> {
+        let gone = self.pairing.prune(pairing::now_secs(), pairing::FORGET_AFTER_SECS);
+        if gone > 0 {
+            info!("Soundify Connect: {gone} controller(s) not seen for 30 days were let go of");
+        }
         self.pairing.trusted()
     }
 

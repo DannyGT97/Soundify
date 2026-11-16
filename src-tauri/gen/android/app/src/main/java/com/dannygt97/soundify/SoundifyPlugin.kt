@@ -431,7 +431,7 @@ class SoundifyPlugin(private val activity: Activity) : Plugin(activity) {
     val args = invoke.parseArgs(MulticastArgs::class.java)
     val on = args.on
     try {
-      if (on && !localNetworkGranted()) {
+      if (on && !localNetworkGranted() && localNetworkKnown()) {
         activity.runOnUiThread {
           askedLocalNetwork = true
           activity.requestPermissions(arrayOf(LOCAL_NETWORK), LOCAL_NETWORK_REQUEST)
@@ -474,17 +474,39 @@ class SoundifyPlugin(private val activity: Activity) : Plugin(activity) {
   fun requestLocalNetwork(invoke: Invoke) {
     if (!localNetworkGranted()) {
       activity.runOnUiThread {
-        val refusedForGood = !activity.shouldShowRequestPermissionRationale(LOCAL_NETWORK) && askedLocalNetwork
-        if (refusedForGood) {
-          val settings = Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS, Uri.parse("package:" + activity.packageName)).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-          activity.startActivity(settings)
-        } else {
+        // The system's dialog only exists where the OS knows the permission and has not been refused for good;
+        // anywhere else the app's own permission page is the way to grant it.
+        val canAsk = localNetworkKnown() && !(askedLocalNetwork && !activity.shouldShowRequestPermissionRationale(LOCAL_NETWORK))
+        if (canAsk) {
           askedLocalNetwork = true
           activity.requestPermissions(arrayOf(LOCAL_NETWORK), LOCAL_NETWORK_REQUEST)
+        } else {
+          openAppPermissions()
         }
       }
     }
     invoke.resolve()
+  }
+
+  /** Whether this Android defines the permission at all (Android 16 may not: asking for it then fails without a dialog). */
+  private fun localNetworkKnown(): Boolean = try {
+    activity.packageManager.getPermissionInfo(LOCAL_NETWORK, 0)
+    true
+  } catch (e: Exception) {
+    false
+  }
+
+  /** The app's page in system settings, where its permissions live; the general settings if even that cannot open. */
+  private fun openAppPermissions() {
+    try {
+      activity.startActivity(Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS, Uri.parse("package:" + activity.packageName)).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
+    } catch (e: Exception) {
+      try {
+        activity.startActivity(Intent(Settings.ACTION_SETTINGS).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
+      } catch (e2: Exception) {
+        // Nothing else to open.
+      }
+    }
   }
 
   // === PLAYER ===

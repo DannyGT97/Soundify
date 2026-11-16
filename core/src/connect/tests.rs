@@ -104,6 +104,14 @@ fn an_open_device_gives_a_token_without_a_pin_over_the_network_and_says_so_in_it
 }
 
 #[test]
+fn a_device_does_not_pair_with_itself() {
+    let rig = rig();
+    rig.pairing.set_open(true);
+    assert!(client::pair(rig.addr, "player-1", "Salón", "").is_err());
+    assert!(rig.pairing.trusted().is_empty());
+}
+
+#[test]
 fn anybody_can_ask_who_it_is() {
     let rig = rig();
     let info = client::fetch_info(rig.addr).unwrap();

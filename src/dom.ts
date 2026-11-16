@@ -36,12 +36,19 @@ export function h<K extends keyof HTMLElementTagNameMap>(
   return el;
 }
 
+let titleTools: (() => Node) | null = null;
+/** What every title row ends with (the ring and the bell): set by the shell, so this file does not import components. */
+export function setTitleTools(make: () => Node): void {
+  titleTools = make;
+}
+
 /** The title row every screen opens with, at the same height as the menu's header. */
 export function titleRow(iconName: IconName | null, title: string, ...extra: Child[]): HTMLElement {
   return h('div', { class: 'title-row' },
     iconName ? h('span', { class: 'title-icon' }, iconName === 'home' ? homeLogo(26) : icon(iconName, 26)) : null,
     h('h1', { class: 'page-title', text: title }),
-    ...extra);
+    ...extra,
+    titleTools?.());
 }
 
 export function card(...children: Child[]): HTMLElement {

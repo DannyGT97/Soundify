@@ -2,12 +2,13 @@ import './styles/theme.css';
 import './styles/app.css';
 import './styles/screens.css';
 import './styles/phone.css';
-import { h } from './dom';
+import { h, setTitleTools } from './dom';
 import { currentRoute, navigate, startRouter } from './router';
 import { loadPreferences } from './preferences';
 import { buildPlayerBar } from './components/playerBar';
 import { mountPip } from './components/pip';
 import { buildTitleBar } from './components/titleBar';
+import { activityButtons, watchActivity } from './components/activityButtons';
 import { buildSidebar, markActive } from './components/sidebar';
 import { downloadView } from './views/download';
 import { homeView } from './views/home';
@@ -47,11 +48,13 @@ if (app) {
   await restoreLast();
   api.onClosing(savePosition);
 
+  // The notices go in this column, above the screen.
+  const pageColumn = h('div', { class: 'page-col' }, h('main', { attrs: { id: 'page' } }));
   let sidebar = buildSidebar();
   let playerBar = buildPlayerBar();
   if (api.windowControls) app.append(buildTitleBar(api.windowControls));
   app.append(
-    h('div', { class: 'workspace' }, sidebar, h('main', { attrs: { id: 'page' } })),
+    h('div', { class: 'workspace' }, sidebar, pageColumn),
     playerBar,
     h('div', { attrs: { id: 'overlay-root' } }));
   // Another language: the menu and the bar are drawn again in place, and the
@@ -67,7 +70,10 @@ if (app) {
     navigate(route, params);
   });
   mountPip(app);
-  mountToasts(app);
+  mountToasts(pageColumn);
+  // The ring and the bell go at the end of every screen's title.
+  watchActivity();
+  setTitleTools(activityButtons);
   installSpaceToPlay();
   watchToolHealth();
   watchTools();

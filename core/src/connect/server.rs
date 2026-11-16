@@ -18,7 +18,7 @@ use tungstenite::protocol::{Role, WebSocketConfig};
 use tungstenite::{Message, WebSocket};
 
 use super::http::{self, Request};
-use super::pairing::{PairError, Pairing, Trusted};
+use super::pairing::{self, PairError, Pairing, Trusted};
 use super::resilient::Resilient;
 use super::stats::{self, short};
 use super::protocol::{BASE, ClientMessage, Command, DeviceInfo, PING_EVERY, PairRequest, PairResponse, PlayerState, QueueInfo, SILENCE_LIMIT, ServerMessage};
@@ -97,8 +97,9 @@ pub struct Server {
 impl Server {
     /// Starts listening on every interface. `port` 0 = any free one.
     pub fn start(port: u16, host: Arc<dyn Host>, pairing: Arc<Pairing>) -> io::Result<Server> {
+        // Blocking: the thread sleeps until someone connects (polling woke it 25 times a second, also on a phone in a pocket).
+        // `stop` wakes it with a connection of its own.
         let listener = TcpListener::bind(SocketAddr::from((Ipv4Addr::UNSPECIFIED, port)))?;
-        listener.set_nonblocking(true)?;
         let port = listener.local_addr()?.port();
         let shared = Arc::new(Shared {
             host,
@@ -144,7 +145,12 @@ impl Server {
     pub fn stop(&self) {
         self.shared.stop.store(true, Ordering::SeqCst);
         if let Some(thread) = self.accepting.lock().unwrap().take() {
-            let _ = thread.join();
+            // `accept` is waiting: a connection to itself lets it see the flag. If even that fails (a firewall in
+            // the way), the thread is left behind rather than waiting for it forever; it ends with the next caller.
+            let wake = SocketAddr::from((Ipv4Addr::LOCALHOST, self.port));
+            if TcpStream::connect_timeout(&wake, Duration::from_secs(1)).is_ok() {
+                let _ = thread.join();
+            }
         }
     }
 }
@@ -158,6 +164,7 @@ impl Drop for Server {
 fn accept_loop(listener: TcpListener, shared: Arc<Shared>) {
     while !shared.stop.load(Ordering::SeqCst) {
         match listener.accept() {
+            Ok(_) if shared.stop.load(Ordering::SeqCst) => break,
             Ok((stream, peer)) => {
                 if shared.connections.fetch_add(1, Ordering::SeqCst) >= MAX_CONNECTIONS {
                     shared.connections.fetch_sub(1, Ordering::SeqCst);
@@ -176,7 +183,7 @@ fn accept_loop(listener: TcpListener, shared: Arc<Shared>) {
                     warn!("Could not start a thread for a Connect connection");
                 }
             }
-            Err(e) if e.kind() == io::ErrorKind::WouldBlock => thread::sleep(Duration::from_millis(40)),
+            Err(e) if e.kind() == io::ErrorKind::Interrupted => {}
             Err(e) => {
                 warn!("Connect accept failed: {e}");
                 thread::sleep(Duration::from_millis(200));
@@ -186,7 +193,6 @@ fn accept_loop(listener: TcpListener, shared: Arc<Shared>) {
 }
 
 fn serve(shared: &Arc<Shared>, mut stream: TcpStream) -> io::Result<()> {
-    stream.set_nonblocking(false)?;
     stream.set_nodelay(true)?;
     stream.set_read_timeout(Some(Duration::from_secs(5)))?;
     stream.set_write_timeout(Some(Duration::from_secs(5)))?;
@@ -211,6 +217,10 @@ fn pair(shared: &Shared, stream: &mut TcpStream, request: &Request) -> io::Resul
     let Ok(body) = serde_json::from_slice::<PairRequest>(&request.body) else {
         return http::respond_json(stream, 400, &serde_json::json!({ "error": "badRequest" }));
     };
+    // This same app (its announcement read under another name): it does not control itself.
+    if body.controller_id == shared.host.info().device_id {
+        return http::respond_json(stream, 400, &serde_json::json!({ "error": "badRequest" }));
+    }
     match shared.pairing.pair(&body, Instant::now()) {
         Ok(token) => http::respond_json(stream, 200, &serde_json::to_value(PairResponse { token }).unwrap_or_default()),
         Err(PairError::NoPin) => http::respond_json(stream, 410, &serde_json::json!({ "error": "noPin" })),
@@ -229,6 +239,11 @@ fn websocket(shared: &Arc<Shared>, mut stream: TcpStream, request: &Request) -> 
         Some(who) => who,
         None => return http::respond_json(&mut stream, 401, &serde_json::json!({ "error": "unauthorized" })),
     };
+    // Paired with itself by an older version: refused, and the entry let go of.
+    if who.controller_id == shared.host.info().device_id {
+        let _ = shared.pairing.forget(&who.controller_id);
+        return http::respond_json(&mut stream, 401, &serde_json::json!({ "error": "unauthorized" }));
+    }
     let Some(key) = request.header("sec-websocket-key").filter(|_| request.wants_websocket()) else {
         return http::respond_json(&mut stream, 400, &serde_json::json!({ "error": "badRequest" }));
     };
@@ -255,7 +270,9 @@ fn websocket(shared: &Arc<Shared>, mut stream: TcpStream, request: &Request) -> 
     let (from, started) = (stream.peer_addr().map(|a| a.ip().to_string()).unwrap_or_else(|_| "?".into()), Instant::now());
     stats::accepted(1);
     info!("Soundify Connect: IN  {} #{} controls this device (from {from}, session {number}, {now} controllers now)", who.name, short(&who.controller_id));
+    shared.pairing.touch(&who.controller_id, pairing::now_secs());
     let result = session(shared, stream, &who, &mailbox);
+    shared.pairing.touch(&who.controller_id, pairing::now_secs());
     shared.outboxes.lock().unwrap().retain(|o| o.number != number);
     stats::closed(1);
     let lasted = format!("after {:.1}s", started.elapsed().as_secs_f32());
@@ -292,6 +309,8 @@ fn session(shared: &Shared, stream: TcpStream, who: &Trusted, mailbox: &Mailbox)
         if last_ping.elapsed() >= PING_EVERY {
             socket.send(Message::Ping(Vec::new().into())).map_err(io::Error::other)?;
             last_ping = Instant::now();
+            // Still connected: it counts as seen (so a connection that lasts for weeks is not let go of).
+            shared.pairing.touch(&who.controller_id, pairing::now_secs());
         }
         let read = socket.read();
         if !matches!(&read, Err(tungstenite::Error::Io(e)) if matches!(e.kind(), io::ErrorKind::WouldBlock | io::ErrorKind::TimedOut)) {

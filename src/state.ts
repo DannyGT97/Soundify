@@ -4,6 +4,7 @@
 
 import type { ActivityLine, TaskOrigin, Track } from './api/types';
 import type { Repeat } from './playerQueue';
+import type { Notice } from './notices';
 
 export type { Repeat } from './playerQueue';
 export type Theme = 'dark' | 'light' | 'dark-neutral' | 'light-neutral' | 'dark-red' | 'dark-blue' | 'amoled' | 'light-red' | 'light-blue';
@@ -50,9 +51,11 @@ export const ui = {
   unseenResult: null as TaskStatus | null,
   history: [] as FinishedTask[],
   activity: [] as ActivityLine[],
+  /** What was notified (newest first), for the list behind the bell. */
+  notices: [] as Notice[],
 };
 
-type Topic = 'library' | 'player' | 'tasks' | 'activity' | 'theme' | 'player-placement' | 'tools' | 'storage' | 'connect';
+type Topic = 'library' | 'player' | 'tasks' | 'activity' | 'theme' | 'player-placement' | 'tools' | 'storage' | 'connect' | 'notices';
 const listeners = new Map<Topic, Set<() => void>>();
 
 export function subscribe(topic: Topic, listener: () => void): () => void {

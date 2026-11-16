@@ -41,6 +41,8 @@ test('«Abrir en el Reproductor» shows each file as it lands', async ({ page })
   const mp3 = page.locator('.pm-block').nth(0);
   await mp3.getByRole('button', { name: 'Sincronizar' }).click();
   await mp3.getByRole('button', { name: 'Abrir en el Reproductor' }).click();
+  // The playlist opens on its downloaded files; the pending ones are looked at in «Todos».
+  await page.locator('.state-chips .fchip', { hasText: 'Todos' }).click();
   const pending = page.locator('.tracks .pill.warn');
   await expect(pending).toHaveCount(2);
 
@@ -52,11 +54,22 @@ test('«Abrir en el Reproductor» shows each file as it lands', async ({ page })
   await expect(pending).toHaveCount(0);
 });
 
+test('a sync from the Gestor does not show the green strip in the download screens, only the ring', async ({ page }) => {
+  await openPaused(page, '/#/manager?open=pl4');
+  await page.locator('.pm-block').filter({ hasText: 'OPUS' }).getByRole('button', { name: 'Sincronizar' }).click();
+  await expect(page.locator('.activity-ring')).toBeVisible();
+  for (const route of ['download', 'new-playlist']) {
+    await page.goto(`/#/${route}`);
+    await expect(page.locator('.activity-ring')).toBeVisible();
+    await expect(page.locator('.download-strip:visible')).toHaveCount(0);
+  }
+});
+
 test('«Ir a la descarga» opens the Gestor on the block being downloaded', async ({ page }) => {
   await openPaused(page, '/#/manager?open=pl4');
   await page.locator('.pm-block').filter({ hasText: 'OPUS' }).getByRole('button', { name: 'Sincronizar' }).click();
   await page.goto('/#/home');
-  await page.locator('.tasks-pill').click();
+  await page.locator('.activity-ring').click();
   await page.locator('#overlay-root').getByRole('button', { name: 'Ir a la descarga' }).click();
   await expect(page).toHaveURL(/#\/manager\?open=pl4/);
   // The scroll waits for the next frame and glides over several: all of them come from the paused clock.
@@ -77,11 +90,11 @@ test('a second Sincronizar waits in the queue, shows in Tareas, can be taken out
 
   // The same archive twice is refused: the running one has Detener, not Sincronizar.
   await expect(mp3.getByRole('button', { name: 'Detener' })).toBeVisible();
-  await page.locator('.tasks-pill').click();
+  await page.locator('.activity-ring').click();
   const overlay = page.locator('#overlay-root');
   await expect(overlay.locator('[data-queued]')).toHaveCount(1);
   await expect(overlay.getByText('En cola (1)')).toBeVisible();
-  await expect(page.locator('.tasks-pill-sub')).toContainText('+1 en cola');
+  await expect(page.locator('.activity-ring-sub')).toContainText('+1 en cola');
 
   // Taken out from Tareas, the block is a plain Sincronizar again.
   await overlay.getByRole('button', { name: 'Quitar de la cola' }).click();
@@ -116,7 +129,7 @@ test('with «Descargar más rápido» two blocks download at once, a third waits
   await expect(flac.locator('.pm-badge')).toHaveText('Descargando');
   await expect(mp3.getByRole('button', { name: 'Detener' })).toBeVisible();
   await expect(flac.getByRole('button', { name: 'Detener' })).toBeVisible();
-  await expect(page.locator('.tasks-pill-title')).toContainText('2 descargas');
+  await expect(page.locator('.activity-ring-text')).toContainText('2 descargas');
 
   // Each one counts its own files: MP3 has two pending, FLAC walks one.
   await page.clock.runFor(2_100);
@@ -129,7 +142,7 @@ test('with «Descargar más rápido» two blocks download at once, a third waits
   const opus = row.locator('.pm-block');
   await opus.getByRole('button', { name: 'Sincronizar' }).click();
   await expect(opus.locator('.pm-badge')).toHaveText('En cola');
-  await expect(page.locator('.tasks-pill-sub')).toContainText('+1 en cola');
+  await expect(page.locator('.activity-ring-sub')).toContainText('+1 en cola');
 
   // Stopping MP3 leaves FLAC going, and frees the room for the one that waited.
   await mp3.getByRole('button', { name: 'Detener' }).click();
@@ -139,7 +152,7 @@ test('with «Descargar más rápido» two blocks download at once, a third waits
   await expect(opus.locator('.pm-badge')).toHaveText('Descargando');
 
   // Tareas lists both and can stop them together.
-  await page.locator('.tasks-pill').click();
+  await page.locator('.activity-ring').click();
   const overlay = page.locator('#overlay-root');
   await expect(overlay.locator('[data-running]')).toHaveCount(2);
   await overlay.getByRole('button', { name: 'Detener todas' }).click();
@@ -154,5 +167,5 @@ test('the same block cannot be started twice with several downloads at once, and
   await page.locator('.pm-block').nth(0).getByRole('button', { name: 'Sincronizar' }).click();
   await page.locator('.pm-block').nth(1).getByRole('button', { name: 'Sincronizar' }).click();
   await expect(page.locator('.pm-block').nth(1).locator('.pm-badge')).toHaveText('En cola');
-  await expect(page.locator('.tasks-pill-title')).not.toContainText('2 descargas');
+  await expect(page.locator('.activity-ring-text')).not.toContainText('2 descargas');
 });

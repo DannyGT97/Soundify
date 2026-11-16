@@ -1,4 +1,5 @@
 import { h, titleRow } from '../dom';
+import { downloadStrip } from '../components/downloadStrip';
 import { icon } from '../icons';
 import { t } from '../i18n';
 import { destinations, fieldLabel, footerSummary, formatPicker, formSwitch, keepsPickedCover, urlCover } from '../components/form';
@@ -73,7 +74,7 @@ export function downloadView(params: Params = {}): HTMLElement {
   return h('div', { class: 'screen fp' },
     h('div', { class: 'fp-body' },
       formSwitch('download'),
-      h('div', { class: 'screen-head' }, titleRow('download', t('download.title'))),
+      h('div', { class: 'screen-head' }, titleRow('download', t('download.title')), downloadStrip()),
       toolsNotice(),
       h('div', { class: 'url-wrap' }, picture.node,
         h('div', { class: 'grow min0' }, h('label', { class: 'field-label', text: t('download.url'), attrs: { for: 'url' } }), url, hint)),

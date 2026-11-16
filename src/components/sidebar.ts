@@ -4,8 +4,6 @@ import { t } from '../i18n';
 import { icon, type IconName } from '../icons';
 import { navigate, type Route } from '../router';
 import { subscribeWhile, ui } from '../state';
-import { overallPercent, percent, pillResult, statusMark } from '../tasks';
-import { openTasksOverlay } from '../overlays/tasks';
 import { openOverlay } from './overlay';
 import { devicesButton } from './devicesButton';
 import { themePicker } from './themePicker';
@@ -56,7 +54,7 @@ export function buildSidebar(): HTMLElement {
   }
   // With nothing playing the mini player is not there, and the devices button with it: this one takes its place, so «Dispositivos» is always within reach.
   const idleDevices = devicesButton('side-devices-idle');
-  const footer = h('div', { class: 'sidebar-bottom' }, buildTasksPill(), buildMiniPlayer(idleDevices),
+  const footer = h('div', { class: 'sidebar-bottom' }, buildMiniPlayer(idleDevices),
     h('div', { class: 'sidebar-separator' }),
     navButton('settings', 'nav.settings', 'settings'),
     h('div', { class: 'sidebar-version' }, h('span', { class: 'sidebar-version-text grow', text: `${t('nav.version')} ${appVersion()}` }),
@@ -79,33 +77,6 @@ export function markActive(route: Route): void {
   // The phone has one tab for both ways of downloading.
   buttons.get('download')?.classList.toggle('phone-selected', route === 'new-playlist');
 }
-function buildTasksPill(): HTMLElement {
-  const ring = h('div', { class: 'tasks-ring' });
-  const title = h('div', { class: 'tasks-pill-title' });
-  const sub = h('div', { class: 'tasks-pill-sub' });
-  const pill = h('button', { class: 'tasks-pill', title: t('tasks.title'), onclick: openTasksOverlay }, ring, h('div', { class: 'tasks-pill-text' }, title, sub));
-  const refresh = () => {
-    const task = ui.task, result = pillResult(); pill.hidden = !task && !result;
-    if (task) {
-      // Two at once: one ring for both, and both titles.
-      const several = ui.running.length > 1;
-      const pct = several ? overallPercent(ui.running) : percent();
-      ring.replaceChildren(progressRing(pct));
-      title.textContent = several ? t('tasks.pill.several', ui.running.length, pct ?? 0) : task.step === 'retry' ? t('tasks.pill.retry') : pct === null ? t('tasks.pill.preparing') : t('tasks.pill.downloading', pct);
-      const names = ui.running.map(running => running.title).join(' · ');
-      sub.textContent = ui.queue.length ? `${names} · ${t('tasks.pill.more', ui.queue.length)}` : names;
-    }
-    else if (result) { const status = result, mark = statusMark(status); ring.replaceChildren(h('span', { class: `mark-${status}` }, icon(mark.icon, 18))); title.textContent = t(`tasks.pill.${status}`); sub.textContent = ui.history[0]?.title ?? ''; }
-  };
-  subscribeWhile(pill, 'tasks', refresh); refresh(); return pill;
-}
-function progressRing(pct: number | null): SVGSVGElement {
-  const ns = 'http://www.w3.org/2000/svg', svg = document.createElementNS(ns, 'svg');
-  svg.setAttribute('viewBox', '0 0 26 26'); svg.setAttribute('width', '26'); svg.setAttribute('height', '26');
-  const radius = 10, length = 2 * Math.PI * radius;
-  for (const cls of ['ring-track', 'ring-arc']) { const circle = document.createElementNS(ns, 'circle'); circle.setAttribute('cx', '13'); circle.setAttribute('cy', '13'); circle.setAttribute('r', String(radius)); circle.setAttribute('class', cls); if (cls === 'ring-arc') { const shown = pct === null ? .25 : pct / 100; circle.setAttribute('stroke-dasharray', `${length * shown} ${length}`); } svg.append(circle); }
-  if (pct === null) svg.classList.add('ring-spin'); return svg;
-}
 function buildMiniPlayer(idleDevices: HTMLElement): HTMLElement {
   // Cover and title open Reproduciendo; the playlist's name, that playlist in the Reproductor.
   const art = h('div', { class: 'mini-cover', onclick: () => navigate('now-playing') });
@@ -125,6 +96,7 @@ function buildMiniPlayer(idleDevices: HTMLElement): HTMLElement {
   const mini = h('div', { class: 'mini-player' }, art, h('div', { class: 'mini-text' }, title, meta), pipButton(), toggle, controls, progress);
   let shownKey = '';
   let shownRepeat = '';
+  let shownPlaying: boolean | null = null;
   const refresh = () => {
     const np = ui.nowPlaying; mini.hidden = !np || !['side', 'both'].includes(ui.playerPlacement);
     idleDevices.classList.toggle('gone', !mini.hidden);
@@ -133,8 +105,12 @@ function buildMiniPlayer(idleDevices: HTMLElement): HTMLElement {
     // Only when the track changes: this runs on every tick, and a new tile would fetch its picture again.
     const key = `${np.blockKey}/${np.track.id}`;
     if (key !== shownKey) { shownKey = key; art.replaceChildren(cover(np.track.title, found?.block.video ?? false, 40, { kind: 'thumbnail', id: np.track.id })); }
-    toggle.replaceChildren(icon(ui.playing ? 'pause' : 'play', 16, true));
-    toggle.title = t(ui.playing ? 'player.pause' : 'player.play');
+    // Only when it changes, like repeat below: swapped on every tick, a press that spans one is lost.
+    if (ui.playing !== shownPlaying) {
+      shownPlaying = ui.playing;
+      toggle.replaceChildren(icon(ui.playing ? 'pause' : 'play', 16, true));
+      toggle.title = t(ui.playing ? 'player.pause' : 'player.play');
+    }
     shuffle.classList.toggle('on', ui.shuffle);
     // Only when it changes: this runs with every tick, and a button whose content is swapped between press and release loses its click.
     if (ui.repeat !== shownRepeat) {

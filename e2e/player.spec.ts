@@ -89,35 +89,40 @@ test('Inicio: the «Sonando» card opens Reproduciendo and its round button only
   await expect(page).toHaveURL(/#\/now-playing/);
 });
 
-test('a download from the URL screen shows in the menu indicator', async ({ page }) => {
+test('a download from the URL screen shows in the ring of the title', async ({ page }) => {
   await page.clock.install();
   await page.goto('/#/download');
   await page.locator('input.input').first().fill('https://www.youtube.com/watch?v=abc');
   await page.locator('.dest', { hasText: 'Carpeta local' }).click();
   await page.getByRole('button', { name: 'Descargar', exact: true }).click();
-  await expect(page.locator('.tasks-pill')).toBeVisible();
+  await expect(page.locator('.activity-ring')).toBeVisible();
+  // The line under the title says it too, while it runs, with the way to the Gestor.
+  await expect(page.locator('.download-strip')).toBeVisible();
   await page.clock.runFor(10_000);
-  await expect(page.locator('.tasks-pill-title')).toHaveText('Terminada');
+  await expect(page.locator('.activity-ring-text')).toHaveText('Terminada');
 });
 
-test('the tasks pill stays after closing its window and only goes when the finished ones are cleared', async ({ page }) => {
+test('the ring shows the result for a few seconds and goes; the bell keeps what happened', async ({ page }) => {
   await page.clock.install();
   await page.goto('/#/download');
   await page.locator('input.input').first().fill('https://www.youtube.com/watch?v=abc');
   await page.locator('.dest', { hasText: 'Carpeta local' }).click();
   await page.getByRole('button', { name: 'Descargar', exact: true }).click();
-  await page.clock.runFor(10_000);
-  const pill = page.locator('.tasks-pill');
-  await expect(pill).toBeVisible();
+  const ring = page.locator('.activity-ring');
+  await expect(ring).toBeVisible();
+  // Second by second until the download ends: the result then stays in the ring for a few seconds.
+  for (let second = 0; second < 15 && !(await ring.evaluate(el => el.classList.contains('flash') && !el.hidden)); second++) await page.clock.runFor(1_000);
+  await expect(ring).toHaveClass(/flash/);
+  await expect(ring).toBeVisible();
+  await page.clock.runFor(6_000);
+  await expect(ring).toBeHidden();
+  await expect(page.locator('.download-strip')).toBeHidden();
 
-  await pill.click();
-  await page.keyboard.press('Escape');
-  await expect(pill).toBeVisible();
-
-  await pill.click();
+  // What happened stays in the window of the bell.
+  await page.locator('.activity-bell').click();
+  await expect(page.locator('#overlay-root .history-row:not(.notice-row)').first()).toContainText('Terminada');
   await page.getByRole('button', { name: 'Borrar terminadas' }).click();
-  await page.keyboard.press('Escape');
-  await expect(pill).toBeHidden();
+  await expect(page.locator('#overlay-root .history-row:not(.notice-row)')).toHaveCount(0);
 });
 
 test('Descarga por URL refuses a list, even a video opened from inside one, and points to Crear Playlist', async ({ page }) => {
@@ -441,6 +446,15 @@ test('a playlist with missing files lists them by state and syncs from the same 
   await page.getByRole('button', { name: /Sincronizar/ }).click();
   await expect(page.locator('.sync-live .progress')).toBeVisible();
   await expect(page.locator('.sync-slot .pm-live')).toBeVisible();
+});
+
+test('a playlist opens on its downloaded files, and «Todos» brings the rest back', async ({ page }) => {
+  await page.goto('/#/player?b=pl1:MP3');
+  const chips = page.locator('.state-chips .fchip');
+  await expect(chips.filter({ hasText: 'Descargados' })).toHaveClass(/on/);
+  await expect(page.locator('.tracks .track.off')).toHaveCount(0);
+  await chips.filter({ hasText: 'Todos' }).click();
+  await expect(page.locator('.tracks .track.off')).toHaveCount(2);
 });
 
 test('a playlist with every file on disk has no state chips and no Sincronizar', async ({ page }) => {

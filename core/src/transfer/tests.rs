@@ -340,6 +340,24 @@ fn importing_rebuilds_the_paths_against_the_new_folder() {
 }
 
 #[test]
+fn an_imported_file_is_dated_by_the_file_not_by_the_day_of_the_import() {
+    let f = Fixture::new();
+    f.write_archive(true);
+    f.export();
+    let manifest = f.manifest_at(&f.exported());
+    // A file downloaded long ago: its date on disk says so.
+    let file = f.exported().join("001 - Tema bajado.mp3");
+    let long_ago = std::time::SystemTime::UNIX_EPOCH + std::time::Duration::from_secs(1_700_000_000);
+    std::fs::File::options().append(true).open(&file).unwrap().set_modified(long_ago).unwrap();
+
+    let imported = to_archive_data(&f.storage, &manifest, &Fixture::loc(&f.exported()), NOW).unwrap();
+    let added = imported.entries[ID_1].added_at.clone().unwrap();
+    assert!(added.starts_with("2023-11-1"), "dated by the file (November 2023), not {added}");
+    // What has no file on disk has nothing to date it by: the day of the import.
+    assert_eq!(imported.entries[ID_2].added_at.as_deref(), Some(NOW));
+}
+
+#[test]
 fn what_was_copied_counts_as_downloaded_and_the_rest_stays_pending() {
     let f = Fixture::new();
     f.write_archive(true);

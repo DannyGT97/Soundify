@@ -281,7 +281,8 @@ function detailView(key: string, params: Params): HTMLElement {
   if (!opened) return libraryView();
   let { playlist, block } = opened;
   let filter = '';
-  let stateFilter: StateFilter = isStateFilter(params.f) ? params.f : 'all';
+  // What can be played first: the downloaded ones (it goes back to all of them if there are none).
+  let stateFilter: StateFilter = isStateFilter(params.f) ? params.f : 'ok';
   let known = new Set(onDisk(block.tracks).map(track => track.id));
   let landed = new Set<string>();
   const from: Params = params.from ? { from: params.from } : {};
@@ -316,11 +317,11 @@ function detailView(key: string, params: Params): HTMLElement {
       search.focus();
     }
   } }, icon('search', 18));
+  const inManager = h('button', { class: 'icon-button', title: t('player.seeInManager'), attrs: { 'aria-label': t('player.seeInManager') }, onclick: seeInManager }, icon('manager', 18));
   const more = h('button', { class: 'icon-button', title: t('manager.menu.more') }, icon('more', 18));
   more.addEventListener('click', () => openMenu(more, [
     { icon: 'folder-open', label: t('manager.openFolder'), run: () => openFolder(playlist, block) },
     { icon: 'image', label: t('manager.menu.cover'), run: () => void changeCover(playlist) },
-    { icon: 'manager', label: t('player.seeInManager'), run: seeInManager },
   ]));
   function seeInManager(): void {
     navigate('manager', { open: playlist.id, focus: block.key });
@@ -560,7 +561,7 @@ function detailView(key: string, params: Params): HTMLElement {
     h('div', { class: 'actions' },
       heroPlay, shuffle, syncSlot, switcher,
       h('div', { class: 'spacer' }),
-      search, searchToggle, more),
+      search, searchToggle, inManager, more),
     liveRow);
 
   const scroller = h('div', { class: 'scroller' }, hero, notice, chips, cols, tracks, none);

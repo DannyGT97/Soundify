@@ -17,7 +17,8 @@ const MAX_LINE: usize = 600;
 const LOG_TAIL_BYTES: u64 = 48 * 1024;
 
 /// The page writes to the same log as the back (`app_lib::front`): its loops and its errors used to leave no trace.
-#[tauri::command]
+// Off the main thread (a plain command runs on it: the window, or the phone's UI thread, waited for the disk).
+#[tauri::command(async)]
 pub fn log_event(level: String, area: String, message: String) {
     let text: String = message.replace(['\r', '\n'], " ").chars().take(MAX_LINE).collect();
     let area: String = area.chars().filter(|c| c.is_ascii_alphanumeric() || *c == '-' || *c == '_').take(24).collect();
@@ -60,7 +61,8 @@ fn tail(path: &Path, bytes: u64) -> String {
     if start > 0 { text.split_once('\n').map(|(_, rest)| rest.to_string()).unwrap_or_default() } else { text }
 }
 
-#[tauri::command]
+// Off the main thread (a plain command runs on it: the window, or the phone's UI thread, waited for the disk).
+#[tauri::command(async)]
 pub fn diagnostics(app: AppHandle, state: State<'_, AppState>, connect: State<'_, ConnectState>) -> String {
     let version = app.package_info().version.to_string();
     let platform = if cfg!(target_os = "android") { "android" } else if cfg!(windows) { "windows" } else if cfg!(target_os = "macos") { "macos" } else { "linux" };

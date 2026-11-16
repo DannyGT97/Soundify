@@ -7,6 +7,7 @@ import { subscribe, ui, type RunningTask, type TaskStatus } from '../state';
 import { api } from '../api';
 import { findBlock } from '../library';
 import { fileNumber, markSeen, originText, percent, statusMark, summaryText } from '../tasks';
+import { clearNotices, markNoticesRead, noticeTime, type NoticeTone } from '../notices';
 import { openActivityOverlay } from './activity';
 
 let historyVisible = true;
@@ -18,9 +19,13 @@ export function openTasksOverlay(): void {
   const body = h('div', { class: 'stack' });
   const refresh = () => body.replaceChildren(...content());
   const unsubscribe = subscribe('tasks', refresh);
+  // What comes up while the window is open is read as it arrives: the dot of the bell does not light for it.
+  const unsubscribeNotices = subscribe('notices', () => { refresh(); markNoticesRead(); });
   refresh();
+  markNoticesRead();
   openOverlay(t('tasks.title'), [body], { onClose: () => {
     unsubscribe();
+    unsubscribeNotices();
     api.setTasksWindowOpen(false);
   } });
 }
@@ -68,6 +73,18 @@ function content(): Node[] {
       h('button', { class: 'icon-button', title: t('tasks.queue.remove'), attrs: { 'aria-label': t('tasks.queue.remove') }, onclick: () => api.removeQueued(item.id) }, icon('close', 16))))));
   }
 
+  nodes.push(h('div', { class: 'row center gap-8' },
+    h('div', { class: 'section-label', text: t('notices.title', ui.notices.length) }),
+    h('div', { class: 'grow' }),
+    ui.notices.length ? h('button', { class: 'text-button', text: t('notices.clear'), onclick: clearNotices }) : null));
+  if (!ui.notices.length) nodes.push(h('p', { class: 'help', text: t('notices.empty') }));
+  else {
+    nodes.push(h('div', { class: 'history-list', attrs: { 'data-notices': '' } }, ...ui.notices.map(notice => h('div', { class: 'history-row notice-row' },
+      h('span', { class: `tasks-mark notice-mark tone-${notice.tone}` }, icon(NOTICE_ICON[notice.tone], 18)),
+      h('div', { class: 'grow min0' }, h('div', { class: 'row-title', text: notice.text })),
+      h('span', { class: 'subtitle', text: noticeTime(notice.at) })))));
+  }
+
   const toggle = h('button', { class: 'text-button', text: historyVisible ? t('tasks.history.hide') : t('tasks.history.show') });
   toggle.addEventListener('click', () => {
     historyVisible = !historyVisible;
@@ -90,6 +107,8 @@ function content(): Node[] {
   return nodes;
 }
 
+const NOTICE_ICON: Record<NoticeTone, 'ok' | 'warning' | 'error' | 'info'> = { success: 'ok', warning: 'warning', error: 'error', info: 'info' };
+
 function progressText(task: RunningTask, pct: number | null): string {
   if (task.step === 'retry') return t('tasks.pill.retry');
   return pct === null ? t('tasks.pill.preparing') : t('tasks.progress', fileNumber(task), task.total);
@@ -105,7 +124,7 @@ function markOf(status: TaskStatus): HTMLElement {
  * unfolded and the block in view. A loose URL has no block there, so it goes
  * back to the download screen.
  */
-function goTo(task: RunningTask): void {
+export function goTo(task: RunningTask): void {
   const found = findBlock(task.blockKey);
   if (found) navigate('manager', { open: found.playlist.id, focus: found.block.key });
   else navigate(task.origin === 'manager' ? 'manager' : 'download');

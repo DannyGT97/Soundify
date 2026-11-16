@@ -10,8 +10,10 @@ import { currentIsVideo, hidePip, parkVideo, showPip, videoView } from '../playe
 import { chooseAutoPip } from '../preferences';
 import { subscribe, ui } from '../state';
 import { cover } from '../components/cover';
+import { playlistPicture, queuePicture } from '../covers';
 import { buildTransport, buildVolume, describe } from '../components/transport';
 import { pipButton } from '../components/pip';
+import { activityButtons } from '../components/activityButtons';
 import { openDevicesSwitcher } from '../overlays/devicesSwitcher';
 
 /** How long the controls stay over a full-screen video after the mouse stops. */
@@ -44,11 +46,12 @@ export function nowPlayingView(): HTMLElement {
         h('button', { class: 'secondary-button', onclick: () => navigate('player') }, icon('list', 16), h('span', { text: t('nowPlaying.goToPlayer') })))));
   // Back to the playlist that is playing, in the Reproductor (its list when nothing is); while another device is
   // controlled, to its playlist (a remote playlist: the songs are there, and one can be picked from here).
-  const back = h('button', { class: 'icon-button np-back', onclick: () => {
+  const goToPlaylist = () => {
     if (ui.remote) navigate('remote-playlist');
     else if (ui.nowPlaying) navigate('player', { b: ui.nowPlaying.blockKey });
     else navigate('player');
-  } }, icon('back', 22));
+  };
+  const back = h('button', { class: 'icon-button np-back', onclick: goToPlaylist }, icon('back', 22));
   const paintBack = () => {
     const label = t(ui.remote ? 'nowPlaying.backRemote' : 'nowPlaying.back');
     back.title = label;
@@ -89,21 +92,29 @@ export function nowPlayingView(): HTMLElement {
   // The window's title: the playlist that sounds (and, when it is on another device, that it is a remote playlist).
   const headEyebrow = h('div', { class: 'np-head-eyebrow' });
   const headTitle = h('div', { class: 'np-head-name ellipsis' });
-  const head = h('div', { class: 'np-head-title grow min0' }, headEyebrow, headTitle);
+  // Pressing it goes to the playlist (the same as the arrow), with the playlist's cover at its left.
+  const headCover = h('span', { class: 'np-head-cover' });
+  const head = h('button', { class: 'np-head-title np-head-link grow min0', attrs: { type: 'button' }, onclick: goToPlaylist },
+    headCover, h('span', { class: 'np-head-text min0' }, headEyebrow, headTitle));
   const paintHead = () => {
     const np = ui.nowPlaying;
-    const name = !np ? '' : ui.remote ? (connect.queue?.playlist ?? '') : findBlock(np.blockKey)?.playlist.title ?? '';
+    const found = np && !ui.remote ? findBlock(np.blockKey) : null;
+    const name = !np ? '' : ui.remote ? (connect.queue?.playlist ?? '') : found?.playlist.title ?? '';
     headEyebrow.textContent = np && ui.remote ? t('remotePlaylist.eyebrow') : '';
     headEyebrow.hidden = !(np && ui.remote);
     headTitle.textContent = name;
-    headTitle.title = name;
+    head.title = name ? t(ui.remote ? 'nowPlaying.backRemote' : 'nowPlaying.back') : '';
+    head.disabled = !name;
+    if (!name) headCover.replaceChildren();
+    else if (ui.remote) headCover.replaceChildren(cover(name, false, 36, queuePicture(connect.queue)));
+    else if (found) headCover.replaceChildren(cover(name, found.block.video, 36, playlistPicture(found.playlist)));
   };
 
   const screen = h('div', { class: 'screen np-screen' },
     backdrop,
     h('div', { class: 'np-tint' }),
     h('div', { class: 'np-content' },
-      h('div', { class: 'np-head' }, head, back),
+      h('div', { class: 'np-head' }, head, activityButtons(), back),
       empty,
       art,
       info,

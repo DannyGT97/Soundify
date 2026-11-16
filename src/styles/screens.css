@@ -172,6 +172,8 @@ button.fmt:hover { background: var(--sp-icon-btn-hover); color: var(--sp-text-st
 .mod.import .ways { flex: 1; min-height: 196px; gap: 12px; }
 .ways { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
 .way { display: flex; flex-direction: column; gap: 9px; padding: 18px 26px; border-radius: 10px; background: var(--sp-field); align-items: center; justify-content: center; text-align: center; }
+/* Where a way is hidden (the USB one on Android) the one left takes the whole row. */
+[data-platform="android"] .ways > .way:not(.desktop-only) { grid-column: 1 / -1; }
 .way b { color: var(--sp-text-strong); font-size: 15px; font-weight: 800; }
 .way p { font-size: 13px; max-width: 290px; }
 .way .primary-button, .way .secondary-button { width: 100%; max-width: 250px; padding: 9px 12px; margin-top: 5px; }

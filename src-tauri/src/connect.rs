@@ -356,6 +356,8 @@ pub struct ControllerView {
     id: String,
     name: String,
     kind: String,
+    /// Seconds since 1970 when it last connected.
+    last_seen: Option<u64>,
 }
 
 #[derive(Serialize)]
@@ -398,7 +400,7 @@ pub fn connect_status(app: AppHandle, state: State<'_, ConnectState>) -> Status 
         name: config.name,
         device_id: config.device_id,
         selected: state.connect.selected(),
-        controllers: state.connect.controllers().into_iter().map(|t| ControllerView { id: t.controller_id, name: t.name, kind: t.kind }).collect(),
+        controllers: state.connect.controllers().into_iter().map(|t| ControllerView { id: t.controller_id, name: t.name, kind: t.kind, last_seen: t.last_seen }).collect(),
         connected_controllers: state.connect.connected_controllers(),
     }
 }

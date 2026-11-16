@@ -23,7 +23,7 @@
 
   /* === THE SHELL === */
   .workspace { display: contents; }
-  #page { order: 1; flex: 1; min-height: 0; }
+  .page-col { order: 1; flex: 1; min-height: 0; }
   .player-bar { order: 2; }
 
   .sidebar, .sidebar.collapsed {
@@ -45,18 +45,6 @@
   :root[data-scale="150"] .nav-label-short, :root[data-scale="175"] .nav-label-short { display: none; }
   .nav-button.selected, .nav-button.phone-selected { background: transparent; color: var(--sp-text-strong); }
   .nav-button.phone-selected .icon, .nav-button.selected .icon { color: var(--sp-accent); }
-
-  /* Out of the tab bar: a sixth tab that comes and goes would move the others. */
-  .tasks-pill, .sidebar.collapsed .tasks-pill {
-    position: fixed; top: 8px; right: 12px; z-index: 50; width: auto; max-width: 60vw;
-    padding: 5px 10px 5px 6px; border-radius: 18px; justify-content: flex-start;
-    background: var(--sp-task-bg); box-shadow: 0 2px 10px var(--sp-shadow-soft);
-  }
-  .sidebar .tasks-pill-text { display: block; }
-  .tasks-pill-sub { display: none; }
-  /* The pill floats over the top right corner: while it shows, the screens start below it
-     instead of letting it cover their first row (the Descargar/Crear Playlist switch, a title). */
-  #app:has(.tasks-pill:not([hidden])) .screen { padding-top: 54px; }
 
   .screen { padding: 8px 8px 12px; }
   /* A playlist (local or remote) fills the whole width and height: on a phone no edge is spare. */
@@ -132,10 +120,10 @@
   .mod.import { height: auto; }
   .mod.import .mod-body { overflow-y: auto; }
   .mod.import .ways { flex: none; }
-  .toast-stack { left: 12px; right: 12px; bottom: 72px; width: auto; }
 
   /* === AJUSTES === */
-  .settings-search { width: 100%; }
+  /* The search goes to its own line BELOW, after the bell: in DOM order the bell wrapped alone onto a middle line. */
+  .settings-search { width: 100%; order: 1; }
   .settings-card > .row { flex-direction: column; align-items: stretch; }
   .select-fit { width: 100%; }
 }
@@ -150,10 +138,9 @@
 
 /* === TYPING === */
 /* `platform.ts` sets data-typing while the on-screen keyboard is open over a text field. What is left of
-   the page is a sliver, so the menu, the player bar, the task pill and the form's summary wait. */
+   the page is a sliver, so the menu, the player bar and the form's summary wait. */
 :root[data-typing] .sidebar,
 :root[data-typing] .player-bar,
-:root[data-typing] .tasks-pill,
 :root[data-typing] .fp-foot { display: none !important; }
 
 /* === TOUCH === */

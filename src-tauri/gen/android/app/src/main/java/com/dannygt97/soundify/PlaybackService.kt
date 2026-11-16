@@ -5,10 +5,13 @@ import android.content.Intent
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
+import androidx.annotation.OptIn
 import androidx.media3.common.AudioAttributes
 import androidx.media3.common.C
 import androidx.media3.common.ForwardingPlayer
 import androidx.media3.common.Player
+import androidx.media3.common.TrackSelectionParameters
+import androidx.media3.common.util.UnstableApi
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.session.CommandButton
 import androidx.media3.session.MediaSession
@@ -52,6 +55,7 @@ class PlaybackService : MediaSessionService() {
   /** The queue's last file ended and nothing came: after a while the notice stops holding the app up. */
   private val releaseAfterEnd = Runnable { session?.player?.let { if (it.playbackState == Player.STATE_ENDED) it.pause() } }
 
+  @OptIn(UnstableApi::class)
   override fun onCreate() {
     super.onCreate()
     val exo = ExoPlayer.Builder(this)
@@ -60,6 +64,28 @@ class PlaybackService : MediaSessionService() {
         true, // takes the audio focus: a call or another player pauses it
       )
       .setHandleAudioBecomingNoisy(true) // unplugged headphones pause it
+      // Keeps the CPU awake while it plays (screen off included); Media3 lets go of it while the audio is offloaded.
+      .setWakeMode(C.WAKE_MODE_LOCAL)
+      // Without it the playback thread wakes up every 10 ms for the whole song (measured: ~5 % of a core on its own with
+      // the screen off); with it, it sleeps until the audio buffer needs more.
+      .experimentalSetDynamicSchedulingEnabled(true)
+      .build()
+    // The phone's audio chip decodes the file when it can (MP3, AAC…), so the CPU sleeps between buffers:
+    // measured on the S24+, decoding in software cost 7–12 % of a core all along. Gapless and speed changes are not used.
+    exo.trackSelectionParameters = exo.trackSelectionParameters.buildUpon()
+      .setAudioOffloadPreferences(
+        TrackSelectionParameters.AudioOffloadPreferences.Builder()
+          .setAudioOffloadMode(TrackSelectionParameters.AudioOffloadPreferences.AUDIO_OFFLOAD_MODE_ENABLED)
+          .setIsGaplessSupportRequired(false)
+          .setIsSpeedChangeSupportRequired(false)
+          .build(),
+      )
+      // Only sound: Media3 does not offload while any other track is selected, and the picture yt-dlp embeds in an
+      // mp3 is one. Video plays in the web page, never here.
+      .setTrackTypeDisabled(C.TRACK_TYPE_VIDEO, true)
+      .setTrackTypeDisabled(C.TRACK_TYPE_IMAGE, true)
+      .setTrackTypeDisabled(C.TRACK_TYPE_METADATA, true)
+      .setTrackTypeDisabled(C.TRACK_TYPE_TEXT, true)
       .build()
     exo.addListener(object : Player.Listener {
       override fun onPlaybackStateChanged(state: Int) {

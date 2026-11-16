@@ -16,6 +16,7 @@ use serde::Serialize;
 use crate::Location;
 use crate::archive::io::{self, ARCHIVE_TXT, DATA_JSON, MANIFEST_NAME};
 use crate::archive::sync;
+use crate::clock;
 use crate::model::{ArchiveData, ArchiveEntry, ManifestItem, PlaylistManifest};
 use crate::paths;
 use crate::storage::Storage;
@@ -753,10 +754,15 @@ pub fn to_archive_data(
         {
             last_number = Some(number.clone());
         }
+        // «Descargado» is when the file was downloaded: its date on disk, if it has one (the copy keeps it), not the day of the import.
+        let added = file_path
+            .as_deref()
+            .and_then(|stored| storage.modified(&Location::parse(stored)).ok().flatten())
+            .map_or_else(|| now.to_string(), clock::stamp);
         data.entries.insert(
             item.id.clone(),
             ArchiveEntry {
-                added_at: Some(now.to_string()),
+                added_at: Some(added),
                 number: item.number.clone(),
                 title: item.title.clone(),
                 unavailable_at: item.unavailable_at.clone(),

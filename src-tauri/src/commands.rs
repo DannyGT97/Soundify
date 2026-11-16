@@ -89,7 +89,8 @@ pub struct FormatCatalog {
 }
 
 /// Always the last known state: never asks YouTube.
-#[tauri::command]
+// Off the main thread (a plain command runs on it: the window, or the phone's UI thread, waited for the disk).
+#[tauri::command(async)]
 pub fn list_playlists(app: AppHandle, state: State<'_, AppState>) -> Vec<Playlist> {
     let playlists = library::library(&state.archives, Local::now().date_naive());
     // The player plays the files straight from the music folders, so the
@@ -265,7 +266,8 @@ pub async fn pick_cookies_file(app: AppHandle, state: State<'_, AppState>, title
 }
 
 /// Whether a file is (still) there: the cookies' status line.
-#[tauri::command]
+// Off the main thread (a plain command runs on it: the window, or the phone's UI thread, waited for the disk).
+#[tauri::command(async)]
 pub fn file_exists(path: String) -> bool {
     !path.trim().is_empty() && Path::new(&path).is_file()
 }

@@ -334,12 +334,14 @@ impl Engine<'_> {
         };
         // ...and only if the app has a second process to spare: the limit is for all the tasks together.
         let shares = Some(shares).filter(|s| s.len() > 1).filter(|_| events.extra_process());
+        // The bar and «Archivo X de Y» count THIS run's items: counting the whole playlist put a bar of 4 pending
+        // of 783 at 99 % and «Archivo 4 de 4» from the first file.
         let (mut progress, run_total) = match (&playlist, &shares) {
             (Some(p), Some(shares)) => {
                 let items: Vec<usize> = shares.iter().map(|s| s.positions.len()).collect();
-                (Progress::bounded(p.entries.len() - p.pending.len(), &items), p.pending.len())
+                (Progress::bounded(0, &items), p.pending.len())
             }
-            (Some(p), None) => (Progress::bounded(p.entries.len() - p.pending.len(), &[p.pending.len()]), p.pending.len()),
+            (Some(p), None) => (Progress::bounded(0, &[p.pending.len()]), p.pending.len()),
             (None, _) if title.is_none() => (Progress::bounded(0, &[1]), 1),
             // A playlist whose check failed: yt-dlp's own total is the right one.
             (None, _) => (Progress::unbounded(), 0),

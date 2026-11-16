@@ -57,6 +57,20 @@ pub struct Trusted {
     pub kind: String,
     /// SHA-256 of the token, in hex.
     pub token_hash: String,
+    /// When it last paired or was connected (seconds since 1970). Empty in files from before it existed.
+    #[serde(default)]
+    pub last_seen: Option<u64>,
+}
+
+/// A controller that has not connected for this long is let go of (an app that was reinstalled or whose data was cleared
+/// comes back with another id and leaves its old entry behind).
+pub const FORGET_AFTER_SECS: u64 = 30 * 24 * 60 * 60;
+/// A new `last_seen` is only written to disk when it moved this much.
+const SEEN_SAVE_EVERY_SECS: u64 = 60;
+
+/// Seconds since 1970 now.
+pub fn now_secs() -> u64 {
+    std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0, |d| d.as_secs())
 }
 
 struct State {
@@ -138,7 +152,7 @@ impl Pairing {
         state.pin = None;
         state.failures = 0;
         let token = random_token();
-        let entry = Trusted { controller_id: request.controller_id.clone(), name: request.name.clone(), kind: request.kind.clone(), token_hash: hash(&token) };
+        let entry = Trusted { controller_id: request.controller_id.clone(), name: request.name.clone(), kind: request.kind.clone(), token_hash: hash(&token), last_seen: Some(now_secs()) };
         state.trusted.retain(|t| t.controller_id != entry.controller_id);
         // A computer that lost its data pairs again with a new id: its old entry (same name) would stay in the list for ever.
         // Only computers: a name is unique among them on a network, while two phones may well be called the same.
@@ -165,6 +179,37 @@ impl Pairing {
             }
         }
         found
+    }
+
+    /// The controller is connected (or just was): remembers when. Written to disk at most once a minute.
+    pub fn touch(&self, controller_id: &str, now: u64) {
+        let mut state = self.state.lock().unwrap();
+        let Some(entry) = state.trusted.iter_mut().find(|t| t.controller_id == controller_id) else { return };
+        if entry.last_seen.is_some_and(|seen| now.saturating_sub(seen) < SEEN_SAVE_EVERY_SECS) {
+            return;
+        }
+        entry.last_seen = Some(now);
+        if let Err(e) = self.save(&state.trusted) {
+            log::warn!("Could not save when a controller was last seen: {e}");
+        }
+    }
+
+    /// Lets go of the controllers that have not connected for `max_age` seconds. One without a date (from an older
+    /// version) starts counting now. Returns how many went.
+    pub fn prune(&self, now: u64, max_age: u64) -> usize {
+        let mut state = self.state.lock().unwrap();
+        let before = state.trusted.len();
+        let mut changed = false;
+        for entry in state.trusted.iter_mut().filter(|t| t.last_seen.is_none()) {
+            entry.last_seen = Some(now);
+            changed = true;
+        }
+        state.trusted.retain(|t| now.saturating_sub(t.last_seen.unwrap_or(now)) <= max_age);
+        let gone = before - state.trusted.len();
+        if (changed || gone > 0) && let Err(e) = self.save(&state.trusted) {
+            log::warn!("Could not save the controllers: {e}");
+        }
+        gone
     }
 
     pub fn trusted(&self) -> Vec<Trusted> {
@@ -395,6 +440,57 @@ mod tests {
         let token = pairing.pair(&request(&pairing.new_pin(now)), now).unwrap();
         pairing.forget("phone-1").unwrap();
         assert!(pairing.authenticate(&token).is_none());
+    }
+
+    #[test]
+    fn a_controller_is_stamped_when_it_pairs_and_the_stamp_follows_its_connections() {
+        let (storage, pairing) = pairing();
+        let now = Instant::now();
+        pairing.pair(&request(&pairing.new_pin(now)), now).unwrap();
+        let paired = pairing.trusted()[0].last_seen.unwrap();
+        assert!(paired > 0);
+        // Within the minute nothing changes (and nothing is written)...
+        pairing.touch("phone-1", paired + 10);
+        assert_eq!(pairing.trusted()[0].last_seen, Some(paired));
+        // ...after it, the new moment is kept, also after a restart.
+        pairing.touch("phone-1", paired + 500);
+        assert_eq!(pairing.trusted()[0].last_seen, Some(paired + 500));
+        let again = Pairing::load(storage, Location::path("/data/connect-trusted.json"));
+        assert_eq!(again.trusted()[0].last_seen, Some(paired + 500));
+        // Somebody who is not trusted is not stamped (nor invented).
+        pairing.touch("nobody", paired + 900);
+        assert_eq!(pairing.trusted().len(), 1);
+    }
+
+    #[test]
+    fn controllers_not_seen_for_thirty_days_are_let_go_of_and_the_others_stay() {
+        let (_, pairing) = pairing();
+        let now = Instant::now();
+        let day = 24 * 60 * 60;
+        pairing.pair(&request(&pairing.new_pin(now)), now).unwrap();
+        let mut other = request(&pairing.new_pin(now));
+        other.controller_id = "phone-2".into();
+        pairing.pair(&other, now).unwrap();
+        let start = pairing.trusted()[0].last_seen.unwrap();
+        pairing.touch("phone-2", start + 29 * day);
+        // On day 31 the first one (never seen again) goes and the second one (seen on day 29) stays.
+        assert_eq!(pairing.prune(start + 31 * day, FORGET_AFTER_SECS), 1);
+        let left: Vec<String> = pairing.trusted().into_iter().map(|t| t.controller_id).collect();
+        assert_eq!(left, ["phone-2"]);
+        // Exactly thirty days is still in time.
+        assert_eq!(pairing.prune(start + 29 * day + 30 * day, FORGET_AFTER_SECS), 0);
+    }
+
+    #[test]
+    fn a_controller_from_before_the_date_existed_starts_counting_at_the_first_cleanup() {
+        let (storage, _) = pairing();
+        let old = r#"[{"controllerId":"old","name":"Viejo","kind":"phone","tokenHash":"x"}]"#;
+        storage.write(&Location::path("/data/connect-trusted.json"), old.as_bytes()).unwrap();
+        let pairing = Pairing::load(storage, Location::path("/data/connect-trusted.json"));
+        assert_eq!(pairing.trusted()[0].last_seen, None);
+        assert_eq!(pairing.prune(1_000, FORGET_AFTER_SECS), 0);
+        assert_eq!(pairing.trusted()[0].last_seen, Some(1_000));
+        assert_eq!(pairing.prune(1_000 + FORGET_AFTER_SECS + 1, FORGET_AFTER_SECS), 1);
     }
 
     #[test]

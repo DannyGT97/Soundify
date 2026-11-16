@@ -10,8 +10,16 @@ export const library = {
   formats: { audio: [], video: [] } as FormatCatalog,
 };
 
+// Each read is numbered: two can be in flight (a download's bursts, the window coming back), and one that
+// started earlier but answers later must not put back an older library over a newer one.
+let asked = 0;
+let applied = 0;
+
 export async function loadLibrary(): Promise<void> {
+  const mine = ++asked;
   const [playlists, formats] = await Promise.all([api.listPlaylists(), api.formats()]);
+  if (mine < applied) return;
+  applied = mine;
   library.playlists = playlists;
   library.formats = formats;
   emit('library');
@@ -34,7 +42,10 @@ export async function checkDisk(every = 2000): Promise<void> {
     // Nothing to reconcile now: the library is read as it is.
   }
   // Open screens are redrawn only if something really changed (focusing the window is frequent).
+  const mine = ++asked;
   const playlists = await api.listPlaylists();
+  if (mine < applied) return;
+  applied = mine;
   if (JSON.stringify(playlists) === JSON.stringify(library.playlists)) return;
   library.playlists = playlists;
   emit('library');

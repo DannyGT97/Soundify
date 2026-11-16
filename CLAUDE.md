@@ -214,7 +214,7 @@ Repositorio: https://github.com/DannyGT97/Soundify (GitHub, rama `main`, GPL-3.0
   cierre de `tasks`: orden de bloqueos `tasks` y luego `pending`/`stops`). Pedir otra mientras corre una la encola y avisa (`tasks.queue.added`); el mismo
   archive en marcha o en cola se rechaza (`tasks.queue.duplicate`). Detener para solo la activa; «Quitar» / «Quitar todas»
   (`remove_queued`, `clear_queue`) no deshacen el registro de una playlist recién creada. La vista lleva `queued` y el front
-  `ui.queue` (Tareas: sección «En cola» con posición; píldora «+N en cola»; Gestor y «Ver archivos»: insignia «En cola» y «Quitar
+  `ui.queue` (Tareas: sección «En cola» con posición; anillo/Tareas «+N en cola»; Gestor y «Ver archivos»: insignia «En cola» y «Quitar
   de la cola» en lugar de Sincronizar; los hermanos del bloque activo ya no se atenúan ni se desactivan). Las copias a dispositivo
   MTP pasan por la misma cola. Probado con el mock (`e2e/manager.spec.ts`) y los tests de `tasks.rs`; **sin probar contra
   YouTube ni en la tablet**
@@ -249,7 +249,7 @@ Repositorio: https://github.com/DannyGT97/Soundify (GitHub, rama `main`, GPL-3.0
   arranca lo que ahora cabe; `begin_run` solo vacía la actividad si no corre otra tarea; el directorio temporal de cada ejecución es único.
   Front: `ui.running` (todas las tareas en marcha; `ui.task` = la primera), `runningFor(blockKey)` y `overallPercent` (`tasks.ts`); lo vivo
   lleva `data-task` y `patchLive` actualiza cada pieza con SU tarea; el Gestor ilumina los dos bloques, Tareas lleva una tarjeta por tarea
-  con «Detener todas», y la píldora dice «N descargas · %». El mock lo imita con un temporizador por tarea. Límites conocidos: `last_finished`
+  con «Detener todas», y el anillo dice «N descargas · %». El mock lo imita con un temporizador por tarea. Límites conocidos: `last_finished`
   solo deja corregir con un aviso tardío a la ÚLTIMA tarea cerrada; el registro de Actividad mezcla las líneas de las dos; `sync_busy` enseña
   solo el título de la primera. Tests: `engine/tasks.rs`, `engine/download/tests.rs`, `settings.rs`, `tasks.test.ts` y `e2e/manager.spec.ts` /
   `settings.spec.ts`. **Sin probar contra YouTube ni en la tablet** (duplica la carga: riesgo de bot-check en listas largas)
@@ -271,7 +271,7 @@ Repositorio: https://github.com/DannyGT97/Soundify (GitHub, rama `main`, GPL-3.0
   sitio en pantalla, misma media query que `styles/phone.css`). **Móvil = el mismo DOM recolocado**: `phone.css`
   convierte el menú lateral en barra de pestañas (`display: contents`, 5 pestañas; Crear Playlist comparte la de
   Descargar, con `formSwitch` arriba), reduce la barra del reproductor a portada, título, play, siguiente y cerrar con
-  la línea de progreso arriba, y deja la píldora de tareas flotando. Reproduciendo lleva allí los controles (sin volumen:
+  la línea de progreso arriba, (sin píldora de tareas: su sitio es el anillo del título). Reproduciendo lleva allí los controles (sin volumen:
   son los botones del teléfono). En Android además se oculta el destino MTP (`.desktop-only`) y la pestaña Actualizaciones
   (Herramientas solo enseña yt-dlp, para actualizarlo); Importar sí está (por carpeta). `api/androidPlayer.ts`: `AndroidPlayer` envuelve a `HtmlPlayer` (audio → servicio
   nativo, vídeo → webview). El volumen es el del aparato (`DeviceVolume.kt`, `STREAM_MUSIC`): el deslizador lo mueve
@@ -338,9 +338,14 @@ Repositorio: https://github.com/DannyGT97/Soundify (GitHub, rama `main`, GPL-3.0
 - **Portada editable en el Reproductor:** la portada grande del detalle (`.hero-cover` en `views/player.ts`) lleva un lápiz al pasar el ratón (o foco), como las filas del Gestor, y abre el mismo `changeCover`; en pantallas táctiles (`hover: none`) el lápiz es una insignia siempre visible. **Sin ver en la tablet**
 - **Buscadores con «x» para borrar:** todos son `type="search"` (Gestor, Reproductor y su búsqueda de archivos, Ver archivos, Ajustes, filtro del explorador de dispositivos) y la «x» es el botón nativo (`::-webkit-search-cancel-button`, dibujado con máscara en `app.css`; más grande en Android, `phone.css`). Un buscador nuevo = `attrs: { type: 'search' }`; `keys.ts` ya lo trata como campo de texto. **Sin ver en la tablet**
 - `components/themePicker.ts` — rejilla reutilizada por el botón del menú y Ajustes → Interfaz.
-- `components/toasts.ts` — `notify({ tone, text })`, avisos apilados que caducan individualmente y viven
-  en el armazón para sobrevivir a la navegación; los estados persistentes siguen en sus tarjetas.
-  `persistent: true` = sin caducidad (el aviso de herramientas); `notify()` devuelve con qué quitarlo.
+- **Avisos y actividad (16/11/2026, sustituye a la píldora de tareas):** `components/toasts.ts` (`notify` / `liveNotice`): los avisos viven en `.page-col`
+  (columna de la página, ARRIBA de `#page`) y EMPUJAN la pantalla hacia abajo, nunca la tapan (ni cabecera ni reproductor); se quitan solos (`TOAST_MS`: 5 s, aviso 6,5 s, error 8 s),
+  se arrastran de lado, máximo 3 a la vez, y `persistent` = hasta atenderlos (bot-check, herramientas). Todo `notify` queda en `ui.notices` (`notices.ts`, solo memoria,
+  últimos 50, tema `notices`); `liveNotice` (progreso de herramientas) no. `components/activityButtons.ts`: anillo con el % de lo que descarga (solo mientras corre y ~4,5 s con el
+  resultado, `watchActivity`/`FLASH_MS`) + campana con punto de no vistos, AL FINAL DE CADA `titleRow` (`dom.ts` `setTitleTools`; también en la cabecera de Reproduciendo; NO en los detalles de
+  playlist de Reproductor/remota); ambos abren `openTasksOverlay` (ahora «Tareas y avisos»: en curso, cola, Avisos con «Vaciar avisos», terminadas; abrirlo marca los avisos como vistos).
+  `components/downloadStrip.ts`: línea «Descargando · N %» + «Ver en el Gestor» bajo el título de Descarga por URL, SOLO para la descarga pedida desde esa pantalla (`origin === 'url'`); una sincronización del Gestor no la enseña ahí, ni en Crear Playlist (que no lleva franja). El Gestor conserva su bloque en vivo; Inicio, su sección «En curso».
+  Prototipo: `design/notifications-prototype.html`. Tests: `e2e/notices.spec.ts`, `e2e/player.spec.ts`, `e2e/manager.spec.ts`. **Sin ver en la tablet.**
 - `appInfo.ts` — la versión real de la app (`loadAppInfo()` al arrancar, `appVersion()`), «desconocida»
   si no es válida.
 
@@ -359,12 +364,15 @@ Repositorio: https://github.com/DannyGT97/Soundify (GitHub, rama `main`, GPL-3.0
   instalador salen de la MISMA compilación, con las rutas remapeadas) y `node scripts/package-installer.mjs` deja en `release/` `Soundify-X.Y.Z-setup.exe` + `.sha256` (NSIS por usuario en `%LOCALAPPDATA%\Programs`, que se puede escribir:
   `data/` va junto al `.exe`; lleva `tools/ffmpeg`; `bundle.windows.nsis` en `tauri.conf.json`, es/en). NO lo usa el actualizador (solo toma `-windows.zip`/`-android.apk` + `.sha256` + `.sig`): se sube como un asset más.
 
+- **Rendimiento (16/11/2026, sin commit):** `PlaybackService.kt`: wake lock, planificación dinámica de ExoPlayer (−28 % de CPU con pantalla apagada, probado en el S24+) y offload pedido (el S24+ no lo concede); Connect ya no se conecta a sí mismo (`discovery::instance_id`, id en el TXT); comandos con disco con `#[tauri::command(async)]` (los `save_*` de `settings.json` siguen síncronos a propósito). Detalle en `context.md`.
 - **Sin comprobar en aparatos reales (lo más valioso):** descarga real contra YouTube en la build de release de Android, sonido con la pantalla apagada, notificación multimedia, importar una
   carpeta, vídeo por `asset://`, abrir carpeta y elegir portada/cookies en Android; Connect con tres aparatos en 1.2.1 (actualizar la tablet y el S24+ y repetir `node scripts/diagnostics.mjs`:
   no debe salir `flooding` ni el corte de 15 s de la tablet). La tablet suele llevar la copia `.debug`: desinstalarla e instalar la release.
 - **Móvil:** a escala 150–175 % la barra de pestañas recorta «Descargar»/«Reproductor» (decidir: limitar la escala a 150 % o acortar etiquetas); sin nada sonando el icono de dispositivos no
   está en el menú; probar la regla táctil de `PHONE_QUERY` (la altura solo cuenta con `pointer: coarse`).
 - **Logs:** falta el punto (6): formato común `área | evento | clave=valor` y contadores fuera de Connect (reproductor, descargas, herramientas).
+- **Fecha «Descargado» al importar (16/11/2026):** `transfer::to_archive_data` fecha cada entrada con la fecha de modificación del archivo (`Storage::modified`, solo `LocalStorage`; `MemoryStorage` y el teléfono MTP no la dan y usan el día de la importación). Antes todo salía «hoy» tras importar. Una playlist ya importada así no se corrige sola: hay que quitarla del Gestor (sin borrar archivos) e importarla de nuevo. Si la copia no conserva la fecha (Android/Linux), sale el día de la copia.
+- **Connect, controladores (16/11/2026):** cada controlador de «Pueden controlar este dispositivo» lleva `last_seen` (`Trusted`, segundos; se apunta al emparejar, al conectar, cada 15 s con la conexión abierta y al cerrarla; a disco como mucho 1 vez por minuto, `Pairing::touch`) y la lista lo enseña («Conectado ahora» / «Visto hace 3 días»). `Pairing::prune` quita los que llevan más de 30 días sin conectar (`FORGET_AFTER_SECS`; se llama desde `Connect::controllers()`; los de ficheros viejos sin fecha empiezan a contar en la primera limpieza). Es por los duplicados que deja un aparato con id nuevo (reinstalado, datos borrados, copia `.debug` + release). **Sin comprobar con aparatos reales.**
 - **Connect:** faltan copiar una playlist de otro dispositivo (`PLAN-CONNECT.md`), DLNA/Chromecast y TLS. (Hecho el 15/11: el controlador manda su nombre actual en la cabecera `X-Soundify-Name` y el destino actualiza el guardado — `Pairing::rename`, `protocol::encode_name/decode_name`; y cada controlador tiene un buzón con solo lo último, `Mailbox`.)
 - **Descargas:** sin probar contra YouTube el interruptor «Descargar más rápido (experimental)» ni con cookies / en el móvil; YouTube corta con bot-check a los ~100–300 vídeos sin cookies.
 - **Herramientas:** «Cancelar» una descarga de herramienta a medias y la comprobación de yt-dlp «una vez al día» no se hicieron.

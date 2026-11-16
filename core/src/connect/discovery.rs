@@ -61,7 +61,8 @@ impl Mdns {
 
 impl Discovery for Mdns {
     fn announce(&self, info: &DeviceInfo, port: u16) -> io::Result<()> {
-        let properties = [("v", PROTOCOL.to_string()), ("name", info.name.clone()), ("kind", info.kind.clone())];
+        // The id also goes as data: the instance name is not to be trusted (see `instance_id`).
+        let properties = [("v", PROTOCOL.to_string()), ("id", info.device_id.clone()), ("name", info.name.clone()), ("kind", info.kind.clone())];
         let host = format!("soundify-{}.local.", &info.device_id[..info.device_id.len().min(12)]);
         let service = ServiceInfo::new(SERVICE_TYPE, &info.device_id, &host, "", port, &properties[..]).map_err(io::Error::other)?.enable_addr_auto();
         let fullname = service.get_fullname().to_string();
@@ -94,7 +95,7 @@ impl Discovery for Mdns {
                     }
                     ServiceEvent::ServiceRemoved(_, fullname) => {
                         if let Some(id) = fullname.split('.').next() {
-                            on_change(Change::Down(id.to_string()));
+                            on_change(Change::Down(instance_id(id)));
                         }
                     }
                     _ => {}
@@ -120,10 +121,13 @@ fn device_of(service: &mdns_sd::ResolvedService) -> Option<DeviceInfo> {
     if version != PROTOCOL {
         return None;
     }
-    let id = service.get_fullname().split('.').next()?;
+    let id = match service.get_property_val_str("id") {
+        Some(id) if !id.is_empty() => id.to_string(),
+        _ => instance_id(service.get_fullname().split('.').next()?),
+    };
     Some(DeviceInfo {
         v: version,
-        device_id: unescape(id),
+        device_id: id,
         name: service.get_property_val_str("name")?.to_string(),
         kind: service.get_property_val_str("kind").unwrap_or("desktop").to_string(),
         // What the announcement carries may be old: `GET /info` has the truth.
@@ -131,9 +135,19 @@ fn device_of(service: &mdns_sd::ResolvedService) -> Option<DeviceInfo> {
     })
 }
 
-/// mDNS escapes some characters of an instance name; ours are hex, so nothing changes, but be safe.
-fn unescape(name: &str) -> String {
-    name.replace("\\.", ".")
+/// The device id an instance name stands for. mDNS escapes some characters (ours are hex, but be safe), and when it
+/// sees a name already taken (a second copy of the app with the same data, or its own announcement coming back by
+/// another network adapter) it renames ours to «<id> (2)», «(3)»…: read as is, that was a NEW device, and the app
+/// connected to itself again with every rename (sessions that never ended, and pairing with itself).
+fn instance_id(name: &str) -> String {
+    let name = name.replace("\\.", ".").replace("\\032", " ");
+    if let Some(open) = name.rfind(" (")
+        && name.ends_with(')')
+        && name[open + 2..name.len() - 1].parse::<u32>().is_ok()
+    {
+        return name[..open].to_string();
+    }
+    name
 }
 
 // === IN MEMORY, for the tests ===
@@ -203,6 +217,16 @@ mod tests {
 
     fn info(id: &str) -> DeviceInfo {
         DeviceInfo { v: PROTOCOL, device_id: id.into(), name: format!("Equipo {id}"), kind: "desktop".into(), open: false }
+    }
+
+    #[test]
+    fn an_instance_renamed_by_mdns_is_still_the_same_device() {
+        assert_eq!(instance_id("21632119fa175dfd"), "21632119fa175dfd");
+        assert_eq!(instance_id("21632119fa175dfd (2)"), "21632119fa175dfd");
+        assert_eq!(instance_id("21632119fa175dfd (13)"), "21632119fa175dfd");
+        assert_eq!(instance_id("21632119fa175dfd\\032(3)"), "21632119fa175dfd");
+        // Only a number in brackets at the end is mDNS's.
+        assert_eq!(instance_id("abc (x)"), "abc (x)");
     }
 
     #[test]

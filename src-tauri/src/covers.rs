@@ -28,7 +28,8 @@ pub fn allow_folder<R: Runtime>(app: &AppHandle<R>, dir: &Path) {
 
 /// The thumbnail of `id` if it is on disk; otherwise it is fetched in the
 /// background and `thumbnail-ready` carries the id once it lands.
-#[tauri::command]
+// Off the main thread (a plain command runs on it: the window, or the phone's UI thread, waited for the disk).
+#[tauri::command(async)]
 pub fn thumbnail(covers: State<'_, ThumbnailFetcher>, id: String) -> Option<String> {
     match covers.thumbnail(&id) {
         Thumbnail::Ready(file) => Some(file.display().to_string()),
@@ -98,7 +99,8 @@ pub async fn pick_cover_image(app: AppHandle, window: WebviewWindow, title: Stri
 
 /// Makes `image` the cover of the playlist `block_key` belongs to (every
 /// format of it shows the same one).
-#[tauri::command]
+// Off the main thread (a plain command runs on it: the window, or the phone's UI thread, waited for the disk).
+#[tauri::command(async)]
 pub fn set_cover(block_key: String, image: String) -> Result<(), CommandError> {
     let root = cover_art::root_dir_of(&Location::parse(&block_key)).ok_or_else(|| CommandError::key("cover.choose.failed"))?;
     cover_art::set_custom_cover(&LocalStorage, &root, &Location::parse(&image)).map_err(|e| {

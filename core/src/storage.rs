@@ -9,6 +9,8 @@ use std::io;
 use std::path::Path;
 use std::sync::Mutex;
 
+use chrono::{DateTime, Local, NaiveDateTime};
+
 use crate::Location;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -46,6 +48,12 @@ pub trait Storage: Send + Sync {
     fn copy(&self, from: &Location, to: &Location) -> io::Result<()> {
         let bytes = self.read(from)?;
         self.write(to, &bytes)
+    }
+
+    /// When the file was last written (local time), if this storage can tell. An imported playlist dates each file by it:
+    /// «Descargado» then says when it was downloaded, not when it was imported.
+    fn modified(&self, _location: &Location) -> io::Result<Option<NaiveDateTime>> {
+        Ok(None)
     }
 
     /// Free bytes where `dir` lives, or None if this storage cannot tell (then
@@ -134,6 +142,11 @@ impl Storage for LocalStorage {
     /// Streamed by the OS: a video of several GB never passes through memory.
     fn copy(&self, from: &Location, to: &Location) -> io::Result<()> {
         std::fs::copy(Self::path(from)?, Self::path(to)?).map(|_| ())
+    }
+
+    fn modified(&self, location: &Location) -> io::Result<Option<NaiveDateTime>> {
+        let time = std::fs::metadata(Self::path(location)?)?.modified()?;
+        Ok(Some(DateTime::<Local>::from(time).naive_local()))
     }
 
     fn available_space(&self, dir: &Location) -> io::Result<Option<u64>> {

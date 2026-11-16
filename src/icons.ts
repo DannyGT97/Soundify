@@ -7,7 +7,7 @@ import {
   Activity, AudioLines, Check, ChevronRight, Clock, ChevronsLeft, ChevronsRight, CloudDownload, Ellipsis,
   Copy, Eye, Maximize2, Minus, PictureInPicture2, Film, Folder, FolderInput, FolderOpen, House, Info, Link, List, ListMusic, ListOrdered, ListPlus, Menu, Palette, PanelLeftClose, Trash2, TriangleAlert, CircleX,
   Maximize, Minimize, Pause, Play, Wrench, RefreshCw, Repeat, Repeat1, Search, Settings, Shuffle, SkipBack, SkipForward,
-  SlidersHorizontal, Smartphone, Square, Volume2, VolumeX, X, ImagePlus, Image, Unplug, FileJson, FileMusic, ChevronDown, ArrowDownToLine, Music, ArrowLeft, ArrowUp, FolderPlus, LibraryBig, Pencil, Usb, LayoutGrid, LoaderCircle, Headphones, Bluetooth, Monitor, createElement, type IconNode,
+  SlidersHorizontal, Smartphone, Square, Volume2, VolumeX, X, ImagePlus, Image, Unplug, FileJson, FileMusic, ChevronDown, ArrowDownToLine, Music, ArrowLeft, ArrowUp, FolderPlus, LibraryBig, Pencil, Usb, LayoutGrid, LoaderCircle, Headphones, Bluetooth, Monitor, Bell, createElement, type IconNode,
 } from 'lucide';
 
 const ICONS = {
@@ -42,6 +42,7 @@ const ICONS = {
   folder: Folder,
   device: Smartphone,
   activity: Activity,
+  bell: Bell,
   search: Search,
   menu: Menu,
   more: Ellipsis,

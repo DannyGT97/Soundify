@@ -66,7 +66,7 @@ test.describe('without yt-dlp and ffmpeg nothing starts', () => {
     await page.locator('input.input').first().fill('https://www.youtube.com/watch?v=abc');
     await page.keyboard.press('Enter');
     await expect(page.getByRole('button', { name: 'Descargar', exact: true })).toBeDisabled();
-    await expect(page.locator('.tasks-pill')).toBeHidden();
+    await expect(page.locator('.activity-ring')).toBeHidden();
   });
 
   test('Crear Playlist: the notice is there and both buttons wait', async ({ page }) => {

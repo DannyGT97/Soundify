@@ -10,6 +10,7 @@ import { h } from '../dom';
 import { t } from '../i18n';
 import { icon, type IconName } from '../icons';
 import { onAndroid } from '../platform';
+import { ago } from '../relativeTime';
 import { subscribe, ui } from '../state';
 import { errorText } from '../transfer';
 
@@ -102,7 +103,9 @@ function content(): Node[] {
     for (const controller of status.controllers) {
       nodes.push(h('div', { class: 'card cx-device' },
         icon(KIND_ICON[controller.kind || 'desktop'] ?? 'device', 20),
-        h('div', { class: 'grow min0' }, h('div', { class: 'row-title ellipsis', text: controller.name })),
+        h('div', { class: 'grow min0' },
+          h('div', { class: 'row-title ellipsis', text: controller.name }),
+          h('div', { class: 'subtitle', text: seenText(controller.lastSeen) })),
         h('button', { class: 'text-button danger-text', text: t('connect.revoke'), onclick: () => void run(api.connectForgetController(controller.id)) })));
     }
   }
@@ -158,6 +161,16 @@ function pinCard(): HTMLElement {
       h('p', { class: 'subtitle', text: t('connect.pin.desc') })),
     h('div', { class: 'cx-pin-code', text }),
     h('button', { class: 'text-button', text: t('connect.pin.renew'), onclick: () => void refreshPin(true).then(() => void loadConnect()) }));
+}
+
+/** When a controller last connected: «Conectado ahora» or «Visto hace 3 días». */
+export function seenText(lastSeen: number | null | undefined, now = Date.now()): string {
+  if (!lastSeen) return '';
+  const seconds = Math.max(0, now / 1000 - lastSeen);
+  // The back notes it every 15 s while the connection is up.
+  if (seconds < 120) return t('connect.seen.now');
+  const ahead = ago(Math.floor(seconds / 86400));
+  return t('connect.seen', t(ahead.key, ahead.amount));
 }
 
 function deviceRow(device: ConnectDevice): HTMLElement {

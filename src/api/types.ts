@@ -320,7 +320,7 @@ export interface ConnectStatus {
   /** The device being controlled, if any. */
   selected: string | null;
   /** Who may control this device. */
-  controllers: Array<{ id: string; name: string; kind?: 'desktop' | 'phone' | 'tablet' | '' }>;
+  controllers: Array<{ id: string; name: string; kind?: 'desktop' | 'phone' | 'tablet' | ''; lastSeen?: number | null }>;
   connectedControllers: number;
 }
 /** What Windows' firewall says about this app (Soundify Connect needs to be let in). */

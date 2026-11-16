@@ -124,9 +124,14 @@ export function mountPip(parent: HTMLElement): void {
       place(spot ?? startSpot(size(), room(), isPhone()));
     }
     title.textContent = ui.nowPlaying?.track.title ?? '';
-    toggle.replaceChildren(icon(ui.playing ? 'pause' : 'play', 18, true));
-    labels();
+    // Only when it changes: swapped on every tick, a press that spans one is lost.
+    if (ui.playing !== shownPlaying) {
+      shownPlaying = ui.playing;
+      toggle.replaceChildren(icon(ui.playing ? 'pause' : 'play', 18, true));
+      labels();
+    }
   };
+  let shownPlaying: boolean | null = null;
   // Not `subscribeWhile`: the panel is never drawn again, and it starts hidden.
   subscribe('player', refresh);
   onLanguageChange(labels);
