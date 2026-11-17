@@ -5,6 +5,7 @@ mod app_paths;
 mod app_update;
 mod bootstrap;
 mod browse;
+mod cast;
 mod commands;
 mod connect;
 mod covers;
@@ -70,6 +71,8 @@ pub fn run() {
   #[cfg(target_os = "android")]
   let builder = builder.plugin(mobile::plugin());
   builder
+    .register_asynchronous_uri_scheme_protocol(cast::SCHEME, cast::handle)
+    .manage(cast::CastInbox::default())
     .manage(app_update::AppUpdates::default())
     .manage(AppState {
       paths,
@@ -163,6 +166,9 @@ pub fn run() {
       connect::connect_publish,
       connect::connect_publish_queue,
       connect::connect_queue_of,
+      cast::connect_cast_clear,
+      connect::connect_cast,
+      connect::connect_cast_end,
       commands::refresh_library,
       commands::formats,
       commands::tool_health,

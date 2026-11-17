@@ -82,13 +82,17 @@ function content(): Node[] {
     icon(onAndroid ? 'device' : 'monitor', 20),
     h('div', { class: 'grow min0' },
       h('div', { class: 'row-title ellipsis', text: status.name }),
-      h('div', { class: 'subtitle', text: ui.remote ? t('connect.controlling', ui.remote.name) : t('connect.soundsHere') }))));
+      h('div', { class: 'subtitle', text: ui.remote ? t('connect.controlling', ui.remote.name) : t('connect.soundsHere') }),
+      // What the others pin when they pair: the first groups, to compare by eye with what another device shows.
+      status.fingerprint ? h('div', { class: 'subtitle cx-fingerprint', text: t('connect.fingerprint', shortFingerprint(status.fingerprint)) }) : null)));
 
   nodes.push(h('div', { class: 'cx-switch row center gap-10' },
     h('div', { class: 'grow' },
       h('div', { class: 'section-title', text: t('connect.strict') }),
       h('p', { class: 'subtitle', text: t('connect.strict.desc') })),
     strictSwitch()));
+  // Open: anybody on this network can pair and control (and play music) here. Said plainly, every time it is open.
+  if (status.open) nodes.push(h('p', { class: 'help cx-warning cx-open-warning', text: t('connect.open.warning') }));
   // Only a strict device shows a PIN: an open one needs nothing to be typed anywhere.
   if (!status.open) nodes.push(pinCard());
 
@@ -232,10 +236,15 @@ async function run(call: Promise<unknown>): Promise<void> {
   void loadConnect();
 }
 
+/** «ab12 cd34 ef56 7890»: the start of a fingerprint, in groups (enough to tell two certificates apart by eye). */
+export function shortFingerprint(fingerprint: string): string {
+  return (fingerprint.slice(0, 16).match(/.{1,4}/g) ?? []).join(' ').toUpperCase();
+}
+
 /** «Pedir un PIN»: devices stop pairing by themselves and need the PIN this one shows. */
 function strictSwitch(): HTMLInputElement {
   const box = h('input', { class: 'switch', attrs: { type: 'checkbox' } });
-  box.checked = !(connect.status?.open ?? true);
+  box.checked = !(connect.status?.open ?? false);
   box.addEventListener('change', () => {
     void api.connectSetOpen(!box.checked).then(() => loadConnect()).then(() => refreshPin());
   });

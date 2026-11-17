@@ -5,7 +5,8 @@
 use serde::{Deserialize, Serialize};
 
 /// The version of this protocol; a different one is refused instead of guessed at.
-pub const PROTOCOL: u32 = 1;
+/// 2: everything but `/info` over TLS, pairing with SPAKE2 (1.2.x spoke 1, in the clear).
+pub const PROTOCOL: u32 = 2;
 /// The mDNS service every Soundify announces.
 pub const SERVICE_TYPE: &str = "_soundify-connect._tcp.local.";
 /// Where the HTTP routes live (`/info`, `/pair`, `/ws`).
@@ -174,6 +175,58 @@ pub enum Command {
     /// Sent when a controller picks this device to control: the device stops controlling another one (if it did), says who took
     /// it and tells the controller what it plays now, so both show the same at once. It changes nothing else.
     Take,
+    /// «Escuchar en»: the controller passes what IT plays to this device, which plays it reading the files from the controller
+    /// (`GET /connect/v1/media/<videoId>?t=<ticket>` on `host:port`). The queue comes in the order it sounds there, so
+    /// «next» is the same on both sides. See [`CastStart`].
+    Cast(Box<CastStart>),
+    /// The controller ended its pass («Traer aquí», «Detener», passed to another device): stop playing what it passed.
+    CastEnd {
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        reason: Option<String>,
+    },
+}
+
+/// One file of a queue that is passed.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CastItem {
+    pub video_id: String,
+    pub title: String,
+    /// Seconds (0 = not known).
+    #[serde(default)]
+    pub duration: f64,
+    /// The extension of the file (`mp3`, `mp4`...): what the player needs to know before reading it.
+    pub format: String,
+    #[serde(default)]
+    pub video: bool,
+    /// Has a picture to ask for (`GET /connect/v1/cover/<videoId>`).
+    #[serde(default)]
+    pub cover: bool,
+}
+
+/// What a pass carries.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CastStart {
+    /// Where to read from. NOT trusted from the message: the server writes there the address the command came from
+    /// (a controller cannot make this device fetch from a third one).
+    #[serde(default)]
+    pub host: String,
+    /// The port of the controller's own Connect server.
+    pub port: u16,
+    /// The fingerprint of the controller's TLS certificate: the files are read from that certificate only.
+    #[serde(default)]
+    pub fingerprint: String,
+    pub ticket: String,
+    pub playlist: String,
+    pub items: Vec<CastItem>,
+    /// Which one sounds.
+    pub index: usize,
+    /// The second it is at.
+    pub position: f64,
+    pub playing: bool,
+    pub shuffle: bool,
+    pub repeat: String,
 }
 
 /// The most files of a playlist that are listed to a controller (a 700-file playlist fits).
@@ -187,8 +240,31 @@ impl Command {
             Command::Volume { volume } if !volume.is_finite() || !(0.0..=1.0).contains(volume) => Err("volume: out of range".into()),
             Command::Repeat { mode: Some(mode) } if !["off", "all", "one"].contains(&mode.as_str()) => Err("repeat: unknown mode".into()),
             Command::PlayTrack { video_id } if video_id.is_empty() || video_id.len() > 128 => Err("playTrack: bad video id".into()),
+            Command::Cast(cast) => cast.validate(),
             _ => Ok(()),
         }
+    }
+}
+
+impl CastStart {
+    fn validate(&self) -> Result<(), String> {
+        if self.port == 0 || !super::cast::is_ticket(&self.ticket) || !super::tls::is_fingerprint(&self.fingerprint) {
+            return Err("cast: bad source".into());
+        }
+        if self.items.is_empty() || self.items.len() > MAX_QUEUE || self.index >= self.items.len() {
+            return Err("cast: bad queue".into());
+        }
+        if !self.position.is_finite() || self.position < 0.0 || !["off", "all", "one"].contains(&self.repeat.as_str()) {
+            return Err("cast: bad state".into());
+        }
+        let bad = |item: &CastItem| {
+            item.video_id.is_empty() || item.video_id.len() > 128 || item.title.len() > 1024 || item.format.is_empty() || item.format.len() > 16
+                || !item.duration.is_finite() || item.duration < 0.0
+        };
+        if self.items.iter().any(bad) {
+            return Err("cast: bad item".into());
+        }
+        Ok(())
     }
 }
 
@@ -224,14 +300,37 @@ pub struct PairRequest {
     /// `desktop`, `phone` or `tablet`: what the controller is (older versions do not say).
     #[serde(default)]
     pub kind: String,
-    pub pin: String,
+    /// The controller's SPAKE2 message made with the PIN (base64; empty for an open device). The PIN itself never travels.
+    #[serde(default)]
+    pub spake: String,
 }
 
-/// The answer to a good PIN: the secret both sides keep (base64).
+/// The first half of a pairing, answered: the token (an open device), or SPAKE2's answer and where to confirm it.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PairStarted {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub token: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub session: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub spake: Option<String>,
+}
+
+/// The second half: the controller's proof that it knew the PIN and saw this device's certificate.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PairConfirm {
+    pub session: String,
+    pub confirm: String,
+}
+
+/// The answer to a good confirmation: the secret both sides keep (base64), and the device's own proof.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct PairResponse {
     pub token: String,
+    pub confirm: String,
 }
 
 #[cfg(test)]
@@ -304,5 +403,61 @@ mod tests {
         let state = PlayerState::default();
         assert!(state.now_playing.is_none() && !state.playing);
         assert_eq!((state.volume, state.repeat.as_str()), (1.0, "off"));
+    }
+
+    fn cast() -> CastStart {
+        CastStart {
+            host: String::new(),
+            port: 43210,
+            fingerprint: "0f".repeat(32),
+            ticket: "ab".repeat(32),
+            playlist: "Rock".into(),
+            items: vec![
+                CastItem { video_id: "a".into(), title: "Uno".into(), duration: 200.0, format: "mp3".into(), video: false, cover: true },
+                CastItem { video_id: "b".into(), title: "Dos".into(), duration: 0.0, format: "mp3".into(), video: false, cover: false },
+            ],
+            index: 1,
+            position: 12.5,
+            playing: true,
+            shuffle: false,
+            repeat: "all".into(),
+        }
+    }
+
+    #[test]
+    fn a_pass_travels_flat_and_back() {
+        let message = ClientMessage::Cmd { id: 3, command: Command::Cast(Box::new(cast())) };
+        let json = serde_json::to_value(&message).unwrap();
+        assert_eq!(json["cmd"], "cast");
+        assert_eq!(json["items"][0]["videoId"], "a");
+        assert_eq!(json["port"], 43210);
+        assert_eq!(serde_json::from_value::<ClientMessage>(json).unwrap(), message);
+        let end: ClientMessage = serde_json::from_str(r#"{"t":"cmd","id":4,"cmd":"castEnd"}"#).unwrap();
+        assert_eq!(end, ClientMessage::Cmd { id: 4, command: Command::CastEnd { reason: None } });
+        assert_eq!(serde_json::to_value(Command::CastEnd { reason: None }).unwrap(), serde_json::json!({ "cmd": "castEnd" }));
+    }
+
+    #[test]
+    fn a_pass_that_makes_no_sense_is_refused() {
+        assert!(Command::Cast(Box::new(cast())).validate().is_ok());
+        let broken: Vec<fn(&mut CastStart)> = vec![
+            |c| c.port = 0,
+            |c| c.ticket = "short".into(),
+            |c| c.ticket = "zz".repeat(32),
+            |c| c.fingerprint = "short".into(),
+            |c| c.items.clear(),
+            |c| c.index = 2,
+            |c| c.position = f64::NAN,
+            |c| c.position = -1.0,
+            |c| c.repeat = "twice".into(),
+            |c| c.items[0].video_id = String::new(),
+            |c| c.items[0].format = String::new(),
+            |c| c.items[0].duration = f64::INFINITY,
+        ];
+        for (n, breaks) in broken.iter().enumerate() {
+            let mut bad = cast();
+            breaks(&mut bad);
+            assert!(Command::Cast(Box::new(bad)).validate().is_err(), "case {n}");
+        }
     }
 }

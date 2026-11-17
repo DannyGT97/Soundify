@@ -117,10 +117,8 @@ impl Discovery for Mdns {
 }
 
 fn device_of(service: &mdns_sd::ResolvedService) -> Option<DeviceInfo> {
+    // Another version is still shown (as «update it»), not hidden: Connect does not connect to it (`Connect::saw`).
     let version: u32 = service.get_property_val_str("v")?.parse().ok()?;
-    if version != PROTOCOL {
-        return None;
-    }
     let id = match service.get_property_val_str("id") {
         Some(id) if !id.is_empty() => id.to_string(),
         _ => instance_id(service.get_fullname().split('.').next()?),

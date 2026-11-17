@@ -18,6 +18,7 @@ import { findBlock } from './library';
 import * as player from './player';
 import { emit, subscribe, ui } from './state';
 import { errorText } from './transfer';
+import { passEnded } from './cast';
 
 export const connect = {
   status: null as ConnectStatus | null,
@@ -61,7 +62,11 @@ export function startConnect(): void {
   api.onConnectRemoteState(onRemoteState);
   api.onConnectRemoteQueue(onRemoteQueue);
   api.onConnectRemoteClosed(onRemoteClosed);
-  api.onConnectCommand(incoming => onCommand(incoming.command, incoming.from));
+  api.onConnectCommand(incoming => onCommand(incoming.command, incoming.from, incoming.castBase));
+  player.onCastLost(from => {
+    logEvent('warn', 'connect', `cast from ${from}: its files stopped answering`);
+    notify({ tone: 'error', text: t('connect.castLost', from) });
+  });
   subscribe('player', () => publishIfWorth());
   document.addEventListener('visibilitychange', () => document.visibilityState === 'visible' && void loadConnect());
   void loadConnect();
@@ -75,6 +80,7 @@ let lastPublishedAt = 0;
 let publishedBlock: string | null | undefined;
 
 const blockInfo = (blockKey: string) => {
+  if (blockKey === player.CAST_KEY) return player.castBlockInfo();
   const found = findBlock(blockKey);
   return found ? { playlist: found.playlist.title, format: found.block.format, video: found.block.video } : null;
 };
@@ -114,7 +120,7 @@ function publishIfWorth(force = false): void {
  * What a controller asked: done with the functions the buttons use. A device is either a controller or a player at a time, and
  * the last to ask wins: if this one was controlling another device, it stops (back to its own player) and does what it is asked.
  */
-function onCommand(command: Parameters<typeof actionsFor>[0], from = ''): void {
+function onCommand(command: Parameters<typeof actionsFor>[0], from = '', castBase?: string): void {
   count('commandIn');
   // A slider dragged sends dozens: they are counted, not written.
   if (command.cmd !== 'volume' && command.cmd !== 'seek') logEvent('info', 'connect', `command ${command.cmd} from ${from || '?'}${ui.remote ? ` (this device was controlling ${ui.remote.name}: it stops)` : ''}`);
@@ -123,6 +129,12 @@ function onCommand(command: Parameters<typeof actionsFor>[0], from = ''): void {
     leave();
   }
   sayWhoDid(command, from);
+  // «Escuchar en»: what the other device plays sounds here now, read from it (or stops, when it takes it back).
+  if (command.cmd === 'cast') {
+    if (!player.playCast(from || t('connect.someone'), command, castBase)) logEvent('warn', 'connect', `cast from ${from || '?'} refused: empty or bad queue`);
+  } else if (command.cmd === 'castEnd') {
+    player.endCast();
+  }
   for (const action of actionsFor(command, ui)) {
     switch (action.kind) {
       case 'toggle': player.togglePlay(); break;
@@ -180,6 +192,23 @@ export async function controlDevice(device: ConnectDevice): Promise<boolean> {
     void loadConnect();
     return false;
   }
+  await beginControl(device, current);
+  return true;
+}
+
+/** «Escuchar en»: what plays here was passed to `device` (the back already controls it): this device becomes its remote. */
+export async function startPassControl(device: ConnectDevice): Promise<void> {
+  if (ui.remote?.deviceId === device.id) return;
+  await beginControl(device, null);
+}
+
+/** The pass ended: back to this device's own player (paused where it was). */
+export async function endPassControl(): Promise<void> {
+  await api.connectDeselect().catch(() => {});
+  leave();
+}
+
+async function beginControl(device: ConnectDevice, current: ConnectPlayerState | null): Promise<void> {
   if (!ui.remote) {
     snapshot = player.enterRemote(route, playHere);
     publishPaused(snapshot);
@@ -194,7 +223,6 @@ export async function controlDevice(device: ConnectDevice): Promise<boolean> {
   if (current) show(current, current.position);
   else emit('player');
   void loadConnect();
-  return true;
 }
 
 /** The remote playlist: asks the device to play that file of it. Playing the one that sounds pauses or resumes it. */
@@ -231,6 +259,8 @@ function playHere(): void {
 }
 
 function leave(): void {
+  // Leaving the control of a device this one passed its music to ends the pass too (the other one stops).
+  passEnded('left');
   window.clearInterval(ticker);
   ticker = undefined;
   window.clearTimeout(volumeSettle);

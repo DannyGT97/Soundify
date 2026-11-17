@@ -1,6 +1,7 @@
 //! The player's side: a small server on the local network. `GET /info` says who it
-//! is, `POST /pair` trades a PIN for a token, and `GET /ws` (with the token) opens
-//! the WebSocket where the state comes out and the commands come in.
+//! is (the only thing answered in the clear), `POST /pair/start` + `/pair/finish` trade a PIN for a token (SPAKE2, see
+//! `pairing`), and `GET /ws` (with the token) opens the WebSocket where the state comes out and the commands come in.
+//! Everything but `/info` is TLS (`tls`): on the same port, told apart by the first byte.
 //!
 //! One thread accepts, one thread per connection (at most [`MAX_CONNECTIONS`]),
 //! everything blocking: the app has no async runtime to lean on and the traffic is a
@@ -17,11 +18,13 @@ use log::{debug, info, warn};
 use tungstenite::protocol::{Role, WebSocketConfig};
 use tungstenite::{Message, WebSocket};
 
+use super::cast::{self, Part, Refusal, Tickets};
 use super::http::{self, Request};
-use super::pairing::{self, PairError, Pairing, Trusted};
+use super::pairing::{self, PairError, Pairing, Started, Trusted};
 use super::resilient::Resilient;
+use super::tls::{self, Conn, TlsIdentity};
 use super::stats::{self, short};
-use super::protocol::{BASE, ClientMessage, Command, DeviceInfo, PING_EVERY, PairRequest, PairResponse, PlayerState, QueueInfo, SILENCE_LIMIT, ServerMessage};
+use super::protocol::{BASE, ClientMessage, Command, DeviceInfo, PING_EVERY, PairConfirm, PairRequest, PairResponse, PairStarted, PlayerState, QueueInfo, SILENCE_LIMIT, ServerMessage};
 
 /// Connections served at once (controllers plus whatever else knocks).
 pub const MAX_CONNECTIONS: usize = 16;
@@ -86,6 +89,9 @@ struct Shared {
     /// One per open WebSocket, with the number it is taken out by when it ends.
     outboxes: Mutex<Vec<Outbox>>,
     next_outbox: AtomicU64,
+    /// What this device passed to another one and lets it read («Escuchar en»).
+    tickets: Arc<Tickets>,
+    tls: Arc<TlsIdentity>,
 }
 
 pub struct Server {
@@ -96,7 +102,7 @@ pub struct Server {
 
 impl Server {
     /// Starts listening on every interface. `port` 0 = any free one.
-    pub fn start(port: u16, host: Arc<dyn Host>, pairing: Arc<Pairing>) -> io::Result<Server> {
+    pub fn start(port: u16, host: Arc<dyn Host>, pairing: Arc<Pairing>, tls: Arc<TlsIdentity>) -> io::Result<Server> {
         // Blocking: the thread sleeps until someone connects (polling woke it 25 times a second, also on a phone in a pocket).
         // `stop` wakes it with a connection of its own.
         let listener = TcpListener::bind(SocketAddr::from((Ipv4Addr::UNSPECIFIED, port)))?;
@@ -108,6 +114,8 @@ impl Server {
             connections: AtomicUsize::new(0),
             outboxes: Mutex::new(Vec::new()),
             next_outbox: AtomicU64::new(1),
+            tickets: Arc::new(Tickets::default()),
+            tls,
         });
         let accepting = {
             let shared = shared.clone();
@@ -119,6 +127,16 @@ impl Server {
 
     pub fn port(&self) -> u16 {
         self.port
+    }
+
+    /// The fingerprint of this device's certificate (what a controller pins, and what a pass tells the receiver to expect).
+    pub fn fingerprint(&self) -> &str {
+        self.shared.tls.fingerprint()
+    }
+
+    /// The permission to read what this device passes to another one («Escuchar en»).
+    pub fn tickets(&self) -> Arc<Tickets> {
+        self.shared.tickets.clone()
     }
 
     /// Tells every controller what the player is doing now.
@@ -192,28 +210,101 @@ fn accept_loop(listener: TcpListener, shared: Arc<Shared>) {
     }
 }
 
-fn serve(shared: &Arc<Shared>, mut stream: TcpStream) -> io::Result<()> {
+fn serve(shared: &Arc<Shared>, stream: TcpStream) -> io::Result<()> {
     stream.set_nodelay(true)?;
     stream.set_read_timeout(Some(Duration::from_secs(5)))?;
     stream.set_write_timeout(Some(Duration::from_secs(5)))?;
-    let request = match http::read_request(&mut stream) {
+    // TLS or the clear, by the first byte (a TLS connection starts with a handshake record).
+    let mut first = [0u8; 1];
+    let tls_hello = loop {
+        match stream.peek(&mut first) {
+            Ok(0) => return Ok(()),
+            Ok(_) => break first[0] == tls::HANDSHAKE_BYTE,
+            Err(e) if e.kind() == io::ErrorKind::Interrupted => continue,
+            Err(e) => return Err(e),
+        }
+    };
+    let mut conn = if tls_hello {
+        match shared.tls.accept(stream) {
+            Ok(conn) => conn,
+            Err(e) => {
+                stats::tls_failed(1);
+                return Err(e);
+            }
+        }
+    } else {
+        Conn::Plain(Resilient::new(stream))
+    };
+    let request = match http::read_request(&mut conn) {
         Ok(request) => request,
         Err(e) => {
-            let _ = http::respond_json(&mut stream, 400, &serde_json::json!({ "error": "badRequest" }));
+            let _ = http::respond_json(&mut conn, 400, &serde_json::json!({ "error": "badRequest" }));
             return Err(e);
         }
     };
-    let route = request.path.strip_prefix(BASE).unwrap_or("");
-    match (request.method.as_str(), route) {
-        ("GET", "/info") => http::respond_json(&mut stream, 200, &serde_json::to_value(shared.host.info()).unwrap_or_default()),
-        ("POST", "/pair") => pair(shared, &mut stream, &request),
-        ("GET", "/ws") => websocket(shared, stream, &request),
-        (_, "/info" | "/pair" | "/ws") => http::respond_json(&mut stream, 405, &serde_json::json!({ "error": "method" })),
-        _ => http::respond_json(&mut stream, 404, &serde_json::json!({ "error": "notFound" })),
+    let route = request.path.strip_prefix(BASE).unwrap_or("").to_string();
+    // In the clear, only who answers: anything with a secret in it (a token, a PIN exchange, a file) needs TLS. An app
+    // of before TLS (protocol 1) gets this and its `/info` says it must be updated.
+    if !conn.is_tls() && !(request.method == "GET" && route == "/info") {
+        stats::plain_refused(1);
+        return http::respond_json(&mut conn, 426, &serde_json::json!({ "error": "tls" }));
+    }
+    match (request.method.as_str(), route.as_str()) {
+        ("GET", "/info") => http::respond_json(&mut conn, 200, &serde_json::to_value(shared.host.info()).unwrap_or_default()),
+        ("POST", "/pair/start") => pair_start(shared, &mut conn, &request),
+        ("POST", "/pair/finish") => pair_finish(shared, &mut conn, &request),
+        ("GET", "/ws") => websocket(shared, conn, &request),
+        ("GET" | "HEAD", route) if route.starts_with("/media/") || route.starts_with("/cover/") => shared_file(shared, conn, &request, route),
+        (_, "/info" | "/pair/start" | "/pair/finish" | "/ws") => http::respond_json(&mut conn, 405, &serde_json::json!({ "error": "method" })),
+        _ => http::respond_json(&mut conn, 404, &serde_json::json!({ "error": "notFound" })),
     }
 }
 
-fn pair(shared: &Shared, stream: &mut TcpStream, request: &Request) -> io::Result<()> {
+/// How long a read of a passed file may wait for the other side to take what was sent. A player with its buffer full
+/// stops reading: past this the connection is closed and its thread ends (the player asks again, by range, when it
+/// needs more), so a song already loaded leaves nothing hanging on this device.
+const MEDIA_WRITE_WAIT: Duration = Duration::from_secs(20);
+
+/// `GET /media/<videoId>?t=<ticket>` and `/cover/<videoId>`: a file of the queue this device passed, by ranges.
+fn shared_file(shared: &Shared, mut stream: Conn, request: &Request, route: &str) -> io::Result<()> {
+    let (part, video_id) = match route.split_once('/').map(|(_, rest)| rest).and_then(|rest| rest.split_once('/')) {
+        Some(("media", id)) => (Part::Media, id),
+        Some((_, id)) => (Part::Cover, id),
+        None => return http::respond_json(&mut stream, 404, &serde_json::json!({ "error": "notFound" })),
+    };
+    let ticket = request.param("t").unwrap_or("");
+    let (path, _guard) = match shared.tickets.open(ticket, video_id, part) {
+        Ok(open) => open,
+        Err(refusal) => {
+            stats::media_refused(1);
+            return match refusal {
+                Refusal::NotFound => http::respond_json(&mut stream, 404, &serde_json::json!({ "error": "notFound" })),
+                Refusal::Busy => http::respond_json(&mut stream, 503, &serde_json::json!({ "error": "busy" })),
+            };
+        }
+    };
+    stream.tcp().set_write_timeout(Some(MEDIA_WRITE_WAIT))?;
+    stats::media_reads(1);
+    // An error here is mostly the player going away or not reading for too long: normal, it asks again when it needs to.
+    let bytes = cast::serve_file(&mut stream, &path, request.header("range"), request.method == "HEAD")?;
+    stats::media_bytes(bytes);
+    Ok(())
+}
+
+fn pair_error(stream: &mut Conn, error: PairError) -> io::Result<()> {
+    match error {
+        PairError::NoPin => http::respond_json(stream, 410, &serde_json::json!({ "error": "noPin" })),
+        PairError::WrongPin => http::respond_json(stream, 403, &serde_json::json!({ "error": "wrongPin" })),
+        PairError::Locked(seconds) => http::respond_json(stream, 429, &serde_json::json!({ "error": "locked", "seconds": seconds })),
+        PairError::Invalid => http::respond_json(stream, 400, &serde_json::json!({ "error": "badRequest" })),
+        PairError::Storage(e) => {
+            warn!("Could not save the paired controller: {e}");
+            http::respond_json(stream, 503, &serde_json::json!({ "error": "storage" }))
+        }
+    }
+}
+
+fn pair_start(shared: &Shared, stream: &mut Conn, request: &Request) -> io::Result<()> {
     let Ok(body) = serde_json::from_slice::<PairRequest>(&request.body) else {
         return http::respond_json(stream, 400, &serde_json::json!({ "error": "badRequest" }));
     };
@@ -221,20 +312,34 @@ fn pair(shared: &Shared, stream: &mut TcpStream, request: &Request) -> io::Resul
     if body.controller_id == shared.host.info().device_id {
         return http::respond_json(stream, 400, &serde_json::json!({ "error": "badRequest" }));
     }
-    match shared.pairing.pair(&body, Instant::now()) {
-        Ok(token) => http::respond_json(stream, 200, &serde_json::to_value(PairResponse { token }).unwrap_or_default()),
-        Err(PairError::NoPin) => http::respond_json(stream, 410, &serde_json::json!({ "error": "noPin" })),
-        Err(PairError::WrongPin) => http::respond_json(stream, 403, &serde_json::json!({ "error": "wrongPin" })),
-        Err(PairError::Locked(seconds)) => http::respond_json(stream, 429, &serde_json::json!({ "error": "locked", "seconds": seconds })),
-        Err(PairError::Invalid) => http::respond_json(stream, 400, &serde_json::json!({ "error": "badRequest" })),
-        Err(PairError::Storage(e)) => {
-            warn!("Could not save the paired controller: {e}");
-            http::respond_json(stream, 503, &serde_json::json!({ "error": "storage" }))
+    match shared.pairing.start(&body, Instant::now()) {
+        Ok(Started::Token(token)) => {
+            info!("Soundify Connect: {} #{} paired WITHOUT a PIN (this device is open)", body.name, short(&body.controller_id));
+            http::respond_json(stream, 200, &serde_json::to_value(PairStarted { token: Some(token), session: None, spake: None }).unwrap_or_default())
+        }
+        Ok(Started::Challenge { session, spake }) => {
+            http::respond_json(stream, 200, &serde_json::to_value(PairStarted { token: None, session: Some(session), spake: Some(spake) }).unwrap_or_default())
+        }
+        Err(e) => pair_error(stream, e),
+    }
+}
+
+fn pair_finish(shared: &Shared, stream: &mut Conn, request: &Request) -> io::Result<()> {
+    let Ok(body) = serde_json::from_slice::<PairConfirm>(&request.body) else {
+        return http::respond_json(stream, 400, &serde_json::json!({ "error": "badRequest" }));
+    };
+    match shared.pairing.finish(&body.session, &body.confirm, shared.tls.fingerprint(), Instant::now()) {
+        Ok(done) => http::respond_json(stream, 200, &serde_json::to_value(PairResponse { token: done.token, confirm: done.confirm }).unwrap_or_default()),
+        Err(e) => {
+            if matches!(e, PairError::WrongPin | PairError::Locked(_)) {
+                warn!("Soundify Connect: a pairing failed its confirmation (wrong PIN, or somebody in between)");
+            }
+            pair_error(stream, e)
         }
     }
 }
 
-fn websocket(shared: &Arc<Shared>, mut stream: TcpStream, request: &Request) -> io::Result<()> {
+fn websocket(shared: &Arc<Shared>, mut stream: Conn, request: &Request) -> io::Result<()> {
     let mut who = match request.bearer().and_then(|token| shared.pairing.authenticate(token)) {
         Some(who) => who,
         None => return http::respond_json(&mut stream, 401, &serde_json::json!({ "error": "unauthorized" })),
@@ -255,7 +360,7 @@ fn websocket(shared: &Arc<Shared>, mut stream: TcpStream, request: &Request) -> 
         info!("Soundify Connect: {} #{} is now called {name}", who.name, short(&who.controller_id));
         who.name = name;
     }
-    stream.set_read_timeout(Some(Duration::from_millis(100)))?;
+    stream.tcp().set_read_timeout(Some(Duration::from_millis(100)))?;
     if let (Some(port), Ok(peer)) = (request.header("x-soundify-port").and_then(|p| p.trim().parse::<u16>().ok()), stream.peer_addr()) {
         shared.host.controller_seen(&who, peer.ip(), port);
     }
@@ -271,7 +376,8 @@ fn websocket(shared: &Arc<Shared>, mut stream: TcpStream, request: &Request) -> 
     stats::accepted(1);
     info!("Soundify Connect: IN  {} #{} controls this device (from {from}, session {number}, {now} controllers now)", who.name, short(&who.controller_id));
     shared.pairing.touch(&who.controller_id, pairing::now_secs());
-    let result = session(shared, stream, &who, &mailbox);
+    let peer = stream.peer_addr().ok().map(|a| a.ip());
+    let result = session(shared, stream, &who, peer, &mailbox);
     shared.pairing.touch(&who.controller_id, pairing::now_secs());
     shared.outboxes.lock().unwrap().retain(|o| o.number != number);
     stats::closed(1);
@@ -284,9 +390,9 @@ fn websocket(shared: &Arc<Shared>, mut stream: TcpStream, request: &Request) -> 
 }
 
 /// Serves one controller until it ends; `Ok` says why.
-fn session(shared: &Shared, stream: TcpStream, who: &Trusted, mailbox: &Mailbox) -> io::Result<&'static str> {
+fn session(shared: &Shared, stream: Conn, who: &Trusted, peer: Option<std::net::IpAddr>, mailbox: &Mailbox) -> io::Result<&'static str> {
     let config = WebSocketConfig::default().max_message_size(Some(MAX_MESSAGE)).max_frame_size(Some(MAX_MESSAGE));
-    let mut socket = WebSocket::from_raw_socket(Resilient::new(stream), Role::Server, Some(config));
+    let mut socket = WebSocket::from_raw_socket(stream, Role::Server, Some(config));
     send(&mut socket, &ServerMessage::Hello { device: shared.host.info() })?;
     send(&mut socket, &ServerMessage::State { state: shared.host.state() })?;
     if let Some(queue) = shared.host.queue() {
@@ -319,7 +425,7 @@ fn session(shared: &Shared, stream: TcpStream, who: &Trusted, mailbox: &Mailbox)
         match read {
             Ok(Message::Text(text)) => {
                 stats::msgs_in(1);
-                let answer = answer(shared, who, text.as_str());
+                let answer = answer(shared, who, peer, text.as_str());
                 send(&mut socket, &answer)?;
             }
             Ok(Message::Close(_)) => return Ok("it closed the connection"),
@@ -334,10 +440,17 @@ fn session(shared: &Shared, stream: TcpStream, who: &Trusted, mailbox: &Mailbox)
 }
 
 /// The `ack` for whatever the controller sent.
-fn answer(shared: &Shared, who: &Trusted, text: &str) -> ServerMessage {
-    let Ok(ClientMessage::Cmd { id, command }) = serde_json::from_str::<ClientMessage>(text) else {
+fn answer(shared: &Shared, who: &Trusted, peer: Option<std::net::IpAddr>, text: &str) -> ServerMessage {
+    let Ok(ClientMessage::Cmd { id, mut command }) = serde_json::from_str::<ClientMessage>(text) else {
         return ServerMessage::Ack { id: 0, ok: false, error: Some("unknown message".into()) };
     };
+    // A pass is read from the address it came from, never from one the message names.
+    if let Command::Cast(cast) = &mut command {
+        let Some(peer) = peer else {
+            return ServerMessage::Ack { id, ok: false, error: Some("cast: no address".into()) };
+        };
+        cast.host = peer.to_string();
+    }
     let outcome = command.validate().and_then(|()| shared.host.command(who, command));
     match outcome {
         Ok(()) => ServerMessage::Ack { id, ok: true, error: None },
@@ -345,7 +458,7 @@ fn answer(shared: &Shared, who: &Trusted, text: &str) -> ServerMessage {
     }
 }
 
-fn send(socket: &mut WebSocket<Resilient<TcpStream>>, message: &ServerMessage) -> io::Result<()> {
+fn send(socket: &mut WebSocket<Conn>, message: &ServerMessage) -> io::Result<()> {
     stats::msgs_out(1);
     let text = serde_json::to_string(message).map_err(io::Error::other)?;
     socket.send(Message::text(text)).map_err(io::Error::other)

@@ -60,10 +60,18 @@ export function nowPlayingView(): HTMLElement {
   // It opens the list of devices (Soundify Connect): to control another one, or to bring the music back.
   const device = h('button', { class: 'np-device', title: t('nowPlaying.device'), onclick: openDevicesSwitcher }, deviceIcon, deviceName);
   const paintDevice = (found: PlaybackDevice) => {
-    // Controlling another Soundify: that is where it sounds.
+    // This device's music on another Soundify («Escuchar en»), or another one controlled from here: that is where it sounds.
+    device.classList.toggle('cast', !!ui.castTo);
+    device.classList.toggle('control', !ui.castTo && !!ui.remote);
+    if (ui.castTo) {
+      deviceIcon.replaceChildren(icon('cast', 16));
+      deviceName.textContent = ui.castTo.name;
+      device.classList.add('external');
+      return;
+    }
     if (ui.remote) {
-      deviceIcon.replaceChildren(icon('monitor', 16));
-      deviceName.textContent = ui.remote.name;
+      deviceIcon.replaceChildren(icon('control', 16));
+      deviceName.textContent = t('connect.controlling', ui.remote.name);
       device.classList.add('external');
       return;
     }

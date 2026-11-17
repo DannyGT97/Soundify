@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Nothing in the clear, except 127.0.0.1: the local relay through which Media3 plays what another device passes here
+     («Escuchar en»; core/src/connect/cast.rs, LocalRelay). It never leaves the phone; the other device is reached over TLS. -->
+<network-security-config>
+    <base-config cleartextTrafficPermitted="false" />
+    <domain-config cleartextTrafficPermitted="true">
+        <domain includeSubdomains="false">127.0.0.1</domain>
+    </domain-config>
+</network-security-config>

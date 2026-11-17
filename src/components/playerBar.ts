@@ -40,8 +40,10 @@ export function buildPlayerBar(): HTMLElement {
     bar.hidden = !np || (!isPhone() && !['bottom', 'both'].includes(ui.playerPlacement));
     if (!np) return;
     const found = findBlock(np.blockKey);
+    const passed = player.castHere();
     title.textContent = np.track.title;
-    meta.textContent = found ? `${found.playlist.title} · ${found.block.format}` : '';
+    // Another device's music: whose it is, instead of a playlist of this device to open.
+    meta.textContent = passed ? `${passed.playlist} · ${t('connect.castFrom', passed.from)}` : found ? `${found.playlist.title} · ${found.block.format}` : '';
     meta.title = found ? t('nowPlaying.openPlaylist') : '';
     const key = `${np.blockKey}/${np.track.id}`;
     if (key !== shownKey) {

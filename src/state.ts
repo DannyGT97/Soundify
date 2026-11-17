@@ -45,6 +45,10 @@ export const ui = {
   volume: 0.7,
   /** Another device is being controlled (Soundify Connect): what the player shows is ITS state. */
   remote: null as { deviceId: string; name: string } | null,
+  /** «Escuchar en»: the name of the device whose music plays HERE, read from it (null when it is this device's own). */
+  castFrom: null as string | null,
+  /** «Escuchar en»: the device THIS one passed what it plays to (it sounds there, read from here). */
+  castTo: null as { deviceId: string; name: string } | null,
   /** The first task running (what the pill and Tareas lead with); null when nothing runs. */
   task: null as RunningTask | null,
   /** Everything running now: one, or two with Ajustes → «Descargar más rápido» (experimental). */

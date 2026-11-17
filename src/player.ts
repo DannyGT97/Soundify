@@ -6,7 +6,7 @@
 // The last file and its second are kept between runs (`PlayerMemory`): at
 // startup it comes back to the bar PAUSED where it was left.
 
-import { api, playerBackend as engine, type ConnectCommand, type PlayerMemory, type Track } from './api';
+import { api, playerBackend as engine, type ConnectCast, type ConnectCastItem, type ConnectCommand, type PlayerMemory, type Track } from './api';
 import { findBlock, onDisk } from './library';
 import { PlayerQueue, nextRepeat } from './playerQueue';
 import { emit, ui } from './state';
@@ -48,6 +48,14 @@ let retriedId = '';
 let pendingSeek = 0;
 let memory: PlayerMemory = { volume: ui.volume, last: null };
 
+/**
+ * «Escuchar en»: another device passed what it plays and it sounds here, read from it (the back's relay). Its queue is
+ * `CAST_KEY`: nothing of the library, nothing kept in `PlayerMemory` (the last file of THIS device stays the one it was).
+ */
+export const CAST_KEY = 'cast:';
+let cast: { from: string; playlist: string; tracks: Track[]; items: Map<string, ConnectCastItem> } | null = null;
+let castLost: (from: string) => void = () => {};
+
 engine.onTime(seconds => {
   ui.position = seconds;
   emit('player');
@@ -79,6 +87,12 @@ engine.onEnded(() => {
 engine.onError(() => {
   if (!queue || !ui.nowPlaying) return;
   const action = afterFailure({ failures, queueSize: queue.size, alreadyRetried: retriedId === ui.nowPlaying.track.id });
+  // Another device's file that fails twice: that device is gone (or asleep), and the next files would fail the same.
+  if (cast && action !== 'retry') {
+    setPlaying(false);
+    castLost(cast.from);
+    return;
+  }
   if (action === 'retry') {
     // Often a hiccup (the disk busy, the asset protocol late): the same file once more, at the same second.
     const track = ui.nowPlaying.track;
@@ -184,17 +198,108 @@ export function currentQueue(): { playlist: string; items: Array<{ videoId: stri
   const tracks = queueOf(currentBlock);
   const index = tracks.findIndex(tr => tr.id === ui.nowPlaying?.track.id);
   if (index < 0) return null;
-  return { playlist: findBlock(currentBlock)?.playlist.title ?? '', items: tracks.map(tr => ({ videoId: tr.id, title: tr.title })), index };
+  return { playlist: playlistTitle(), items: tracks.map(tr => ({ videoId: tr.id, title: tr.title })), index };
+}
+
+/**
+ * «Escuchar en»: `from` passed what it plays. It sounds here from the same file and second, in the order it had (already
+ * shuffled there, so «next» is the same file on both sides). What this device played is left where it was.
+ */
+export function playCast(from: string, pass: ConnectCast, nativeBase?: string): boolean {
+  const items = pass.items.filter(item => item.videoId);
+  if (items.length === 0 || pass.index < 0 || pass.index >= items.length) return false;
+  void savePosition();
+  const tracks: Track[] = items.map((item, n) => ({
+    id: item.videoId, number: n + 1, title: item.title, addedDaysAgo: 0, seconds: item.duration, status: 'ok', file: null,
+    // Android: audio through the native player (it goes on with the screen off) by the local relay; video through the webview.
+    url: nativeBase && !item.video ? `${nativeBase}media/${encodeURIComponent(item.videoId)}` : api.castUrl(item.videoId, 'media'),
+  }));
+  cast = { from, playlist: pass.playlist, tracks, items: new Map(items.map(item => [item.videoId, item])) };
+  ui.castFrom = from;
+  ui.shuffle = pass.shuffle;
+  ui.repeat = pass.repeat;
+  queue = new PlayerQueue(tracks, pass.index);
+  queue.repeat = pass.repeat;
+  currentBlock = CAST_KEY;
+  failures = 0;
+  retriedId = '';
+  load(queue.current(), pass.playing, pass.position);
+  return true;
+}
+
+/** The device that passed it took it back (or stopped it): nothing of it sounds here any more. */
+export function endCast(): void {
+  if (!cast) return;
+  stop();
+}
+
+/**
+ * «Escuchar en», the device that passes: what plays here, in the order it plays (shuffled as it is), with where each
+ * file is on THIS device (the back decides what of it may be read). Null when there is nothing of this device to pass.
+ */
+export function passableQueue(): {
+  playlist: string; index: number;
+  items: Array<{ videoId: string; title: string; duration: number; format: string; video: boolean; file: string }>;
+} | null {
+  const now = ui.nowPlaying;
+  if (cast || !queue || !now || !currentBlock) return null;
+  const found = findBlock(currentBlock);
+  if (!found) return null;
+  const items = queue.inOrder().items.filter(track => track.file).map(track => ({
+    videoId: track.id,
+    title: track.title,
+    duration: track.id === now.track.id ? ui.duration || track.seconds : track.seconds,
+    format: extensionOf(track.file ?? '') || found.block.format.toLowerCase(),
+    video: found.block.video,
+    file: track.file ?? '',
+  }));
+  const index = items.findIndex(item => item.videoId === now.track.id);
+  return index < 0 ? null : { playlist: found.playlist.title, index, items };
+}
+
+function extensionOf(path: string): string {
+  const dot = path.lastIndexOf('.');
+  return dot > path.lastIndexOf('/') && dot > path.lastIndexOf('\\') ? path.slice(dot + 1).toLowerCase() : '';
+}
+
+/** Is what sounds another device's, and whose (its name)? */
+export function castHere(): { from: string; playlist: string } | null {
+  return cast ? { from: cast.from, playlist: cast.playlist } : null;
+}
+
+/** What Connect says of the file that sounds when it is another device's (its playlist, format and kind). */
+export function castBlockInfo(): { playlist: string; format: string; video: boolean } | null {
+  const item = cast && ui.nowPlaying ? cast.items.get(ui.nowPlaying.track.id) : undefined;
+  return cast && item ? { playlist: cast.playlist, format: item.format.toUpperCase(), video: item.video } : null;
+}
+
+/** The picture of a file passed here, if the other device has one. */
+export function castCoverUrl(videoId: string): string | null {
+  return cast?.items.get(videoId)?.cover ? api.castUrl(videoId, 'cover') : null;
+}
+
+/** Another device's files stopped answering (`connect.ts` says so). */
+export function onCastLost(listener: (from: string) => void): void {
+  castLost = listener;
 }
 
 /**
  * Soundify Connect: a controller picked a file of the playlist that sounds here (it only knows the video id, which means
  * the same on every device). It plays from the start. False if the file is not in this playlist.
  */
-export function playTrackById(videoId: string): boolean {
+export function playTrackById(videoId: string, at = 0): boolean {
   if (!currentBlock) return false;
   const index = queueOf(currentBlock).findIndex(tr => tr.id === videoId);
-  return index >= 0 && start(currentBlock, index, true);
+  if (index < 0) return false;
+  // What another device passed is no block of the library: its queue is set again at that file.
+  if (cast && currentBlock === CAST_KEY) {
+    queue = new PlayerQueue(cast.tracks, index);
+    queue.repeat = ui.repeat;
+    failures = 0;
+    load(queue.current(), true, at);
+    return true;
+  }
+  return start(currentBlock, index, true, at);
 }
 
 export function isPlayable(format: string | null | undefined): boolean {
@@ -305,8 +410,8 @@ export function close(): void {
 
 /** Saves the second it is at: on every pause and when the app closes. */
 export function savePosition(): Promise<void> {
-  // What shows while another device is controlled is not this player's.
-  if (ui.remote) return Promise.resolve();
+  // What shows while another device is controlled is not this player's, and neither is what another device passed here.
+  if (ui.remote || cast) return Promise.resolve();
   if (memory.last && ui.nowPlaying) memory.last.position = ui.position;
   return persist();
 }
@@ -340,7 +445,7 @@ export function parkVideo(): void {
 
 /** Is what is loaded a video? Audio has nothing to float. */
 export function currentIsVideo(): boolean {
-  return !!ui.nowPlaying && (findBlock(ui.nowPlaying.blockKey)?.block.video ?? false);
+  return !!ui.nowPlaying && isVideoTrack(ui.nowPlaying.track);
 }
 
 /** Into the floating panel, playing as it was. `auto`: it was not asked for, Reproduciendo was just left. */
@@ -383,6 +488,8 @@ function start(blockKey: string, index: number, autoplay: boolean, resumeAt = 0)
   const found = findBlock(blockKey);
   const tracks = queueOf(blockKey);
   if (!found || !isPlayable(found.block.format) || tracks.length === 0) return false;
+  // Something of this device now: what another device passed stops being read.
+  if (cast) leaveCast();
   queue = new PlayerQueue(tracks, index);
   queue.repeat = ui.repeat;
   if (ui.shuffle) queue.setShuffled(true);
@@ -398,11 +505,15 @@ function load(track: Track, autoplay: boolean, resumeAt = 0): void {
   const found = findBlock(currentBlock);
   ui.nowPlaying = { blockKey: currentBlock, track };
   ui.position = resumeAt;
-  ui.duration = 0;
+  ui.duration = track.url ? track.seconds : 0;
   pendingSeek = resumeAt;
-  engine.load(currentBlock, track, { playlist: found?.playlist.title ?? '', autoplay });
+  engine.load(currentBlock, track, { playlist: playlistTitle(), autoplay });
   // Another playlist, now of audio: nothing to float, and it keeps sounding.
-  if (!found?.block.video) hidePip();
+  if (!isVideoTrack(track)) hidePip();
+  if (cast) {
+    setPlaying(autoplay);
+    return;
+  }
   memory.last = {
     archive: currentBlock,
     trackId: track.id,
@@ -415,6 +526,7 @@ function load(track: Track, autoplay: boolean, resumeAt = 0): void {
 }
 
 function stop(): void {
+  if (cast) leaveCast();
   ui.pip = false;
   ui.pipAuto = false;
   engine.unload();
@@ -440,5 +552,23 @@ function persist(): Promise<void> {
 
 /** The block's files on disk in the order the Reproductor shows them (by number unless the user sorted it). */
 function queueOf(blockKey: string): Track[] {
+  if (blockKey === CAST_KEY) return cast?.tracks ?? [];
   return sortTracks(onDisk(findBlock(blockKey)?.block.tracks ?? []), orderOf(blockKey));
+}
+
+function playlistTitle(): string {
+  return currentBlock === CAST_KEY ? cast?.playlist ?? '' : findBlock(currentBlock)?.playlist.title ?? '';
+}
+
+function isVideoTrack(track: Track): boolean {
+  if (track.url) return cast?.items.get(track.id)?.video ?? false;
+  return findBlock(currentBlock)?.block.video ?? false;
+}
+
+/** Done with what another device passed: the back stops reading from it. */
+function leaveCast(): void {
+  cast = null;
+  ui.castFrom = null;
+  if (currentBlock === CAST_KEY) currentBlock = '';
+  void api.connectCastClear().catch(() => {});
 }

@@ -53,6 +53,10 @@ counters!(
     states_received,
     // attempts to reach a device again after losing it
     reconnects,
+    // «Escuchar en»: reads of passed files served, their bytes, and reads refused (bad ticket, not in the queue, too many)
+    media_reads, media_bytes, media_refused,
+    // connections whose TLS handshake failed (a wrong certificate, or not TLS at all), and requests refused in the clear
+    tls_failed, plain_refused,
 );
 
 impl Snapshot {
@@ -68,8 +72,9 @@ impl Snapshot {
     /// The summary line (`secs` = the length of the window it covers).
     pub fn line(&self, secs: u64, controllers: usize, links: usize) -> String {
         format!(
-            "stats ({secs}s): accepted={} opened={} closed={} reconnects={} dropped_full={} dropped_gone={} states_sent={} queues_sent={} msgs_in={} msgs_out={} states_received={} | now: controllers={controllers} links={links}",
-            self.accepted, self.opened, self.closed, self.reconnects, self.dropped_full, self.dropped_gone, self.states_sent, self.queues_sent, self.msgs_in, self.msgs_out, self.states_received
+            "stats ({secs}s): accepted={} opened={} closed={} reconnects={} dropped_full={} dropped_gone={} states_sent={} queues_sent={} msgs_in={} msgs_out={} states_received={} media_reads={} media_kb={} media_refused={} tls_failed={} plain_refused={} | now: controllers={controllers} links={links}",
+            self.accepted, self.opened, self.closed, self.reconnects, self.dropped_full, self.dropped_gone, self.states_sent, self.queues_sent, self.msgs_in, self.msgs_out, self.states_received,
+            self.media_reads, self.media_bytes / 1024, self.media_refused, self.tls_failed, self.plain_refused
         )
     }
 }

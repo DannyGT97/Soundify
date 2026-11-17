@@ -11,7 +11,8 @@ import type { ConnectCommand, ConnectDevice, ConnectFirewall, ConnectIncoming, C
 type ConnectApi = Pick<Api,
   | 'connectRequestLocalNetwork' | 'connectFirewallStatus' | 'connectFirewallAllow' | 'connectNetworkPrivate' | 'connectStatus' | 'connectSetEnabled' | 'connectSetName' | 'connectSetOpen' | 'connectDevices' | 'connectAdd' | 'connectPin' | 'connectRenewPin'
   | 'connectPair' | 'connectForget' | 'connectForgetController' | 'connectSelect' | 'connectDeselect' | 'connectSend' | 'connectPublish' | 'connectPublishQueue' | 'connectQueueOf'
-  | 'onConnectDevices' | 'onConnectRemoteState' | 'onConnectRemoteQueue' | 'onConnectRemoteClosed' | 'onConnectCommand'>;
+  | 'onConnectDevices' | 'onConnectRemoteState' | 'onConnectRemoteQueue' | 'onConnectRemoteClosed' | 'onConnectCommand'
+  | 'connectCast' | 'connectCastEnd'>;
 
 const PIN_OF_STRICT = '123456';
 
@@ -23,6 +24,10 @@ const devices: ConnectDevice[] = [
   { id: 'tv', name: 'Salón', kind: 'desktop', address: '192.168.1.20:48650', paired: true, online: true, ready: true, connected: false, needsPin: false, playing: false, nowPlaying: null },
   { id: 'tablet', name: 'Tablet de la cocina', kind: 'tablet', address: '192.168.1.31:48650', paired: false, online: true, ready: false, connected: false, needsPin: true, playing: false, nowPlaying: null },
 ];
+// `?mockOldDevice` adds a device with an older Soundify (another version of Connect): listed, never connected to.
+if (typeof location !== 'undefined' && new URLSearchParams(location.search).has('mockOldDevice')) {
+  devices.push({ id: 'old', name: 'Portátil viejo', kind: 'desktop', address: '192.168.1.40:48650', paired: false, online: true, ready: false, connected: false, needsPin: false, playing: false, nowPlaying: null, version: 'outdated' });
+}
 let controllers: Array<{ id: string; name: string }> = [];
 
 let onDevices: () => void = () => {};
@@ -35,6 +40,9 @@ let onCommand: (incoming: ConnectIncoming) => void = () => {};
 let remote: ConnectPlayerState = emptyRemote(false);
 /** What this device published (for the tests to read). */
 const published: ConnectPlayerState[] = [];
+/** What this device passed to another one, and the reasons its passes ended (for the tests to read). */
+const casts: Array<{ deviceId: string; playlist: string; index: number; position: number; items: Array<{ videoId: string; title: string }> }> = [];
+const castEnds: string[] = [];
 const publishedQueues: Array<ConnectQueue | null> = [];
 /** The playlist «Salón» plays. */
 const remoteQueue: ConnectQueue = {
@@ -98,6 +106,8 @@ function sync(): void {
 if (typeof window !== 'undefined') {
   (window as unknown as { __connect: unknown }).__connect = {
     published,
+    casts,
+    castEnds,
     publishedQueues,
     /** The other side asks this device for something. */
     incoming: (command: ConnectCommand) => onCommand({ from: 'Móvil de prueba', command }),
@@ -181,6 +191,28 @@ export const mockConnect: ConnectApi = {
     sync();
     const id = selected;
     window.setTimeout(() => { onRemoteState(id, { ...remote }); onDevices(); }, 0);
+  },
+  connectCast: async request => {
+    const device = devices.find(d => d.id === request.deviceId);
+    if (!device?.paired || !device.online) failure('connect.error.offline');
+    if (request.items.length === 0) failure('connect.error.nothingToPass');
+    casts.push({ deviceId: request.deviceId, playlist: request.playlist, index: request.index, position: request.position, items: request.items.map(i => ({ videoId: i.videoId, title: i.title })) });
+    selected = request.deviceId;
+    // The other device plays what was passed, from the same file and second.
+    const item = request.items[request.index]!;
+    remote = {
+      nowPlaying: { videoId: item.videoId, title: item.title, playlist: request.playlist, format: item.format.toUpperCase(), video: item.video },
+      playing: request.playing, position: request.position, duration: item.duration || 200, volume: 0.5, shuffle: request.shuffle, repeat: request.repeat,
+    };
+    remoteQueue.playlist = request.playlist;
+    remoteQueue.items = request.items.map(i => ({ videoId: i.videoId, title: i.title }));
+    change();
+    const id = request.deviceId;
+    window.setTimeout(() => { onRemoteState(id, { ...remote }); onDevices(); }, 0);
+  },
+  connectCastEnd: async reason => {
+    castEnds.push(reason);
+    remote = { ...remote, playing: false };
   },
   connectPublish: state => { published.push(state); },
   connectPublishQueue: queue => { publishedQueues.push(queue); },

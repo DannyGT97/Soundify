@@ -388,11 +388,13 @@ class SoundifyPlugin(private val activity: Activity) : Plugin(activity) {
   private var connectOn = false
   private var inFront = true
   private var playingNow = false
+  /** «Escuchar en»: this phone passed its music to another device, which reads the files from here. */
+  private var castingNow = false
 
   private fun applyLocks() {
     try {
       val wifi = activity.applicationContext.getSystemService(Context.WIFI_SERVICE) as android.net.wifi.WifiManager
-      if (connectOn && (inFront || playingNow)) {
+      if (connectOn && (inFront || playingNow || castingNow)) {
         if (multicast == null) multicast = wifi.createMulticastLock("soundify-connect").apply { setReferenceCounted(false) }
         multicast?.takeIf { !it.isHeld }?.acquire()
         // Without this the Wi-Fi radio sleeps when the screen is off and the connection to the other device flickers.
@@ -450,6 +452,15 @@ class SoundifyPlugin(private val activity: Activity) : Plugin(activity) {
     } catch (e: Exception) {
       // Without the lock the devices are found by address instead of by name; nothing else is lost.
     }
+    invoke.resolve()
+  }
+
+  /** While a pass lasts the Wi-Fi stays awake (with the screen off too): the other device reads the files from here. */
+  @Command
+  fun castingLock(invoke: Invoke) {
+    val args = invoke.parseArgs(MulticastArgs::class.java)
+    castingNow = args.on
+    applyLocks()
     invoke.resolve()
   }
 

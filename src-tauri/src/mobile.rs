@@ -114,6 +114,16 @@ pub fn set_busy(app: &AppHandle, busy: bool, notice: &BusyNotice) {
     let _ = (app, busy, notice);
 }
 
+/// «Escuchar en»: this device passes its music to another one, which reads the files from here. The Wi-Fi must not
+/// sleep meanwhile, even with the screen off and nothing sounding here (the Connect notice already keeps the app awake).
+/// Does nothing elsewhere.
+pub fn set_casting(app: &AppHandle, on: bool) {
+    #[cfg(target_os = "android")]
+    android::set_casting(app, on);
+    #[cfg(not(target_os = "android"))]
+    let _ = (app, on);
+}
+
 /// What that notification says: a title with the state, the line under it and how far it is (0–100; None = not known yet).
 #[cfg_attr(not(target_os = "android"), allow(dead_code))]
 pub struct BusyNotice {
@@ -395,6 +405,13 @@ mod android {
         text: &'a str,
         /// 0–100, or -1 while it is not known (the bar then goes back and forth).
         progress: i32,
+    }
+
+    pub fn set_casting(app: &AppHandle, on: bool) {
+        let Ok(bridge) = bridge(app) else { return };
+        if let Err(e) = bridge.0.run_mobile_plugin::<serde_json::Value>("castingLock", serde_json::json!({ "on": on })) {
+            log::warn!("Could not keep the Wi-Fi awake for a pass: {e}");
+        }
     }
 
     pub fn set_busy(app: &AppHandle, busy: bool, notice: &super::BusyNotice) {

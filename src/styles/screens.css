@@ -559,3 +559,35 @@ button.dev-row:hover { background: var(--sp-nav-hover); }
 .cx .cx-warning { color: var(--sp-warning, #e0a030); }
 .cx .cx-address b { color: var(--sp-text-strong); user-select: all; }
 .cx .card.cx-firewall { display: flex; flex-direction: row; align-items: center; gap: 14px; padding: 12px 14px; }
+
+/* The devices window (`overlays/devicesSwitcher.ts`): «Escuchar en» in the colour of what is going on (--sp-live, cast)
+   and «Controlar» in its own (--sp-control, gamepad), so the two are never taken for each other. */
+.cx-switcher { --cx-cast: var(--sp-live); --cx-control: var(--sp-control, #6ea8ff); }
+.cx .cx-section { display: flex; align-items: center; gap: 8px; margin-top: 6px; font-size: 12px; font-weight: 800; letter-spacing: .06em; text-transform: uppercase; color: var(--sp-muted); }
+.cx .cx-section-cast > .icon { color: var(--cx-cast); }
+.cx .cx-section-control > .icon { color: var(--cx-control); }
+.cx .cx-hint { margin: -6px 0 0; }
+.cx .cx-empty { margin: 0; padding: 4px 2px; }
+.cx .card.cx-device { align-items: center; }
+.cx .cx-device-icon { flex: none; width: 36px; height: 36px; border-radius: 10px; display: inline-flex; align-items: center; justify-content: center; background: var(--sp-field); color: var(--sp-text); }
+.cx .cx-go { flex: none; font-size: 12px; font-weight: 700; color: var(--sp-muted); border: 1px solid var(--sp-border, rgba(127,127,127,.35)); border-radius: 14px; padding: 4px 10px; white-space: nowrap; }
+.cx .cx-end { flex: none; display: inline-flex; }
+.cx [data-pass].connected { border-color: var(--cx-cast); box-shadow: 0 0 0 1px var(--cx-cast) inset; }
+.cx [data-pass].connected .row-title, .cx [data-pass].connected .cx-end { color: var(--cx-cast); }
+.cx [data-device].connected { border-color: var(--cx-control); box-shadow: 0 0 0 1px var(--cx-control) inset; }
+.cx [data-device].connected .row-title, .cx [data-device].connected .cx-end { color: var(--cx-control); }
+.cx .card.cx-device.connected > .cx-device-icon { color: inherit; }
+.cx .card.cx-banner { display: flex; flex-direction: column; gap: 10px; padding: 12px 14px; }
+.cx .cx-banner-head { display: flex; align-items: flex-start; gap: 10px; }
+.cx .cx-banner-head > .icon { flex: none; margin-top: 2px; }
+.cx .cx-banner-actions { display: flex; gap: 8px; flex-wrap: wrap; }
+.cx .cx-banner-cast { border: 1px solid var(--cx-cast); background: color-mix(in srgb, var(--cx-cast) 8%, var(--sp-card, transparent)); }
+.cx .cx-banner-cast .cx-banner-head > .icon { color: var(--cx-cast); }
+.cx .cx-banner-control { border: 1px solid var(--cx-control); background: color-mix(in srgb, var(--cx-control) 8%, var(--sp-card, transparent)); }
+.cx .cx-banner-control .cx-banner-head > .icon { color: var(--cx-control); }
+/* The way into the window, in the same colours. */
+.devices-button.is-cast { color: var(--sp-live); }
+.devices-button.is-control { color: var(--sp-control, #6ea8ff); }
+.np-device.cast { color: var(--sp-live); }
+.np-device.control { color: var(--sp-control, #6ea8ff); }
+.cx-fingerprint { font-family: ui-monospace, Consolas, monospace; letter-spacing: .02em; }

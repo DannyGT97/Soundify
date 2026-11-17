@@ -70,7 +70,12 @@ export function projectPosition(state: ConnectPlayerState, elapsed: number): num
  * seen on its own screen). The text's key and arguments (`from` = who); null for everything else.
  */
 export function describeCommand(command: ConnectCommand, from: string): { key: string; args: string[] } | null {
-  return command.cmd === 'take' ? { key: 'connect.said.take', args: [from] } : null;
+  switch (command.cmd) {
+    case 'take': return { key: 'connect.said.take', args: [from] };
+    case 'cast': return { key: 'connect.said.cast', args: [from] };
+    case 'castEnd': return { key: 'connect.said.castEnd', args: [from] };
+    default: return null;
+  }
 }
 
 /** A stand-in for the track of another device's file: the page only needs its id and title. */
@@ -106,5 +111,8 @@ export function actionsFor(command: ConnectCommand, now: { playing: boolean; shu
     }
     case 'playTrack': return [{ kind: 'play', videoId: command.videoId }];
     case 'take': return [];
+    // A pass is not a press of a button: `connect.ts` hands it to the player as a whole.
+    case 'cast': return [];
+    case 'castEnd': return [];
   }
 }

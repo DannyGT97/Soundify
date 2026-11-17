@@ -9,6 +9,9 @@ use log::{info, warn};
 use serde::{Deserialize, Serialize};
 use soundify_core::Location;
 use soundify_core::connect::beacon::{Beacon, Composite};
+use soundify_core::connect::cast::{CastSource, Inbox, LocalRelay, SharedFile};
+use soundify_core::connect::protocol::{CastItem, CastStart};
+use soundify_core::connect::tls::TlsIdentity;
 use soundify_core::connect::discovery::{Discovery, Mdns};
 use soundify_core::connect::stats::short;
 use soundify_core::connect::manager::{Connect, ConnectError, DeviceView, Identity, Listener, PREFERRED_PORT, Player};
@@ -28,13 +31,14 @@ struct Config {
     device_id: String,
     name: String,
     enabled: bool,
-    /// Any device on the network may pair without a PIN (like Spotify: they just show up). Off = a PIN is asked for.
-    #[serde(default = "yes")]
+    /// Any device on the network may pair without a PIN (like Spotify: they just show up). Off (the default since TLS) =
+    /// a PIN is asked for.
+    #[serde(default)]
     open: bool,
-}
-
-fn yes() -> bool {
-    true
+    /// The settings were brought to the TLS version once: the PIN is asked for again, whatever 1.2.x had (open was its
+    /// default, and with it anybody on the network could control this device).
+    #[serde(default)]
+    secure: bool,
 }
 
 pub struct ConnectState {
@@ -71,17 +75,63 @@ impl ConnectState {
 /// What a controller asks goes to the page: it owns the queue.
 struct AppPlayer {
     app: AppHandle,
+    /// «Escuchar en»: where what another device passes is read from.
+    inbox: Arc<Inbox>,
+    /// Android only, started with the first pass: what Media3 reads those files through.
+    local: Mutex<Option<LocalRelay>>,
+}
+
+impl AppPlayer {
+    /// Where the native player of Android reads a pass from (None elsewhere, or if it could not start: then the webview).
+    fn cast_base(&self) -> Option<String> {
+        if !cfg!(target_os = "android") {
+            return None;
+        }
+        let mut local = self.local.lock().unwrap();
+        if local.is_none() {
+            match LocalRelay::start(self.inbox.clone()) {
+                Ok(relay) => *local = Some(relay),
+                Err(e) => warn!("Soundify Connect: no local relay for the native player ({e}); the pass sounds through the webview"),
+            }
+        }
+        local.as_ref().map(LocalRelay::base)
+    }
 }
 
 #[derive(Serialize, Clone)]
+#[serde(rename_all = "camelCase")]
 struct IncomingCommand<'a> {
     from: &'a str,
     command: &'a Command,
+    /// A pass on Android: where the native player reads its files (`LocalRelay`, on 127.0.0.1 with a secret).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    cast_base: Option<String>,
 }
 
 impl Player for AppPlayer {
     fn command(&self, who: &Trusted, command: Command) -> Result<(), String> {
-        self.app.emit("connect-command", IncomingCommand { from: &who.name, command: &command }).map_err(|e| e.to_string())
+        let mut cast_base = None;
+        let command = match command {
+            // The page gets what to show and play, not where it is read from: the ticket stays here (`cast.rs` adds it).
+            Command::Cast(mut cast) => {
+                cast_base = self.cast_base();
+                self.inbox.set(CastSource { from: who.controller_id.clone(), host: cast.host.clone(), port: cast.port, fingerprint: cast.fingerprint.clone(), ticket: cast.ticket.clone() });
+                info!("Soundify Connect: {} #{} passes «{}» here ({} files)", who.name, short(&who.controller_id), cast.playlist, cast.items.len());
+                cast.ticket.clear();
+                cast.host.clear();
+                cast.fingerprint.clear();
+                Command::Cast(cast)
+            }
+            // An older pass of another device does not end the one that plays now.
+            Command::CastEnd { reason } => {
+                if !self.inbox.end_from(&who.controller_id) {
+                    return Ok(());
+                }
+                Command::CastEnd { reason }
+            }
+            other => other,
+        };
+        self.app.emit("connect-command", IncomingCommand { from: &who.name, command: &command, cast_base }).map_err(|e| e.to_string())
     }
 }
 
@@ -228,8 +278,16 @@ pub fn init(app: &AppHandle, paths: &AppPaths) {
     let config = load_config(&file);
     let storage: Arc<dyn Storage> = Arc::new(LocalStorage);
     let pairing = Arc::new(Pairing::load(storage.clone(), Location::path(dir.join("trusted.json"))));
-    let known = KnownDevices::load(storage, Location::path(dir.join("devices.json")));
+    let known = KnownDevices::load(storage.clone(), Location::path(dir.join("devices.json")));
     pairing.set_open(config.open);
+    // This device's certificate, made once (its fingerprint is what the others pin). The key never leaves this folder.
+    let tls = match TlsIdentity::load_or_create(storage.as_ref(), &Location::path(dir.join("tls-cert.der")), &Location::path(dir.join("tls-key.der"))) {
+        Ok(tls) => tls,
+        Err(e) => {
+            warn!("Soundify Connect: could not keep its certificate ({e}); a temporary one is used");
+            TlsIdentity::ephemeral()
+        }
+    };
     let identity = Identity { device_id: config.device_id.clone(), name: config.name.clone(), kind: device_kind().into() };
     let handle = app.clone();
     let connect = Connect::new(
@@ -237,7 +295,8 @@ pub fn init(app: &AppHandle, paths: &AppPaths) {
         discovery,
         pairing,
         known,
-        Arc::new(AppPlayer { app: app.clone() }),
+        Arc::new(tls),
+        Arc::new(AppPlayer { app: app.clone(), inbox: app.state::<crate::cast::CastInbox>().0.clone(), local: Mutex::new(None) }),
         Arc::new(AppListener { app: handle }),
     );
     let enabled = config.enabled;
@@ -300,11 +359,16 @@ fn notice(app: &AppHandle, name: &str) -> (String, String) {
 
 fn load_config(file: &Location) -> Config {
     let storage = LocalStorage;
-    if let Some(config) = storage.read(file).ok().and_then(|bytes| serde_json::from_slice::<Config>(&bytes).ok()) {
+    if let Some(mut config) = storage.read(file).ok().and_then(|bytes| serde_json::from_slice::<Config>(&bytes).ok()) {
+        if !config.secure {
+            config.open = false;
+            config.secure = true;
+            save_config(file, &config);
+        }
         return config;
     }
-    // On from the start: it is what makes the other devices just show up. Off in Ajustes, one switch.
-    let config = Config { device_id: new_device_id(), name: default_name(), enabled: true, open: true };
+    // On from the start (devices are found by themselves), but pairing asks for the PIN: open is a choice in Ajustes.
+    let config = Config { device_id: new_device_id(), name: default_name(), enabled: true, open: false, secure: true };
     save_config(file, &config);
     config
 }
@@ -337,11 +401,14 @@ fn error(error: ConnectError) -> CommandError {
         ConnectError::Offline => CommandError::key("connect.error.offline"),
         ConnectError::NotPaired => CommandError::key("connect.error.notPaired"),
         ConnectError::NoSession => CommandError::key("connect.error.noSession"),
+        ConnectError::Untrusted => CommandError::key("connect.error.untrusted"),
         ConnectError::Refused { status, error, seconds } => match (status, error.as_str()) {
             (403, _) => CommandError::key("connect.error.wrongPin"),
             (410, _) => CommandError::key("connect.error.noPin"),
             (429, _) => CommandError::with_args("connect.error.locked", vec![seconds.unwrap_or(60).to_string()]),
             (401, _) => CommandError::key("connect.error.unauthorized"),
+            (426, "newer") => CommandError::key("connect.error.newer"),
+            (426, _) => CommandError::key("connect.error.outdated"),
             _ => CommandError::with_args("connect.error.other", vec![error]),
         },
         ConnectError::Other(message) => CommandError::with_args("connect.error.other", vec![message]),
@@ -378,6 +445,8 @@ pub struct Status {
     port: Option<u16>,
     name: String,
     device_id: String,
+    /// The fingerprint of this device's certificate (to compare by eye with what another device shows).
+    fingerprint: String,
     /// The device being controlled, if any.
     selected: Option<String>,
     /// Who may control this device.
@@ -399,6 +468,7 @@ pub fn connect_status(app: AppHandle, state: State<'_, ConnectState>) -> Status 
         port: state.connect.port(),
         name: config.name,
         device_id: config.device_id,
+        fingerprint: state.connect.fingerprint(),
         selected: state.connect.selected(),
         controllers: state.connect.controllers().into_iter().map(|t| ControllerView { id: t.controller_id, name: t.name, kind: t.kind, last_seen: t.last_seen }).collect(),
         connected_controllers: state.connect.connected_controllers(),
@@ -524,7 +594,94 @@ pub fn connect_deselect(app: AppHandle, state: State<'_, ConnectState>) {
 /// An order for the device being controlled.
 #[tauri::command]
 pub fn connect_send(state: State<'_, ConnectState>, command: Command) -> Result<(), CommandError> {
+    // A pass and its end only go through `connect_cast` / `connect_cast_end` (which grant and revoke what may be read).
+    if matches!(command, Command::Cast(_) | Command::CastEnd { .. } | Command::Take) {
+        return Err(CommandError::with_args("connect.error.other", vec!["not a button".into()]));
+    }
     state.connect.send(command).map(|_| ()).map_err(error)
+}
+
+/// One file of what the page passes: what the other device shows, and where it is HERE (never sent: it is read by id).
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CastFile {
+    video_id: String,
+    title: String,
+    #[serde(default)]
+    duration: f64,
+    format: String,
+    #[serde(default)]
+    video: bool,
+    file: String,
+    #[serde(default)]
+    cover: Option<String>,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CastRequest {
+    device_id: String,
+    playlist: String,
+    items: Vec<CastFile>,
+    index: usize,
+    position: f64,
+    playing: bool,
+    shuffle: bool,
+    repeat: String,
+}
+
+/// Only a file that exists and is music or video may be shared; a picture only if it is one. The page asks, but what is
+/// opened to the network is decided here.
+fn shareable(path: &str, kinds: &[&str]) -> Option<std::path::PathBuf> {
+    let path = std::path::PathBuf::from(path);
+    let extension = path.extension()?.to_str()?.to_ascii_lowercase();
+    (kinds.contains(&extension.as_str()) && path.is_file()).then_some(path)
+}
+
+const MEDIA: &[&str] = &["mp3", "m4a", "aac", "opus", "ogg", "oga", "flac", "wav", "mp4", "m4v", "webm", "mkv", "mov"];
+const PICTURES: &[&str] = &["jpg", "jpeg", "png", "webp"];
+
+/// «Escuchar en»: passes what plays here to `deviceId`. It reads the files from here (only these, while it lasts).
+#[tauri::command(async)]
+pub fn connect_cast(app: AppHandle, state: State<'_, ConnectState>, request: CastRequest) -> Result<(), CommandError> {
+    let sounding = request.items.get(request.index).map(|item| item.video_id.clone());
+    let mut items = Vec::new();
+    let mut files = Vec::new();
+    for item in request.items {
+        let Some(media) = shareable(&item.file, MEDIA) else { continue };
+        let cover = item.cover.as_deref().and_then(|c| shareable(c, PICTURES));
+        items.push(CastItem { video_id: item.video_id.clone(), title: item.title, duration: item.duration, format: item.format, video: item.video, cover: cover.is_some() });
+        files.push((item.video_id, SharedFile { media, cover }));
+    }
+    // What sounds must still be there (and in the list): otherwise it is not passed at all.
+    let Some(index) = items.iter().position(|item| Some(&item.video_id) == sounding.as_ref()) else {
+        return Err(CommandError::key("connect.error.nothingToPass"));
+    };
+    let pass = CastStart {
+        host: String::new(),
+        port: 0,
+        fingerprint: String::new(),
+        ticket: String::new(),
+        playlist: request.playlist,
+        items,
+        index,
+        position: request.position,
+        playing: request.playing,
+        shuffle: request.shuffle,
+        repeat: request.repeat,
+    };
+    state.connect.cast_to(&request.device_id, pass, files).map_err(error)?;
+    crate::mobile::set_casting(&app, true);
+    let current = state.connect.state_of(&request.device_id);
+    show_on_phone(&app, &request.device_id, current.as_ref());
+    Ok(())
+}
+
+/// The pass ends: nothing more can be read from here, and the other device stops.
+#[tauri::command]
+pub fn connect_cast_end(app: AppHandle, state: State<'_, ConnectState>, reason: String) {
+    state.connect.cast_end(&reason);
+    crate::mobile::set_casting(&app, false);
 }
 
 /// The playlist a device said it is playing (the one being controlled: it is its remote playlist).

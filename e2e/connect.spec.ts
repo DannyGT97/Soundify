@@ -229,7 +229,10 @@ test('the device icon only lists the devices to switch between, and points to Aj
   await playSomething(page, '#/player');
   await page.locator('.devices-button:visible').first().click();
   const list = page.locator('.overlay-window');
-  await expect(list).toContainText('Este dispositivo');
+  // Two sections: where what plays here sounds, and which other device to control.
+  await expect(list.locator('.cx-section')).toHaveText(['Escuchar en', 'Controlar otro dispositivo']);
+  await expect(list.locator('[data-pass="this"]')).toContainText('Suena aquí');
+  await expect(list.locator('[data-pass="tv"]')).toContainText('Pasar aquí');
   await expect(list.locator('[data-device="tv"]')).toContainText('Salón');
   // No pairing, PIN or address here: that is in Ajustes.
   await expect(list.locator('.cx-pin-input, .cx-add')).toHaveCount(0);
@@ -363,4 +366,142 @@ test('the devices button is in the side menu with nothing playing, and moves int
   await playSomething(page, '#/home');
   await expect(page.locator('.sidebar .side-devices-idle:visible')).toHaveCount(0);
   await expect(page.locator('.sidebar .mini-controls .devices-button:visible')).toHaveCount(1);
+});
+
+// «Escuchar en», the device that RECEIVES: another device passes what it plays and it sounds here, read from it.
+const pass = {
+  cmd: 'cast', playlist: 'Rock del móvil', index: 1, position: 30, playing: true, shuffle: false, repeat: 'all',
+  items: [
+    { videoId: 'cast-1', title: 'Primera del móvil', duration: 200, format: 'mp3', video: false, cover: false },
+    { videoId: 'cast-2', title: 'Segunda del móvil', duration: 180, format: 'mp3', video: false, cover: false },
+    { videoId: 'cast-3', title: 'Tercera del móvil', duration: 210, format: 'mp3', video: false, cover: false },
+  ],
+};
+const incoming = (page: Page, command: object) => page.evaluate(c => (window as unknown as { __connect: { incoming: (c: object) => void } }).__connect.incoming(c), command);
+type Published = Array<{ playing: boolean; nowPlaying: { videoId: string; playlist: string } | null }>;
+
+test('a pass from another device plays here from its file and second, says who, and is published as what sounds', async ({ page }) => {
+  await page.goto('/?mockConnect#/home');
+  await incoming(page, pass);
+  await expect(barTitle(page)).toHaveText('Segunda del móvil');
+  await expect(page.locator('.player-bar .player-now .subtitle')).toHaveText('Rock del móvil · Desde «Móvil de prueba»');
+  await expect(page.locator('.toast', { hasText: 'Móvil de prueba está reproduciendo aquí' })).toBeVisible();
+  const last = await page.evaluate(() => (window as unknown as { __connect: { published: Published } }).__connect.published.at(-1));
+  expect(last?.nowPlaying).toMatchObject({ videoId: 'cast-2', playlist: 'Rock del móvil' });
+  expect(last?.playing).toBe(true);
+
+  // The other device drives it like any controlled player: «next» is ITS next file.
+  await incoming(page, { cmd: 'next' });
+  await expect(barTitle(page)).toHaveText('Tercera del móvil');
+  await incoming(page, { cmd: 'playTrack', videoId: 'cast-1' });
+  await expect(barTitle(page)).toHaveText('Primera del móvil');
+});
+
+test('when the device that passed it takes it back, nothing of it sounds here', async ({ page }) => {
+  await page.goto('/?mockConnect#/home');
+  await incoming(page, pass);
+  await expect(barTitle(page)).toHaveText('Segunda del móvil');
+  await incoming(page, { cmd: 'castEnd' });
+  await expect(page.locator('.toast', { hasText: 'ya no reproduce aquí' })).toBeVisible();
+  await expect(page.locator('.player-bar')).toBeHidden();
+});
+
+test('playing a file of this device ends the pass, and this device keeps its own last file', async ({ page }) => {
+  await page.goto('/?mockConnect#/player?b=pl1:MP3');
+  await page.locator('.track-row').first().click();
+  const own = await barTitle(page).textContent();
+  await incoming(page, pass);
+  await expect(barTitle(page)).toHaveText('Segunda del móvil');
+  await page.locator('.track-row').first().click();
+  await expect(barTitle(page)).toHaveText(own ?? '');
+  const last = await page.evaluate(() => (window as unknown as { __connect: { published: Published } }).__connect.published.at(-1));
+  expect(last?.nowPlaying?.videoId).not.toMatch(/^cast-/);
+});
+
+// «Escuchar en», the device that PASSES: what plays here goes on sounding on another device, read from this one.
+type Casts = Array<{ deviceId: string; playlist: string; index: number; position: number; items: Array<{ videoId: string; title: string }> }>;
+const casts = (page: Page) => page.evaluate(() => (window as unknown as { __connect: { casts: Casts } }).__connect.casts);
+const castEnds = (page: Page) => page.evaluate(() => (window as unknown as { __connect: { castEnds: string[] } }).__connect.castEnds);
+
+async function passToSalon(page: Page): Promise<string> {
+  await page.goto('/?mockConnect#/player');
+  await playSomething(page, '#/player');
+  const title = (await barTitle(page).textContent()) ?? '';
+  await page.locator('.devices-button:visible').first().click();
+  await page.locator('[data-pass="tv"]').click();
+  await expect(page.locator('.overlay-window')).toHaveCount(0);
+  return title;
+}
+
+test('passing what plays here sends its queue to the other device, which plays it from the same file', async ({ page }) => {
+  const title = await passToSalon(page);
+  const [pass] = await casts(page);
+  expect(pass?.deviceId).toBe('tv');
+  expect(pass?.items[pass.index]?.title).toBe(title);
+  expect(pass?.items.length).toBeGreaterThan(1);
+  // This device is now the remote: the bar shows what sounds THERE, which is the same file.
+  await expect(barTitle(page)).toHaveText(title);
+  await page.locator('.devices-button:visible').first().click();
+  await expect(page.locator('.overlay-window .cx-banner-cast')).toContainText('Sonando en «Salón»');
+});
+
+test('«Traer aquí» ends the pass and this device plays the file again', async ({ page }) => {
+  const title = await passToSalon(page);
+  await page.locator('.devices-button:visible').first().click();
+  await page.getByRole('button', { name: 'Traer aquí' }).click();
+  await expect.poll(() => castEnds(page)).toContain('bring');
+  await expect(barTitle(page)).toHaveText(title);
+  await page.locator('.devices-button:visible').first().click();
+  await expect(page.locator('.overlay-window .cx-banner-cast')).toHaveCount(0);
+});
+
+test('«Detener» ends the pass without bringing anything back', async ({ page }) => {
+  await passToSalon(page);
+  await page.locator('.devices-button:visible').first().click();
+  await page.getByRole('button', { name: 'Detener' }).click();
+  await expect.poll(() => castEnds(page)).toContain('stop');
+});
+
+test('nothing to pass while nothing of this device plays', async ({ page }) => {
+  await page.goto('/?mockConnect#/home');
+  await page.locator('.devices-button:visible').first().click();
+  await expect(page.locator('.overlay-window [data-device="tv"]')).toBeVisible();
+  await expect(page.locator('[data-pass]')).toHaveCount(0);
+});
+
+test('controlling another device is said in its own colour, with the way out, and passing waits until it ends', async ({ page }) => {
+  await page.goto('/?mockConnect#/player');
+  await playSomething(page, '#/player');
+  await page.locator('.devices-button:visible').first().click();
+  await page.locator('[data-device="tv"]').click();
+  await expect(barTitle(page)).toHaveText('Canción del salón');
+  await expect(page.locator('.devices-button:visible').first()).toHaveClass(/(^| )is-control( |$)/);
+  await page.locator('.devices-button:visible').first().click();
+  const list = page.locator('.overlay-window');
+  await expect(list.locator('.cx-banner-control')).toContainText('Controlando «Salón»');
+  await expect(list.locator('[data-pass]')).toHaveCount(0);
+  await expect(list).toContainText('Deja de controlar «Salón» para pasar tu música.');
+  await list.getByRole('button', { name: 'Dejar de controlar' }).click();
+  await expect(page.locator('.devices-button:visible').first()).not.toHaveClass(/(^| )is-control( |$)/);
+});
+
+test('while the music of this device plays elsewhere the devices button says so in green', async ({ page }) => {
+  await passToSalon(page);
+  const button = page.locator('.devices-button:visible').first();
+  await expect(button).toHaveClass(/(^| )is-cast( |$)/);
+  await expect(button).toHaveAttribute('title', 'Sonando en «Salón»');
+  await button.click();
+  // The device with this one's music is not offered to control (it is controlled already, as the pass).
+  await expect(page.locator('.overlay-window [data-device="tv"]')).toHaveCount(0);
+  await expect(page.locator('.overlay-window [data-pass="tv"]')).toContainText('Sonando tu música');
+});
+
+test('a device with an older Soundify is listed as such and cannot be used', async ({ page }) => {
+  await page.goto('/?mockConnect&mockOldDevice#/player');
+  await playSomething(page, '#/player');
+  await page.locator('.devices-button:visible').first().click();
+  const old = page.locator('.overlay-window [data-pass="old"]');
+  await expect(old).toContainText('Versión antigua de Soundify: actualízalo');
+  await expect(old).toHaveClass(/offline/);
+  await expect(page.locator('.overlay-window [data-device="old"]')).toHaveCount(0);
 });

@@ -3,8 +3,7 @@
 //! not justify an async runtime, and what comes in from the network is bounded
 //! here (size of the head, of the body, how long it may take).
 
-use std::io::{self, Write};
-use std::net::TcpStream;
+use std::io::{self, Read, Write};
 
 /// The head (request line and headers) may not be longer than this.
 pub const MAX_HEAD: usize = 8 * 1024;
@@ -16,12 +15,20 @@ pub struct Request {
     pub method: String,
     /// Without the query.
     pub path: String,
+    /// What follows `?` (empty if nothing does), as it came.
+    pub query: String,
     /// Names in lower case.
     pub headers: Vec<(String, String)>,
     pub body: Vec<u8>,
 }
 
 impl Request {
+    /// A parameter of the query (`?t=abc` → `param("t") == Some("abc")`), as it came: no percent-decoding (what Connect
+    /// puts there is hex).
+    pub fn param(&self, name: &str) -> Option<&str> {
+        self.query.split('&').find_map(|pair| pair.split_once('=').filter(|(key, _)| *key == name).map(|(_, value)| value))
+    }
+
     pub fn header(&self, name: &str) -> Option<&str> {
         self.headers.iter().find(|(key, _)| key == name).map(|(_, value)| value.as_str())
     }
@@ -39,7 +46,7 @@ impl Request {
 }
 
 /// Reads one request from the stream. The caller has set read timeouts.
-pub fn read_request(stream: &mut TcpStream) -> io::Result<Request> {
+pub fn read_request(stream: &mut impl Read) -> io::Result<Request> {
     let mut data = Vec::with_capacity(1024);
     let mut chunk = [0u8; 1024];
     let head_end = loop {
@@ -92,17 +99,17 @@ pub fn parse_head(head: &[u8]) -> io::Result<Request> {
         let (name, value) = line.split_once(':').ok_or_else(|| invalid("bad header"))?;
         headers.push((name.trim().to_ascii_lowercase(), value.trim().to_string()));
     }
-    let path = target.split('?').next().unwrap_or(target).to_string();
-    Ok(Request { method: method.to_string(), path, headers, body: Vec::new() })
+    let (path, query) = target.split_once('?').unwrap_or((target, ""));
+    Ok(Request { method: method.to_string(), path: path.to_string(), query: query.to_string(), headers, body: Vec::new() })
 }
 
 /// Answers with a JSON body and closes.
-pub fn respond_json(stream: &mut TcpStream, status: u16, body: &serde_json::Value) -> io::Result<()> {
+pub fn respond_json(stream: &mut impl Write, status: u16, body: &serde_json::Value) -> io::Result<()> {
     let bytes = serde_json::to_vec(body).map_err(io::Error::other)?;
     respond(stream, status, "application/json", &[], &bytes)
 }
 
-pub fn respond(stream: &mut TcpStream, status: u16, content_type: &str, extra: &[(&str, &str)], body: &[u8]) -> io::Result<()> {
+pub fn respond(stream: &mut impl Write, status: u16, content_type: &str, extra: &[(&str, &str)], body: &[u8]) -> io::Result<()> {
     let mut head = format!(
         "HTTP/1.1 {status} {}\r\nContent-Type: {content_type}\r\nContent-Length: {}\r\nConnection: close\r\nCache-Control: no-store\r\n",
         reason(status),
@@ -118,22 +125,25 @@ pub fn respond(stream: &mut TcpStream, status: u16, content_type: &str, extra: &
 }
 
 /// The answer that turns the connection into a WebSocket.
-pub fn respond_switching(stream: &mut TcpStream, key: &str) -> io::Result<()> {
+pub fn respond_switching(stream: &mut impl Write, key: &str) -> io::Result<()> {
     let accept = tungstenite::handshake::derive_accept_key(key.as_bytes());
     let head = format!("HTTP/1.1 101 Switching Protocols\r\nUpgrade: websocket\r\nConnection: Upgrade\r\nSec-WebSocket-Accept: {accept}\r\n\r\n");
     stream.write_all(head.as_bytes())?;
     stream.flush()
 }
 
-fn reason(status: u16) -> &'static str {
+pub fn reason(status: u16) -> &'static str {
     match status {
         200 => "OK",
+        206 => "Partial Content",
         400 => "Bad Request",
         401 => "Unauthorized",
         403 => "Forbidden",
         404 => "Not Found",
         405 => "Method Not Allowed",
         410 => "Gone",
+        416 => "Range Not Satisfiable",
+        426 => "Upgrade Required",
         429 => "Too Many Requests",
         503 => "Service Unavailable",
         _ => "Error",
@@ -159,6 +169,14 @@ mod tests {
         assert_eq!(request.header("host"), Some("a"));
         assert_eq!(request.bearer(), Some("abc"));
         assert_eq!(request.header("x-thing"), Some("y"));
+        assert_eq!(request.query, "x=1");
+    }
+
+    #[test]
+    fn a_query_parameter_is_found_by_name() {
+        let request = parse_head(b"GET /connect/v1/media/abc?x=1&t=ff00&y HTTP/1.1").unwrap();
+        assert_eq!((request.param("t"), request.param("x"), request.param("y"), request.param("z")), (Some("ff00"), Some("1"), None, None));
+        assert_eq!(parse_head(b"GET /a HTTP/1.1").unwrap().param("t"), None);
     }
 
     #[test]

@@ -1,6 +1,6 @@
 //! Soundify Connect as the app uses it: one object that is both ends. As a player it
 //! runs the server and announces itself; as a controller it sees the others, pairs with
-//! them by itself when they are open (no PIN: like Spotify, a device just shows up) and
+//! them by itself when they are open (no PIN; strict, the default, asks for it once) and
 //! keeps a WebSocket to each one, so it always knows what every device is playing and
 //! one tap is enough to control it. The app gives it two things — how to do what a
 //! controller asks ([`Player`]) and where to tell the screen what happens ([`Listener`]).
@@ -16,12 +16,14 @@ use std::time::{Duration, Instant};
 use log::{info, warn};
 use serde::Serialize;
 
+use super::cast::SharedFile;
 use super::client::{self, ClientError, Event, Session};
 use super::discovery::{Change, Discovery};
 use super::pairing::{self, Known, KnownDevices, Pairing, Trusted};
-use super::protocol::{Command, DeviceInfo, PROTOCOL, PlayerState, QueueInfo, ServerMessage};
+use super::protocol::{CastStart, Command, DeviceInfo, PROTOCOL, PlayerState, QueueInfo, ServerMessage};
 use super::server::{Host, Server};
 use super::stats::{self, short};
+use super::tls::{Expect, TlsIdentity};
 
 /// The port tried first, so a firewall rule or a bookmark keeps working; any free one if it is taken.
 pub const PREFERRED_PORT: u16 = 48650;
@@ -85,6 +87,8 @@ pub struct DeviceView {
     /// It is playing right now.
     pub playing: bool,
     pub now_playing: Option<PlayingView>,
+    /// It speaks another version of Connect: `outdated` (update IT) or `newer` (update THIS one). Not connected to.
+    pub version: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -97,6 +101,8 @@ pub enum ConnectError {
     Refused { status: u16, error: String, seconds: Option<u64> },
     /// Nothing is being controlled.
     NoSession,
+    /// Its certificate is not the one it was paired with (reinstalled, or somebody in between): pair again with the PIN.
+    Untrusted,
     Other(String),
 }
 
@@ -106,6 +112,7 @@ impl From<ClientError> for ConnectError {
             ClientError::Unreachable(_) => ConnectError::Offline,
             ClientError::Refused { status, error, seconds } => ConnectError::Refused { status, error, seconds },
             ClientError::Protocol(e) => ConnectError::Other(e),
+            ClientError::Untrusted => ConnectError::Untrusted,
         }
     }
 }
@@ -123,6 +130,17 @@ struct Nearby {
     needs_pin: bool,
     /// Found by it connecting here, not announced on the network: nothing will say when it is gone, so it is let go of as soon as its connection fails.
     learned: bool,
+    /// Another version of Connect (`outdated` / `newer`): shown, never connected to.
+    version: Option<&'static str>,
+}
+
+/// What another version of Connect is called on the screen.
+fn mismatch(v: u32) -> Option<&'static str> {
+    match v.cmp(&PROTOCOL) {
+        std::cmp::Ordering::Less => Some("outdated"),
+        std::cmp::Ordering::Equal => None,
+        std::cmp::Ordering::Greater => Some("newer"),
+    }
 }
 
 /// The open connection to a paired device (its `generation` tells an old one's end from the current one's).
@@ -172,9 +190,13 @@ pub struct Connect {
     factory: Box<dyn Fn() -> io::Result<Arc<dyn Discovery>> + Send + Sync>,
     pairing: Arc<Pairing>,
     known: KnownDevices,
+    /// This device's certificate (the server shows it; a pass tells the receiver to expect it).
+    tls: Arc<TlsIdentity>,
     player: Arc<dyn Player>,
     listener: Arc<dyn Listener>,
     state: Arc<Mutex<PlayerState>>,
+    /// «Escuchar en»: the device this one passed what it plays to.
+    casting: Mutex<Option<String>>,
     queue: Arc<Mutex<Option<QueueInfo>>>,
     running: Mutex<Option<Running>>,
     nearby: Mutex<HashMap<String, Nearby>>,
@@ -207,6 +229,7 @@ impl Connect {
         factory: impl Fn() -> io::Result<Arc<dyn Discovery>> + Send + Sync + 'static,
         pairing: Arc<Pairing>,
         known: KnownDevices,
+        tls: Arc<TlsIdentity>,
         player: Arc<dyn Player>,
         listener: Arc<dyn Listener>,
     ) -> Arc<Connect> {
@@ -215,9 +238,11 @@ impl Connect {
             factory: Box::new(factory),
             pairing,
             known,
+            tls,
             player,
             listener,
             state: Arc::new(Mutex::new(PlayerState::default())),
+            casting: Mutex::new(None),
             queue: Arc::new(Mutex::new(None)),
             running: Mutex::new(None),
             nearby: Mutex::new(HashMap::new()),
@@ -244,6 +269,11 @@ impl Connect {
     fn info(&self) -> DeviceInfo {
         let identity = self.identity();
         DeviceInfo { v: PROTOCOL, device_id: identity.device_id, name: identity.name, kind: identity.kind, open: self.pairing.is_open() }
+    }
+
+    /// The fingerprint of this device's certificate (what the others pin; shown in Ajustes to compare by eye).
+    pub fn fingerprint(&self) -> String {
+        self.tls.fingerprint().to_string()
     }
 
     pub fn is_running(&self) -> bool {
@@ -308,10 +338,10 @@ impl Connect {
             let _ = self.known.forget(&own);
         }
         let host = Arc::new(HostAdapter { me: Arc::downgrade(self), info: self.info(), pairing: self.pairing.clone(), state: self.state.clone(), queue: self.queue.clone(), player: self.player.clone() });
-        let server = match Server::start(preferred_port, host.clone(), self.pairing.clone()) {
+        let server = match Server::start(preferred_port, host.clone(), self.pairing.clone(), self.tls.clone()) {
             Ok(server) => server,
             // The preferred port is taken (another copy of the app): any free one.
-            Err(_) if preferred_port != 0 => Server::start(0, host, self.pairing.clone())?,
+            Err(_) if preferred_port != 0 => Server::start(0, host, self.pairing.clone(), self.tls.clone())?,
             Err(e) => return Err(e),
         };
         // Finding the others automatically is a plus: if it cannot be done the server still runs, and the
@@ -402,9 +432,10 @@ impl Connect {
         let own = self.identity().device_id;
         match change {
             Change::Up(found) => {
-                if found.info.device_id == own || found.info.v != PROTOCOL {
+                if found.info.device_id == own {
                     return;
                 }
+                let version = mismatch(found.info.v);
                 self.swallowed.lock().unwrap().remove(&found.info.device_id);
                 let Some(ip) = found.addrs.iter().find(|ip| matches!(ip, IpAddr::V4(_))).or(found.addrs.first()) else { return };
                 let addr = SocketAddr::new(*ip, found.port);
@@ -412,10 +443,12 @@ impl Connect {
                 {
                     let mut nearby = self.nearby.lock().unwrap();
                     let (state, queue, needs_pin, manual) = nearby.get(&id).map(|n| (n.state.clone(), n.queue.clone(), n.needs_pin, n.manual)).unwrap_or((None, None, false, false));
-                    nearby.insert(id.clone(), Nearby { info: found.info, addr, manual, state, queue, needs_pin, learned: false });
+                    nearby.insert(id.clone(), Nearby { info: found.info, addr, manual, state, queue, needs_pin, learned: false, version });
                 }
                 self.listener.devices_changed();
-                self.connect_to(&id);
+                if version.is_none() {
+                    self.connect_to(&id);
+                }
             }
             Change::Down(id) => {
                 // A live connection is the proof that it is there: a phone that sleeps loses the broadcasts it lives on and
@@ -484,7 +517,7 @@ impl Connect {
             if !manual && nearby.contains_key(&info.device_id) {
                 return Ok(info);
             }
-            nearby.insert(info.device_id.clone(), Nearby { info: info.clone(), addr, manual, state: None, queue: None, needs_pin: !info.open, learned: !manual });
+            nearby.insert(info.device_id.clone(), Nearby { info: info.clone(), addr, manual, state: None, queue: None, needs_pin: !info.open, learned: !manual, version: None });
         }
         self.listener.devices_changed();
         self.connect_to(&info.device_id);
@@ -532,16 +565,21 @@ impl Connect {
     /// Pairs if needed and opens the session. `retry`: a token the device refused is forgotten and pairing is tried once more.
     fn attach(self: &Arc<Self>, id: &str, retry: bool) {
         let Some((addr, name)) = self.nearby.lock().unwrap().get(id).map(|n| (n.addr, n.info.name.clone())) else { return };
-        let token = match self.known.get(id) {
-            Some(known) => known.token,
+        // A device paired before TLS has no certificate pinned, and its token travelled in the clear: it is paired again.
+        if self.known.get(id).is_some_and(|known| known.fingerprint.is_empty()) {
+            info!("Soundify Connect: {name} #{} was paired before TLS: pairing again", short(id));
+            let _ = self.known.forget(id);
+        }
+        let (token, fingerprint) = match self.known.get(id) {
+            Some(known) => (known.token, known.fingerprint),
             None => match self.pair_by_itself(id, addr) {
-                Some(token) => token,
+                Some(paired) => paired,
                 None => return,
             },
         };
         let generation = self.generation.fetch_add(1, Ordering::SeqCst) + 1;
         let (me, device) = (Arc::downgrade(self), id.to_string());
-        let opened = Session::open_with(addr, &token, self.port(), Some(&self.identity().name), move |event| {
+        let opened = Session::open_with(addr, &token, &Expect::Pinned(fingerprint), self.port(), Some(&self.identity().name), move |event| {
             let Some(connect) = me.upgrade() else { return };
             match event {
                 Event::Message(ServerMessage::State { state }) => connect.got_state(&device, state),
@@ -567,16 +605,36 @@ impl Connect {
                     self.attach(id, false);
                 }
             }
+            // Another certificate than the one it was paired with: NOT connected, and the user is asked for the PIN again
+            // (a reinstalled device passes it; somebody in between does not). The token is kept until then.
+            Err(ClientError::Untrusted) => {
+                warn!("Soundify Connect: {name} #{} shows another certificate than the one it was paired with: not connected", short(id));
+                stats::tls_failed(1);
+                if let Some(nearby) = self.nearby.lock().unwrap().get_mut(id) {
+                    nearby.needs_pin = true;
+                }
+                let _ = self.known.forget(id);
+            }
             Err(e) => info!("Soundify Connect: could not connect to {name}: {e}"),
         }
     }
 
     /// An open device lets anybody in: asks it for a token with no PIN. A strict one is marked as needing the PIN.
-    fn pair_by_itself(&self, id: &str, addr: SocketAddr) -> Option<String> {
+    fn pair_by_itself(&self, id: &str, addr: SocketAddr) -> Option<(String, String)> {
         if self.forgotten.lock().unwrap().contains(id) {
             return None;
         }
-        let info = client::fetch_info(addr).ok()?;
+        let info = match client::fetch_info(addr) {
+            Ok(info) => info,
+            // Found by a way that does not say its version (the UDP beacon): it is another one. Shown as such, left alone.
+            Err(ClientError::Refused { status: 426, error, .. }) => {
+                if let Some(nearby) = self.nearby.lock().unwrap().get_mut(id) {
+                    nearby.version = Some(if error == "newer" { "newer" } else { "outdated" });
+                }
+                return None;
+            }
+            Err(_) => return None,
+        };
         if let Some(nearby) = self.nearby.lock().unwrap().get_mut(id) {
             nearby.needs_pin = !info.open;
         }
@@ -584,9 +642,9 @@ impl Connect {
             return None;
         }
         let me = self.identity();
-        let token = client::pair_as(addr, &me.device_id, &me.name, &me.kind, "").ok()?;
-        self.known.remember(Known { device_id: info.device_id, name: info.name, kind: info.kind, token: token.clone() }).ok()?;
-        Some(token)
+        let paired = client::pair_as(addr, &me.device_id, &me.name, &me.kind, "").ok()?;
+        self.known.remember(Known { device_id: info.device_id, name: info.name, kind: info.kind, token: paired.token.clone(), fingerprint: paired.fingerprint.clone() }).ok()?;
+        Some((paired.token, paired.fingerprint))
     }
 
     fn got_state(&self, id: &str, state: PlayerState) {
@@ -732,6 +790,7 @@ impl Connect {
                 .and_then(|n| n.state.as_ref())
                 .and_then(|s| s.now_playing.as_ref())
                 .map(|p| PlayingView { title: p.title.clone(), playlist: p.playlist.clone() }),
+            version: near.and_then(|n| n.version).map(str::to_string),
         };
         let mut views: Vec<DeviceView> = nearby.values().map(|n| view(&n.info.device_id, &n.info.name, &n.info.kind, Some(n.addr.to_string()), Some(n))).collect();
         for known in self.known.all() {
@@ -753,9 +812,11 @@ impl Connect {
             (device.info.clone(), device.addr)
         };
         let me = self.identity();
-        let token = client::pair_as(addr, &me.device_id, &me.name, &me.kind, pin)?;
+        let paired = client::pair_as(addr, &me.device_id, &me.name, &me.kind, pin)?;
         self.forgotten.lock().unwrap().remove(device_id);
-        self.known.remember(Known { device_id: info.device_id, name: info.name, kind: info.kind, token }).map_err(|e| ConnectError::Other(e.to_string()))?;
+        self.known
+            .remember(Known { device_id: info.device_id, name: info.name, kind: info.kind, token: paired.token, fingerprint: paired.fingerprint })
+            .map_err(|e| ConnectError::Other(e.to_string()))?;
         if let Some(nearby) = self.nearby.lock().unwrap().get_mut(device_id) {
             nearby.needs_pin = false;
         }
@@ -797,6 +858,79 @@ impl Connect {
         }
         self.listener.devices_changed();
         Ok(())
+    }
+
+    // === «ESCUCHAR EN»: PASSING WHAT PLAYS HERE ===
+
+    /// Passes what this device plays to `device_id`: it reads `files` from here (only those, with a ticket that ends with
+    /// [`Connect::cast_end`]) and plays them from `pass.index` at `pass.position`. From then on this device controls it.
+    pub fn cast_to(self: &Arc<Self>, device_id: &str, mut pass: CastStart, files: Vec<(String, SharedFile)>) -> Result<(), ConnectError> {
+        let (port, tickets) = {
+            let running = self.running.lock().unwrap();
+            let running = running.as_ref().ok_or(ConnectError::Offline)?;
+            (running.server.port(), running.server.tickets())
+        };
+        // Passed to another one before: that one stops (its ticket ends with the new grant).
+        if let Some(before) = self.casting.lock().unwrap().clone()
+            && before != device_id
+        {
+            self.send_to(&before, Command::CastEnd { reason: Some("passed".into()) });
+        }
+        self.control(device_id)?;
+        pass.host = String::new();
+        pass.port = port;
+        pass.fingerprint = self.tls.fingerprint().to_string();
+        pass.ticket = tickets.grant(files);
+        let command = Command::Cast(Box::new(pass));
+        if let Err(error) = command.validate() {
+            tickets.revoke();
+            return Err(ConnectError::Other(error));
+        }
+        if !self.send_to(device_id, command) {
+            tickets.revoke();
+            return Err(ConnectError::Offline);
+        }
+        *self.casting.lock().unwrap() = Some(device_id.to_string());
+        info!("Soundify Connect: passed what plays here to #{}", short(device_id));
+        self.listener.devices_changed();
+        Ok(())
+    }
+
+    /// The pass ends («Traer aquí», «Detener», the user plays something else here): nothing more can be read from here,
+    /// and the device that played it is told (it stops).
+    pub fn cast_end(&self, reason: &str) {
+        if let Some(running) = self.running.lock().unwrap().as_ref() {
+            running.server.tickets().revoke();
+        }
+        if let Some(device) = self.casting.lock().unwrap().take() {
+            self.send_to(&device, Command::CastEnd { reason: Some(reason.chars().take(32).collect()) });
+            info!("Soundify Connect: the pass to #{} ended ({reason})", short(&device));
+            self.listener.devices_changed();
+        }
+    }
+
+    /// The device this one passed what it plays to, if any.
+    pub fn casting(&self) -> Option<String> {
+        self.casting.lock().unwrap().clone()
+    }
+
+    /// Becomes the device controlled from here WITHOUT telling it «taken» (a pass says more than that on its own).
+    fn control(self: &Arc<Self>, device_id: &str) -> Result<(), ConnectError> {
+        if self.known.get(device_id).is_none() {
+            return Err(ConnectError::NotPaired);
+        }
+        if !self.sessions.lock().unwrap().contains_key(device_id) {
+            self.attach(device_id, true);
+            if !self.sessions.lock().unwrap().contains_key(device_id) {
+                return Err(if self.known.get(device_id).is_none() { ConnectError::NotPaired } else { ConnectError::Offline });
+            }
+        }
+        *self.selected.lock().unwrap() = Some(device_id.to_string());
+        Ok(())
+    }
+
+    fn send_to(&self, device_id: &str, command: Command) -> bool {
+        self.sessions.lock().unwrap().get(device_id).map(|watch| watch.session.send(command)).is_some()
     }
 
     /// Back to controlling nothing (the connection stays: what the device plays is still shown).

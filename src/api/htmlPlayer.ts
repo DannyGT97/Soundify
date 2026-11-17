@@ -28,8 +28,9 @@ export class HtmlPlayer implements PlayerBackend {
 
   load(_blockKey: string, track: Track): void {
     this.element.pause();
-    this.loaded = !!track.file;
-    if (track.file) this.element.src = this.urlOf(track.file);
+    const url = track.url ?? (track.file ? this.urlOf(track.file) : null);
+    this.loaded = !!url;
+    if (url) this.element.src = url;
     else this.element.removeAttribute('src');
     this.element.load();
   }

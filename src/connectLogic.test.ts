@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { VOLUME_ECHO_MS, actionsFor, describeCommand, projectPosition, shouldPublish, toWireState, volumeToShow, type PlayerView } from './connectLogic';
-import type { ConnectPlayerState, Track } from './api';
+import type { ConnectCommand, ConnectPlayerState, Track } from './api';
 
 const track: Track = { id: 'abc', number: 1, title: 'Canción', addedDaysAgo: 0, seconds: 200, status: 'ok', file: '/m/a.mp3' };
 const view: PlayerView = { nowPlaying: { blockKey: 'b1', track }, playing: true, position: 12, duration: 200, volume: 0.5, shuffle: false, repeat: 'off' };
@@ -93,6 +93,12 @@ describe('actionsFor', () => {
 
   it('only says that a controller took the device over, with its name; what it then does is not worth a notice', () => {
     expect(describeCommand({ cmd: 'take' }, 'Móvil')).toEqual({ key: 'connect.said.take', args: ['Móvil'] });
+    // A pass and its end are said once each (the player gets the pass whole, not as presses of buttons).
+    const pass: ConnectCommand = { cmd: 'cast', playlist: 'Mix', items: [], index: 0, position: 0, playing: true, shuffle: false, repeat: 'off' };
+    expect(describeCommand(pass, 'Móvil')).toEqual({ key: 'connect.said.cast', args: ['Móvil'] });
+    expect(describeCommand({ cmd: 'castEnd' }, 'Móvil')).toEqual({ key: 'connect.said.castEnd', args: ['Móvil'] });
+    expect(actionsFor(pass, { playing: false, shuffle: false, repeat: 'off' })).toEqual([]);
+    expect(actionsFor({ cmd: 'castEnd' }, { playing: true, shuffle: false, repeat: 'off' })).toEqual([]);
     for (const command of [{ cmd: 'pause' }, { cmd: 'volume', volume: 0.42 }, { cmd: 'repeat' }, { cmd: 'playTrack', videoId: 'a' }] as const) {
       expect(describeCommand(command, 'Móvil')).toBeNull();
     }

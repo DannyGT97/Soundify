@@ -150,6 +150,8 @@ export const mockApi: Api = {
   onAppUpdate: () => {},
   // No pictures in a plain browser: every cover stays its gradient tile.
   fileUrl: path => path,
+  castUrl: (videoId, part) => `mock-cast://${part}/${videoId}`,
+  connectCastClear: async () => {},
   thumbnail: async () => null,
   // A drawn square stands in for the picture, so the form's states can be seen.
   urlThumbnail: async url => {

@@ -105,12 +105,15 @@ class NativePlayer(private val context: Context, private val emit: (JSObject) ->
     loads++
     sentDuration = C.TIME_UNSET
     durationPolls = 0
-    Log.d(TAG, "load #$loads: ${File(path).name} autoplay=$autoplay")
+    // A file of this phone, or (a pass from another device) the local relay on 127.0.0.1 that reads it from there.
+    val remote = path.startsWith("http://127.0.0.1:")
+    Log.d(TAG, "load #$loads: ${if (remote) "(pass)" else File(path).name} autoplay=$autoplay")
     val meta = MediaMetadata.Builder().setTitle(title).setArtist(subtitle).setAlbumTitle(subtitle)
     // Without this the notification shows whatever picture the file happens to carry inside, and
     // the app's logo when it carries none: so it comes from the thumbnail the page already has.
     coverBytes(artwork)?.let { meta.setArtworkData(it, MediaMetadata.PICTURE_TYPE_FRONT_COVER) }
-    c.setMediaItem(MediaItem.Builder().setUri(Uri.fromFile(File(path))).setMediaMetadata(meta.build()).build())
+    val uri = if (remote) Uri.parse(path) else Uri.fromFile(File(path))
+    c.setMediaItem(MediaItem.Builder().setUri(uri).setMediaMetadata(meta.build()).build())
     c.playWhenReady = autoplay
     c.prepare()
     startTicker()

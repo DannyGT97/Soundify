@@ -30,6 +30,11 @@ lofty = "0.25"
 # Soundify Connect: control between devices on the same network (blocking WebSocket, no async runtime).
 tungstenite = "0.30"
 mdns-sd = "0.21"
+# Connect over TLS (TLS 1.3 only, ring: already in the tree through reqwest), with a self-signed certificate per device
+# whose fingerprint is pinned when pairing; the PIN goes through SPAKE2 so a man in the middle cannot learn it.
+rustls = { version = "0.23", default-features = false, features = ["ring", "std"] }
+rcgen = { version = "0.13", default-features = false, features = ["crypto", "ring"] }
+spake2 = "0.4"
 
 [dev-dependencies]
 tempfile = "3"

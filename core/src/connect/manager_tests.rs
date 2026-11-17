@@ -70,6 +70,7 @@ fn app_on(network: &Arc<MemoryNetwork>, id: &str, name: &str, strict: bool, stor
         move || Ok(Arc::new(MemoryDiscovery::on(&network)) as Arc<dyn Discovery>),
         pairing,
         known,
+        Arc::new(super::tls::TlsIdentity::ephemeral()),
         commands.clone(),
         heard.clone(),
     );
@@ -406,8 +407,8 @@ fn a_computer_that_comes_back_with_a_new_id_does_not_leave_its_old_one_in_the_li
     storage.create_dir_all(&Location::path("/data")).unwrap();
     let shared: Arc<dyn Storage> = storage.clone();
     let before = KnownDevices::load(shared, Location::path("/data/devices.json"));
-    before.remember(super::pairing::Known { device_id: "tv-old".into(), name: "Salón".into(), kind: "desktop".into(), token: "t".into() }).unwrap();
-    before.remember(super::pairing::Known { device_id: "other".into(), name: "Cocina".into(), kind: "desktop".into(), token: "t".into() }).unwrap();
+    before.remember(super::pairing::Known { device_id: "tv-old".into(), name: "Salón".into(), kind: "desktop".into(), token: "t".into(), fingerprint: "ab".repeat(32) }).unwrap();
+    before.remember(super::pairing::Known { device_id: "other".into(), name: "Cocina".into(), kind: "desktop".into(), token: "t".into(), fingerprint: "ab".repeat(32) }).unwrap();
     let controller = app_on(&network, "phone", "Móvil", false, storage);
     assert!(device(&controller, "tv-old").is_some());
     player.connect.start(0).unwrap();

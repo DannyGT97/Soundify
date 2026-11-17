@@ -24,6 +24,8 @@ function tracks(seed: number, count: number, broken: Partial<Record<Status, numb
       addedDaysAgo: (i * 3 + seed) % 90,
       seconds: 150 + ((i * 37 + seed * 11) % 140),
       status: 'ok',
+      // A made-up place on disk: nothing reads it in the browser, but a file on disk has one (and only those can be passed).
+      file: `/music/${seed}/${i + 1} - ${title}.mp3`,
     });
   }
   let cursor = count - 1;
@@ -32,6 +34,7 @@ function tracks(seed: number, count: number, broken: Partial<Record<Status, numb
       const track = list[cursor];
       if (!track) continue;
       track.status = status;
+      track.file = null;
       if (status === 'unavailable') track.reason = 'unavailable.privateVideo';
     }
   }

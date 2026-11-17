@@ -31,6 +31,11 @@ export class PlayerQueue<T> {
     return this.items[this.order[this.cursor] as number] as T;
   }
 
+  /** The files in the order they play (shuffled or not), and where the current one is in it. */
+  inOrder(): { items: T[]; index: number } {
+    return { items: this.order.map(i => this.items[i] as T), index: this.cursor };
+  }
+
   /** Index of the current file in the ORIGINAL list (for marking its row). */
   currentIndex(): number {
     return this.order[this.cursor] as number;

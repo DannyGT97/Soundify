@@ -15,6 +15,8 @@ export interface Track {
   reason?: string | null;
   /** The file to play, when it is on disk (a path or a content:// URI). */
   file?: string | null;
+  /** «Escuchar en»: where to read it when it is ANOTHER device's file (the relay of `cast.rs`); then `file` is null. */
+  url?: string | null;
 }
 
 /** One playlist in one format: what the Gestor shows as a block and the Player as a row. */
@@ -329,7 +331,34 @@ export type ConnectCommand =
   | { cmd: 'shuffle'; on?: boolean }
   | { cmd: 'repeat'; mode?: 'off' | 'all' | 'one' }
   /** Play this file of the playlist that is playing (a video id of its `ConnectQueue`). */
-  | { cmd: 'playTrack'; videoId: string };
+  | { cmd: 'playTrack'; videoId: string }
+  /** «Escuchar en»: the controller passes what IT plays; this device plays it reading the files from it. */
+  | ({ cmd: 'cast' } & ConnectCast)
+  /** The controller ended its pass: what it passed stops here. */
+  | { cmd: 'castEnd'; reason?: string };
+/** One file of a queue passed to this device. */
+export interface ConnectCastItem { videoId: string; title: string; duration: number; format: string; video: boolean; cover: boolean }
+/** What the page asks to pass: the queue as it plays here, with each file's place on THIS device (never sent). */
+export interface ConnectCastRequest {
+  deviceId: string;
+  playlist: string;
+  items: Array<{ videoId: string; title: string; duration: number; format: string; video: boolean; file: string; cover?: string | null }>;
+  index: number;
+  position: number;
+  playing: boolean;
+  shuffle: boolean;
+  repeat: 'off' | 'all' | 'one';
+}
+/** What a pass carries (the address and the ticket stay in the back). */
+export interface ConnectCast {
+  playlist: string;
+  items: ConnectCastItem[];
+  index: number;
+  position: number;
+  playing: boolean;
+  shuffle: boolean;
+  repeat: 'off' | 'all' | 'one';
+}
 /** One line of the list of devices (Ajustes and the panel of Reproduciendo). */
 export interface ConnectDevice {
   id: string;
@@ -346,6 +375,8 @@ export interface ConnectDevice {
   connected: boolean;
   /** It is strict: it only pairs with the PIN it shows. */
   needsPin: boolean;
+  /** It speaks another version of Connect: `outdated` (update it) or `newer` (update this one). Never connected to. */
+  version?: 'outdated' | 'newer' | null;
   /** It is playing right now, and what. */
   playing: boolean;
   nowPlaying: { title: string; playlist: string } | null;
@@ -368,6 +399,8 @@ export interface ConnectStatus {
   deviceId: string;
   /** The device being controlled, if any. */
   selected: string | null;
+  /** The fingerprint of this device's TLS certificate (what the others pin when they pair), to compare by eye. */
+  fingerprint?: string;
   /** Who may control this device. */
   controllers: Array<{ id: string; name: string; kind?: 'desktop' | 'phone' | 'tablet' | ''; lastSeen?: number | null }>;
   connectedControllers: number;
@@ -381,7 +414,12 @@ export interface ConnectFirewall {
   /** The network in use is «Public»: it blocks incoming connections whatever the rules say. */
   publicNetwork: boolean;
 }
-export interface ConnectIncoming { from: string; command: ConnectCommand }
+export interface ConnectIncoming {
+  from: string;
+  command: ConnectCommand;
+  /** A pass on Android: where the native player reads its files (127.0.0.1, with a secret). */
+  castBase?: string;
+}
 
 export interface PlayerMemory { volume: number; last: LastPlayed | null }
 /** What Ajustes shows and changes, from settings.json. `appearance` is the theme id. */

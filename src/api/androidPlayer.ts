@@ -16,6 +16,11 @@ import type { LoadHint, PlayerBackend, Track } from './types';
 const VIDEO = new Set(['mp4', 'mkv', 'mov', 'webm', 'avi', 'flv', 'm4v']);
 
 /** Does this file need a picture? Only the webview can draw one. */
+/** The local relay of a pass (`LocalRelay` in the back): an address only the native player is given. */
+export function isLocalRelay(url: string): boolean {
+  return url.startsWith('http://127.0.0.1:');
+}
+
 export function isVideoFile(path: string | null | undefined): boolean {
   const dot = (path ?? '').lastIndexOf('.');
   return dot >= 0 && VIDEO.has((path ?? '').slice(dot + 1).toLowerCase());
@@ -53,15 +58,18 @@ export class AndroidPlayer implements PlayerBackend {
   constructor(private readonly html: HtmlPlayer) {}
 
   load(blockKey: string, track: Track, hint?: LoadHint): void {
-    const wanted: Engine = isVideoFile(track.file) ? 'html' : 'native';
+    // Another device's file (passed here): audio comes by the local relay on 127.0.0.1, which the native player reads (it goes
+    // on with the screen off); anything else of it (video) goes through the webview.
+    const wanted: Engine = track.url ? (isLocalRelay(track.url) ? 'native' : 'html') : isVideoFile(track.file) ? 'html' : 'native';
     if (wanted !== this.active) this.stopActive();
     this.active = wanted;
     if (wanted === 'html') {
       this.html.load(blockKey, track);
       return;
     }
-    if (!track.file) return;
-    const { file, title, id } = track;
+    const file = track.url ?? track.file;
+    if (!file) return;
+    const { title, id } = track;
     this.send('playerLoad', async () => ({ path: file, title, subtitle: hint?.playlist ?? '', autoplay: hint?.autoplay ?? false, artwork: await this.artwork(id) }));
   }
 

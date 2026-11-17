@@ -4,7 +4,7 @@
 // Live progress does not come back from these calls: the back feeds `ui` and
 // emits the matching topic (`tasks`, `player`), and the views follow that.
 
-import type {
+import type { ConnectCastRequest,
   AppUpdate, AppUpdateProgress, BrowseEntry, BrowseRoots, ExplorerMemory, FindResult, ConnectCommand, ConnectDevice, ConnectFirewall, ConnectIncoming, ConnectPlayerState, ConnectQueue, ConnectStatus, CopyOutcome, CopyProgress, CreatedPlaylist, DeleteResult, DeviceEntry, DeviceImportScan, DevicesView, DeviceTarget, DownloadNotice, DownloadRequest,
   ExportResult, FormatCatalog, ImportOutcome, ImportScan, PlayerBackend, PlayerMemory, Playlist,
   Preferences, PreferencesPatch,
@@ -152,6 +152,14 @@ export interface Api {
   onAppUpdate(listener: (update: AppUpdate) => void): void;
   /** A local file (a path) as a URL the webview can load: covers and the player's files. */
   fileUrl(path: string): string;
+  /** «Escuchar en»: the URL of a file (or its picture) of what another device passed here, read through the back's relay. */
+  castUrl(videoId: string, part: 'media' | 'cover'): string;
+  /** This device stopped playing what was passed to it: the back reads nothing more from the other device. */
+  connectCastClear(): Promise<void>;
+  /** «Escuchar en»: passes what plays here to a device (it reads the files from here) and controls it from now on. */
+  connectCast(request: ConnectCastRequest): Promise<void>;
+  /** The pass ends: nothing more can be read from here and the other device stops. */
+  connectCastEnd(reason: string): Promise<void>;
   /**
    * The file of a video's thumbnail, or null while it is not on disk: then it
    * is fetched in the background and `onThumbnailReady` gets its id.
