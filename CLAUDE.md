@@ -311,10 +311,13 @@ Repositorio: https://github.com/DannyGT97/Soundify (GitHub, rama `main`, GPL-3.0
   descarga en curso como chip y barra
 - `overlays/` — Tareas, Ver archivos (filtro, estado y reproducción por archivo o playlist), Ayuda de
   Importar (tamaño fijo: desplegar «¿Qué carpeta elijo?» no cambia su tamaño), Actividad, confirmación,
-  `deletePlaylist.ts` (Eliminar, con sus opciones), explorador de dispositivos (`devicePicker.ts`: raíl de
-  teléfonos que se refresca cada 4 s, carpetas en cuadrícula o lista, filtro, nueva carpeta con
-  `create_device_folder`; «¿Problemas con el dispositivo?» se abre dentro, no en otra ventana). Del
-  prototipo quedaron fuera espacio libre, carpetas bloqueadas y recientes
+  `deletePlaylist.ts` (Eliminar, con sus opciones), el **explorador de archivos propio** (`explorer.ts`, 17/11/2026, fase 1 de escritorio; sustituye a `devicePicker.ts` y al diálogo del sistema):
+  una ventana para carpetas del PC y teléfonos MTP (raíl con accesos rápidos, discos con espacio libre y teléfonos que se refrescan cada 4 s; migas, filtro, orden, lista o cuadrícula, nueva carpeta,
+  teclado ↑↓ Intro Retroceso Ctrl+F; estados lento / desconectado / bloqueada / vacía). `openExplorer(purpose, onPicked, options)`, con `purpose` = `destination` (PC o teléfono), `copy-folder`,
+  `copy-device`, `import-folder`, `import-device`, `cover` (solo imágenes) y `cookies` (solo .txt); en modos de archivo hay panel de detalles y «Mostrar todos». `pickers.ts` lo envuelve
+  (`pickLocalFolder`, `pickCoverFile`, `pickCookiesFile`) y en Android sigue usando los selectores de siempre (`onAndroid`). Lógica pura y probada en `explorerLogic.ts`; backend en `core/src/browse.rs`
+  (`list`/`make_folder` por `Storage`, `drives`, `places`) y `src-tauri/src/browse.rs` (`browse_roots`, `browse_list`, `browse_mkdir`, `allow_picked_file`); mock en `api/mock/browse.ts`. «Explorador del sistema…» queda
+  como plan B. **Sin probar con un teléfono MTP real ni en Windows real** (solo mock y tests). Faltan (fases 2 y 3): Android, favoritas y recientes guardadas, buscar playlists en subcarpetas. Prototipo: `design/file-explorer-prototype.html`
 - `styles/theme.css` — nueve bloques `[data-theme="…"]` con los tokens `--sp-*`: Oscuro (oficial, el
   predeterminado) y Claro (oficial), sus variantes neutras (`dark-neutral`, `light-neutral`: sin acento verde
   y sin el tono propio de cada playlist, `--h`; eso se anula al final de `screens.css`), más Oscuro rojo,
@@ -336,7 +339,7 @@ Repositorio: https://github.com/DannyGT97/Soundify (GitHub, rama `main`, GPL-3.0
   de Reproduciendo (`.np-pip-here`) se puede arrastrar el panel para devolverlo (`.dock-over`) o usar «Traerlo aquí». También
   funciona en móvil y tableta (solo el botón del reproductor de la barra sigue oculto en móvil)
 - **Portada editable en el Reproductor:** la portada grande del detalle (`.hero-cover` en `views/player.ts`) lleva un lápiz al pasar el ratón (o foco), como las filas del Gestor, y abre el mismo `changeCover`; en pantallas táctiles (`hover: none`) el lápiz es una insignia siempre visible. **Sin ver en la tablet**
-- **Buscadores con «x» para borrar:** todos son `type="search"` (Gestor, Reproductor y su búsqueda de archivos, Ver archivos, Ajustes, filtro del explorador de dispositivos) y la «x» es el botón nativo (`::-webkit-search-cancel-button`, dibujado con máscara en `app.css`; más grande en Android, `phone.css`). Un buscador nuevo = `attrs: { type: 'search' }`; `keys.ts` ya lo trata como campo de texto. **Sin ver en la tablet**
+- **Buscadores con «x» para borrar:** todos son `type="search"` (Gestor, Reproductor y su búsqueda de archivos, Ver archivos, Ajustes, filtro del explorador) y la «x» es el botón nativo (`::-webkit-search-cancel-button`, dibujado con máscara en `app.css`; más grande en Android, `phone.css`). Un buscador nuevo = `attrs: { type: 'search' }`; `keys.ts` ya lo trata como campo de texto. **Sin ver en la tablet**
 - `components/themePicker.ts` — rejilla reutilizada por el botón del menú y Ajustes → Interfaz.
 - **Avisos y actividad (16/11/2026, sustituye a la píldora de tareas):** `components/toasts.ts` (`notify` / `liveNotice`): los avisos viven en `.page-col`
   (columna de la página, ARRIBA de `#page`) y EMPUJAN la pantalla hacia abajo, nunca la tapan (ni cabecera ni reproductor); se quitan solos (`TOAST_MS`: 5 s, aviso 6,5 s, error 8 s),

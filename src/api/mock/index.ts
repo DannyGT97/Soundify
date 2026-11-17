@@ -11,6 +11,7 @@ import { onAndroid } from '../../platform';
 import { emit, ui, type RunningTask, type TaskStatus } from '../../state';
 import { activityLog, AUDIO_FORMATS, importedPlaylist, playlists, VIDEO_FORMATS } from './data';
 import { mockConnect } from './connect';
+import { mockBrowse } from './browse';
 import { mockCanDownload, mockTools } from './tools';
 
 /** One clock per running task: with «Descargar más rápido» two of them tick at once. */
@@ -125,6 +126,7 @@ export const mockApi: Api = {
       alreadyRegistered: false,
     };
   }),
+  ...mockBrowse,
   // A browser has no tools to break: their health is always fine.
   watchToolHealth: () => {},
   ...mockTools,

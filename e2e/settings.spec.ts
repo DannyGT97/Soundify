@@ -45,6 +45,12 @@ test('cookies say their state, and a reset brings the factory values back on the
   await expect(status).toContainText('Sin cookies configuradas');
 
   await page.getByRole('button', { name: 'Seleccionar' }).click();
+  // The explorer lists only .txt files; the one picked goes into the box.
+  const explorer = page.locator('.mtp.xp');
+  await explorer.locator('.xp-place', { hasText: 'Descargas' }).click();
+  await explorer.locator('.xp-row', { hasText: 'cookies.txt' }).click();
+  await explorer.getByRole('button', { name: 'Usar este archivo' }).click();
+  await expect(page.locator('[data-key="settings.advanced.cookies"] input')).toHaveValue('C:\\Users\\Ana\\Downloads\\cookies.txt');
   await expect(status).toHaveClass(/status-text-ok/);
 
   await page.getByRole('button', { name: 'Reset', exact: true }).click();

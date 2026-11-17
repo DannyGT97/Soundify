@@ -1,4 +1,5 @@
 import { expect, test } from '@playwright/test';
+import { explorer } from './helpers';
 
 // "Copiar playlist" and "Importar" against the mock: the steps follow one
 // another and each ends in its notice (the texts are tested in transfer.test.ts).
@@ -7,6 +8,7 @@ test('copying a playlist asks to confirm, shows progress and ends in a notice', 
   await page.goto('/#/manager?open=pl1');
   await page.locator('.pm-more').first().click();
   await page.getByRole('button', { name: 'Copiar a una carpeta local…' }).first().click();
+  await explorer(page).getByRole('button', { name: 'Copiar aquí' }).click();
 
   const dialog = page.getByRole('dialog');
   await expect(dialog.getByRole('checkbox')).toBeChecked();
@@ -20,6 +22,7 @@ test('cancelling a copy undoes it and says so', async ({ page }) => {
   await page.goto('/#/manager?open=pl1');
   await page.locator('.pm-more').first().click();
   await page.getByRole('button', { name: 'Copiar a una carpeta local…' }).first().click();
+  await explorer(page).getByRole('button', { name: 'Copiar aquí' }).click();
   await page.getByRole('dialog').getByRole('button', { name: 'Copiar', exact: true }).click();
   // The confirmation is still fading out (with its own "Cancelar") when the progress window opens.
   await page.locator('.overlay-scrim:not(.overlay-leaving)').getByRole('button', { name: 'Cancelar' }).click();
@@ -31,6 +34,7 @@ test('importing from the help window ends in a notice', async ({ page }) => {
   await page.goto('/#/manager');
   await page.getByRole('button', { name: 'Importar' }).click();
   await page.getByRole('button', { name: 'Explorar archivos' }).click();
+  await explorer(page).getByRole('button', { name: 'Buscar aquí' }).click();
 
   await expect(page.locator('.toast-success')).toContainText('importada');
 });
@@ -41,6 +45,7 @@ test('regression: importing into an empty Gestor shows the playlist without leav
 
   await page.locator('.empty').getByRole('button', { name: 'Importar' }).click();
   await page.getByRole('button', { name: 'Explorar archivos' }).click();
+  await explorer(page).getByRole('button', { name: 'Buscar aquí' }).click();
 
   await expect(page.locator('.toast-success')).toContainText('importada');
   await expect(page.locator('.pm-row-header').filter({ hasText: 'Chill de domingo' })).toBeVisible();
@@ -52,9 +57,9 @@ test('copying to a phone goes through the picker and names where it went', async
   await page.locator('.pm-more').first().click();
   await page.getByRole('button', { name: 'Copiar a un dispositivo…' }).first().click();
 
-  const picker = page.getByRole('dialog');
-  await picker.locator('.tile-f', { hasText: 'Music' }).click();
-  await expect(picker.locator('.tile-f', { hasText: 'Soundify' })).toBeVisible();
+  const picker = explorer(page);
+  await picker.locator('.xp-row', { hasText: 'Music' }).click();
+  await expect(picker.locator('.xp-row', { hasText: 'Soundify' })).toBeVisible();
   await picker.getByRole('button', { name: 'Copiar aquí' }).click();
 
   await expect(page.locator('.toast-success')).toContainText('Pixel 8 / Music');

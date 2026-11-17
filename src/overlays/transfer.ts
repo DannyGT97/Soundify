@@ -12,7 +12,8 @@ import { loadLibrary } from '../library';
 import { closeOverlay, openOverlay } from '../components/overlay';
 import { notify } from '../components/toasts';
 import { confirmDialog } from './confirm';
-import { deviceLabel, openDevicePicker } from './devicePicker';
+import { deviceLabel, openExplorer } from './explorer';
+import { pickLocalFolder } from '../pickers';
 import {
   bulletList, copySummary, errorText, folderName, importSummary, nothingFound, nothingNew,
 } from '../transfer';
@@ -26,7 +27,7 @@ type Copy = (onProgress: (progress: CopyProgress) => void) => Promise<CopyOutcom
  */
 export async function copyToFolder(playlist: Playlist, block: FormatBlock): Promise<void> {
   const format = block.format.toUpperCase();
-  const destination = await api.pickFolder(t('manager.copy.chooseTarget', playlist.title, format));
+  const destination = await pickLocalFolder('copy-folder', t('manager.copy.chooseTarget', playlist.title, format));
   if (!destination) return;
 
   const register = h('input', { attrs: { type: 'checkbox' } });
@@ -42,11 +43,15 @@ export async function copyToFolder(playlist: Playlist, block: FormatBlock): Prom
 
 /** «Copiar a un dispositivo…»: the picker, then the same progress as a folder copy. */
 export function copyToDevice(playlist: Playlist, block: FormatBlock): void {
-  openDevicePicker('copy', target => void runCopy(playlist, block, async onProgress => ({
-    result: await api.copyToDevice(block.key, target, onProgress),
-    folder: deviceLabel(target),
-    register: 'notRequested',
-  })), { playlist, block });
+  openExplorer('copy-device', picked => {
+    if (!('device' in picked)) return;
+    const target = picked.device;
+    void runCopy(playlist, block, async onProgress => ({
+      result: await api.copyToDevice(block.key, target, onProgress),
+      folder: deviceLabel(target),
+      register: 'notRequested',
+    }));
+  }, { subject: { playlist, block } });
 }
 
 async function runCopy(playlist: Playlist, block: FormatBlock, copy: Copy): Promise<void> {
@@ -65,7 +70,7 @@ async function runCopy(playlist: Playlist, block: FormatBlock, copy: Copy): Prom
 
 /** Folder chooser → scan → confirmation if there is more than one → import → result. */
 export async function importFromFolder(): Promise<void> {
-  const folder = await api.pickFolder(t('manager.import.chooseFolder'));
+  const folder = await pickLocalFolder('import-folder', t('manager.import.chooseFolder'));
   if (!folder) return;
   try {
     const scan = await api.scanImport(folder);
@@ -90,7 +95,9 @@ export async function importFromFolder(): Promise<void> {
  * per manifest pulled → result.
  */
 export function importFromDevice(): void {
-  openDevicePicker('import', target => void scanDevice(target));
+  openExplorer('import-device', picked => {
+    if ('device' in picked) void scanDevice(picked.device);
+  });
 }
 
 async function scanDevice(target: DeviceTarget): Promise<void> {
@@ -99,7 +106,7 @@ async function scanDevice(target: DeviceTarget): Promise<void> {
     const scan = await api.scanDeviceImport(target.deviceId, target.deviceName, target.path);
     scanning.close();
     if (scan.found === 0) {
-      notify(nothingFound(target.path ? folderName(target.path) : t('devicePicker.root')));
+      notify(nothingFound(target.path ? folderName(target.path) : t('explorer.root')));
       return;
     }
     if (scan.candidates.length === 0) { notify(nothingNew(scan.found)); return; }

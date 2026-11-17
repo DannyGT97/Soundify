@@ -9,6 +9,7 @@ import { confirmDialog } from '../overlays/confirm';
 import { SCALE_STEPS, currentScale, onScaleChange, setScale } from '../scale';
 import { themePicker } from '../components/themePicker';
 import { notify } from '../components/toasts';
+import { pickCookiesFile } from '../pickers';
 import { chooseAutoPip, chooseLanguage, choosePlayerPlacement, preferences, resetPreferences, save } from '../preferences';
 import { onAndroid } from '../platform';
 import { buildIndex, searchIndex } from '../settingsSearch';
@@ -339,7 +340,7 @@ function advanced(): HTMLElement[] {
     void showCookiesStatus(status, file);
   };
   const choose = async () => {
-    const file = await api.pickCookiesFile(t('settings.cookies.chooseFile'), t('settings.cookies.fileFilter'));
+    const file = await pickCookiesFile(t('settings.cookies.chooseFile'), t('settings.cookies.fileFilter'));
     if (file === null) return;
     save({ cookiesFile: file });
     show(file);

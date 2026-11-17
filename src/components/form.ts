@@ -14,7 +14,8 @@ import { canDownload, tools } from '../tools';
 import { onAndroid } from '../platform';
 import { defaultMusicDir } from '../storage';
 import { navigate } from '../router';
-import { deviceLabel, openDevicePicker } from '../overlays/devicePicker';
+import { deviceLabel, openExplorer } from '../overlays/explorer';
+import { pickCoverFile } from '../pickers';
 import { closeFloating, openFloating } from './floating';
 
 // === FORMAT ===
@@ -107,12 +108,17 @@ export function destinations(changed: () => void): Destinations {
       small.title = on ? text : '';
     } };
   };
+  /** The explorer reaches this computer and the phones alike: the card only says where it starts. */
+  const choose = (startOnDevice: boolean) => openExplorer('destination', picked => {
+    if ('device' in picked) set(deviceLabel(picked.device), picked.device);
+    else set(picked.path, null);
+  }, { startOnDevice });
   const folder = card('folder', 'form.dest.local', 'form.dest.local.empty', () => {
-    void api.pickFolder(t('download.folder.choose')).then(chosen => { if (chosen) set(chosen, null); });
+    // On Android the phone's own folder chooser still does this (the explorer comes later).
+    if (onAndroid) void api.pickFolder(t('download.folder.choose')).then(chosen => { if (chosen) set(chosen, null); });
+    else choose(false);
   });
-  const phone = card('device', 'form.dest.device', 'form.dest.device.empty', () => {
-    openDevicePicker('destination', target => set(deviceLabel(target), target));
-  });
+  const phone = card('device', 'form.dest.device', 'form.dest.device.empty', () => choose(true));
   // Nothing to plug a phone into from a phone.
   phone.node.classList.add('desktop-only');
   function paint(): void {
@@ -153,7 +159,7 @@ export function urlCover(playlist: boolean, emptyKey: string, changed: () => voi
   const tile = h('button', { class: 'url-cover', onclick: async () => {
     let image: string | null = null;
     try {
-      image = await api.pickCoverImage(t('newPlaylist.cover.title'), t('cover.choose.filter'));
+      image = await pickCoverFile(t('newPlaylist.cover.title'), t('cover.choose.filter'));
     } catch (error) {
       console.warn('cover: could not pick it', error);
       notify({ tone: 'error', text: t('cover.choose.failed') });

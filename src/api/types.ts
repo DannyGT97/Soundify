@@ -53,6 +53,33 @@ export interface DeviceEntry {
   sizeBytes: number;
 }
 
+/** A way into this computer's folders: a disk (with its space) or one of the user's usual folders. */
+export interface BrowseRoot {
+  /** A place's name (`music`, `downloads`…) or `drive:` + the disk's path. */
+  id: string;
+  kind: 'drive' | 'place';
+  path: string;
+  /** 0 when unknown (a place does not say). */
+  totalBytes: number;
+  freeBytes: number;
+}
+
+export interface BrowseRoots {
+  places: BrowseRoot[];
+  drives: BrowseRoot[];
+}
+
+/** One thing in a folder of this computer (what the explorer lists). */
+export interface BrowseEntry {
+  name: string;
+  isFolder: boolean;
+  sizeBytes: number;
+  /** Local time `2026-11-17T09:30:00`. */
+  modified: string | null;
+  /** Set on a folder that carries a Soundify manifest. */
+  playlist: { title: string; format: string } | null;
+}
+
 /** Whether this system can talk to phones at all, and the ones connected now. */
 export interface DevicesView {
   available: boolean;

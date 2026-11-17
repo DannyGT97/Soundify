@@ -7,7 +7,7 @@ import { getCurrentWindow } from '@tauri-apps/api/window';
 import { open } from '@tauri-apps/plugin-dialog';
 import type { Api } from '.';
 import type {
-  ActivityLine, AppUpdate, AppUpdateProgress, ConnectDevice, ConnectFirewall, ConnectIncoming, ConnectPlayerState, ConnectQueue, ConnectStatus, CopyOutcome, CopyProgress, CreatedPlaylist, DeleteResult, DeviceEntry, DeviceImportScan, DevicesView, DownloadNotice, ExportResult,
+  ActivityLine, AppUpdate, AppUpdateProgress, BrowseEntry, BrowseRoots, ConnectDevice, ConnectFirewall, ConnectIncoming, ConnectPlayerState, ConnectQueue, ConnectStatus, CopyOutcome, CopyProgress, CreatedPlaylist, DeleteResult, DeviceEntry, DeviceImportScan, DevicesView, DownloadNotice, ExportResult,
   FormatCatalog, ImportOutcome, ImportScan, PlayerMemory, Playlist, Preferences, StorageInfo, TasksViewWire, ToolDownload, ToolsReport, YtdlpCheck,
 } from './types';
 import { onAndroid } from '../platform';
@@ -63,6 +63,10 @@ export const tauriApi: Api = {
   revealFolder: folder => invoke('open_folder', { folder }),
   deletePlaylistFormat: (blockKey, files) => invoke<DeleteResult | null>('delete_playlist_format', { blockKey, files }),
   listDevices: () => invoke<DevicesView>('list_devices'),
+  browseRoots: () => invoke<BrowseRoots>('browse_roots'),
+  browseList: path => invoke<BrowseEntry[]>('browse_list', { path }),
+  browseMkdir: (parent, name) => invoke<string>('browse_mkdir', { parent, name }),
+  allowPickedFile: path => invoke<void>('allow_picked_file', { path }),
   listDeviceFolder: (deviceId, path) => invoke<DeviceEntry[]>('list_device_folder', { deviceId, path }),
   createDeviceFolder: (deviceId, path) => invoke<boolean>('create_device_folder', { deviceId, path }),
   openDeviceFolder: (deviceId, path) => invoke('open_device_folder', { deviceId, path }),

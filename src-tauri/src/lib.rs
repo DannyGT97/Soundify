@@ -4,6 +4,7 @@
 mod app_paths;
 mod app_update;
 mod bootstrap;
+mod browse;
 mod commands;
 mod connect;
 mod covers;
@@ -195,6 +196,10 @@ pub fn run() {
       commands::import_playlists,
       commands::first_video_id,
       commands::delete_playlist_format,
+      browse::browse_roots,
+      browse::browse_list,
+      browse::browse_mkdir,
+      browse::allow_picked_file,
       devices::list_devices,
       devices::list_device_folder,
       devices::create_device_folder,

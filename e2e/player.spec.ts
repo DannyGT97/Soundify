@@ -1,4 +1,5 @@
 import { expect, test, type Page } from '@playwright/test';
+import { pickLocalDestination } from './helpers';
 
 // Playback through the PlayerBackend (the simulated one in the mock): the bar
 // appears, the clock moves and ✕ unloads it (the Java app's PlayerUiTest).
@@ -93,7 +94,7 @@ test('a download from the URL screen shows in the ring of the title', async ({ p
   await page.clock.install();
   await page.goto('/#/download');
   await page.locator('input.input').first().fill('https://www.youtube.com/watch?v=abc');
-  await page.locator('.dest', { hasText: 'Carpeta local' }).click();
+  await pickLocalDestination(page);
   await page.getByRole('button', { name: 'Descargar', exact: true }).click();
   await expect(page.locator('.activity-ring')).toBeVisible();
   // The line under the title says it too, while it runs, with the way to the Gestor.
@@ -106,7 +107,7 @@ test('the ring shows the result for a few seconds and goes; the bell keeps what 
   await page.clock.install();
   await page.goto('/#/download');
   await page.locator('input.input').first().fill('https://www.youtube.com/watch?v=abc');
-  await page.locator('.dest', { hasText: 'Carpeta local' }).click();
+  await pickLocalDestination(page);
   await page.getByRole('button', { name: 'Descargar', exact: true }).click();
   const ring = page.locator('.activity-ring');
   await expect(ring).toBeVisible();
@@ -127,7 +128,7 @@ test('the ring shows the result for a few seconds and goes; the bell keeps what 
 
 test('Descarga por URL refuses a list, even a video opened from inside one, and points to Crear Playlist', async ({ page }) => {
   await page.goto('/#/download');
-  await page.locator('.dest', { hasText: 'Carpeta local' }).click();
+  await pickLocalDestination(page);
   const url = page.locator('input.input').first();
   const start = page.getByRole('button', { name: 'Descargar', exact: true });
 
@@ -138,7 +139,7 @@ test('Descarga por URL refuses a list, even a video opened from inside one, and 
   await expect(page.locator('input.input').first()).toHaveValue('https://www.youtube.com/watch?v=abc&list=PL123');
 
   await page.goto('/#/download');
-  await page.locator('.dest', { hasText: 'Carpeta local' }).click();
+  await pickLocalDestination(page);
   await page.locator('input.input').first().fill('https://www.youtube.com/watch?v=abc');
   await expect(page.getByRole('button', { name: 'Descargar', exact: true })).toBeEnabled();
 });

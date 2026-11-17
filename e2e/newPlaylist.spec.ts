@@ -1,4 +1,5 @@
 import { expect, test } from '@playwright/test';
+import { pickLocalDestination } from './helpers';
 
 // «Crear Playlist» against the mock: a playlist already registered in that folder and format is
 // not reused in silence; the user chooses (the back refuses it with `newPlaylist.alreadyExists`).
@@ -10,14 +11,14 @@ async function create(page: import('@playwright/test').Page) {
 test('creating the same playlist again in the same folder asks before reusing it', async ({ page }) => {
   await page.goto('/#/new-playlist');
   await page.locator('#url').fill('https://www.youtube.com/playlist?list=PL1');
-  await page.locator('.dest', { hasText: 'Carpeta local' }).click();
+  await pickLocalDestination(page);
 
   await create(page);
   await expect(page).toHaveURL(/#\/manager/);
 
   await page.goto('/#/new-playlist');
   await page.locator('#url').fill('https://www.youtube.com/playlist?list=PL1');
-  await page.locator('.dest', { hasText: 'Carpeta local' }).click();
+  await pickLocalDestination(page);
   await create(page);
 
   const dialog = page.locator('.overlay-window');

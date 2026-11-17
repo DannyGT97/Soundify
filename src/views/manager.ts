@@ -12,10 +12,11 @@ import { openMenu, type MenuItem } from '../components/floating';
 import { liveBar, liveChip, livePhase, patchLive, percentText } from '../components/live';
 import { playlistPicture, refreshPickedCovers } from '../covers';
 import { openDeleteWindow } from '../overlays/deletePlaylist';
-import { deviceLabel } from '../overlays/devicePicker';
+import { deviceLabel } from '../overlays/explorer';
 import { openImportHelp } from '../overlays/help';
 import { copyToDevice, copyToFolder } from '../overlays/transfer';
 import { notify } from '../components/toasts';
+import { pickCoverFile } from '../pickers';
 import { errorText } from '../transfer';
 import { canDownload, tools } from '../tools';
 import { toolsNotice } from '../components/toolsNotice';
@@ -323,7 +324,7 @@ function liveShape(): string {
 export async function changeCover(playlist: Playlist): Promise<void> {
   const block = playlist.formats[0];
   try {
-    const image = await api.pickCoverImage(t('cover.choose.title', playlist.title), t('cover.choose.filter'));
+    const image = await pickCoverFile(t('cover.choose.title', playlist.title), t('cover.choose.filter'));
     if (!image || !block) return;
     await api.setCover(block.key, image);
     // Every picked cover is called `cover.jpg`: the webview would keep showing the old one.

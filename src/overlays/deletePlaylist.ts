@@ -8,7 +8,7 @@ import { closeButton, closeOverlay, openOverlay, openPanel } from '../components
 import { notify } from '../components/toasts';
 import { playlistPicture } from '../covers';
 import { errorText } from '../transfer';
-import { deviceLabel } from './devicePicker';
+import { deviceLabel } from './explorer';
 
 /** Deleting can be over before the eye catches it: the window stays at least this long. */
 const MIN_DELETE_WINDOW_MS = 600;

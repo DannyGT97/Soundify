@@ -5,7 +5,7 @@
 // emits the matching topic (`tasks`, `player`), and the views follow that.
 
 import type {
-  AppUpdate, AppUpdateProgress, ConnectCommand, ConnectDevice, ConnectFirewall, ConnectIncoming, ConnectPlayerState, ConnectQueue, ConnectStatus, CopyOutcome, CopyProgress, CreatedPlaylist, DeleteResult, DeviceEntry, DeviceImportScan, DevicesView, DeviceTarget, DownloadNotice, DownloadRequest,
+  AppUpdate, AppUpdateProgress, BrowseEntry, BrowseRoots, ConnectCommand, ConnectDevice, ConnectFirewall, ConnectIncoming, ConnectPlayerState, ConnectQueue, ConnectStatus, CopyOutcome, CopyProgress, CreatedPlaylist, DeleteResult, DeviceEntry, DeviceImportScan, DevicesView, DeviceTarget, DownloadNotice, DownloadRequest,
   ExportResult, FormatCatalog, ImportOutcome, ImportScan, PlayerBackend, PlayerMemory, Playlist,
   Preferences, PreferencesPatch,
   StorageInfo, ToolDownload, ToolId, ToolsReport, WindowControls, YtdlpCheck,
@@ -83,6 +83,14 @@ export interface Api {
    * downloaded first (null when `files` is false). Rejects with an `ApiError`.
    */
   deletePlaylistFormat(blockKey: string, files: boolean): Promise<DeleteResult | null>;
+  /** The disks and the user's usual folders, for the explorer. */
+  browseRoots(): Promise<BrowseRoots>;
+  /** What a folder of this computer holds. Rejects with an `ApiError` (`explorer.error.*`). */
+  browseList(path: string): Promise<BrowseEntry[]>;
+  /** «Nueva carpeta»: the new folder's path. Rejects with an `ApiError` (`explorer.newFolder.*`). */
+  browseMkdir(parent: string, name: string): Promise<string>;
+  /** Lets the page show the image the user just picked (the asset scope is opened for that one file). */
+  allowPickedFile(path: string): Promise<void>;
   /** Whether this system can talk to phones, and the ones reachable right now. */
   listDevices(): Promise<DevicesView>;
   /** One folder of a phone (`path` "/"-joined, "" = its root). */

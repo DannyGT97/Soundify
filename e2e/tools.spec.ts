@@ -1,4 +1,5 @@
 import { expect, test, type Page } from '@playwright/test';
+import { pickLocalDestination } from './helpers';
 
 // The tools against the mock: `?mockTools=missing` starts with none of the
 // three installed, `?mockTools=failing` the same with Deno failing once.
@@ -19,7 +20,7 @@ test('the assistant opens on a first start and installs the three tools', async 
   // Same page, only the route changes: what was just installed stays installed.
   await expect(page.locator('.status-strip.warning')).toBeHidden();
   await page.locator('input.input').first().fill('https://www.youtube.com/watch?v=abc');
-  await page.locator('.dest', { hasText: 'Carpeta local' }).click();
+  await pickLocalDestination(page);
   await expect(page.getByRole('button', { name: 'Descargar', exact: true })).toBeEnabled();
 });
 

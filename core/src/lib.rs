@@ -9,6 +9,7 @@
 //! desktop the webview itself plays the files.
 
 pub mod archive;
+pub mod browse;
 pub mod clock;
 pub mod connect;
 pub mod cover_art;
