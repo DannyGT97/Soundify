@@ -338,7 +338,7 @@ button.fmt:hover { background: var(--sp-icon-btn-hover); color: var(--sp-text-st
 .spacer { flex: 1; }
 .detail .notice { margin: 4px 22px 8px; }
 .icon-button.on { color: var(--sp-accent); }
-.mini { position: absolute; left: 0; right: 0; top: 0; height: 56px; z-index: 5; display: flex; align-items: center; gap: 12px; padding: 0 16px; background: color-mix(in srgb, hsl(var(--h) 45% 30%) 45%, var(--sp-card)); transform: translateY(-100%); transition: transform .16s; box-shadow: 0 6px 16px var(--sp-shadow-soft); }
+.mini { position: absolute; left: 0; right: var(--sbw, 0px); top: 0; height: 56px; z-index: 5; display: flex; align-items: center; gap: 12px; padding: 0 16px; background: color-mix(in srgb, hsl(var(--h) 45% 30%) 45%, var(--sp-card)); transform: translateY(-100%); transition: transform .16s; box-shadow: 0 6px 16px var(--sp-shadow-soft); }
 [data-theme^="light"] .mini { background: color-mix(in srgb, hsl(var(--h) 75% 78%) 45%, var(--sp-card)); }
 .detail.stuck .mini { transform: none; }
 .mini b { color: var(--sp-text-strong); font-size: 15px; font-weight: 800; }

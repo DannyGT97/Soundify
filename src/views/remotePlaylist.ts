@@ -195,7 +195,11 @@ export function remotePlaylistView(): HTMLElement {
   const detail = h('div', { class: 'detail' },
     h('div', { class: 'mini' }, miniPlay, icon('monitor', 18), miniTitle, h('span', { class: 'fmt', text: device.name }), backButton()),
     scroller);
-  scroller.addEventListener('scroll', () => detail.classList.toggle('stuck', scroller.scrollTop > hero.offsetHeight - 56));
+  scroller.addEventListener('scroll', () => {
+    detail.classList.toggle('stuck', scroller.scrollTop > hero.offsetHeight - 56);
+    // The bar that slides in stops short of the scrollbar so that stays whole.
+    detail.style.setProperty('--sbw', `${scroller.offsetWidth - scroller.clientWidth}px`);
+  });
 
   onLeave(subscribe('connect', () => {
     // The device is not being controlled any more: back to the player.

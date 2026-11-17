@@ -510,3 +510,17 @@ test('the menu\'s «Reproductor» comes back to the playlist that was open, and 
   await page.locator('.sidebar .nav-button', { hasText: 'Reproductor' }).click();
   await expect(page).toHaveURL(/#\/player$/);
 });
+
+test('the bar that slides in when the list is scrolled stops short of the scrollbar, which stays whole', async ({ page }) => {
+  await page.goto('/#/player?b=pl1:MP3');
+  const scroller = page.locator('.scroller').first();
+  await scroller.evaluate(el => { el.scrollTop = 600; });
+  await expect(page.locator('.detail.stuck')).toHaveCount(1);
+  const edges = await page.evaluate(() => {
+    const list = document.querySelector('.scroller') as HTMLElement;
+    const bar = document.querySelector('.detail .mini') as HTMLElement;
+    return { scrollbar: list.offsetWidth - list.clientWidth, gap: list.getBoundingClientRect().right - bar.getBoundingClientRect().right };
+  });
+  // Whatever width the scrollbar has on this system, the bar leaves exactly that free.
+  expect(Math.round(edges.gap)).toBe(Math.round(edges.scrollbar));
+});

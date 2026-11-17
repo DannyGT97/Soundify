@@ -577,7 +577,11 @@ function detailView(key: string, params: Params): HTMLElement {
       backButton()),
     scroller);
   detail.style.setProperty('--h', String(hueOf(playlist.title)));
-  scroller.addEventListener('scroll', () => detail.classList.toggle('stuck', scroller.scrollTop > hero.offsetHeight - 56));
+  scroller.addEventListener('scroll', () => {
+    detail.classList.toggle('stuck', scroller.scrollTop > hero.offsetHeight - 56);
+    // The bar that slides in covers the top of the list: it stops short of the scrollbar so that stays whole.
+    detail.style.setProperty('--sbw', `${scroller.offsetWidth - scroller.clientWidth}px`);
+  });
 
   // Coming back to the playlist that sounds, the list opens where the sounding file is (picked far down, it was a scroll to find it again).
   // The screen is not in the page yet: the next frame it is, and has a size to scroll to.
