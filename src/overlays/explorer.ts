@@ -816,6 +816,20 @@ export function openExplorer(purpose: ExplorerPurpose, onPicked: (pick: Explorer
     void load();
   }
 
+  /** The picked image itself, cropped to the square it will become: the page is let to read just that file first. */
+  function showPreview(hero: HTMLElement, path: string, name: string): void {
+    const img = h('img', { class: 'xp-preview', attrs: { alt: '' } });
+    img.hidden = true;
+    img.addEventListener('load', () => {
+      img.hidden = false;
+      hero.querySelector('.icon')?.remove();
+    });
+    hero.append(img);
+    void api.allowPickedFile(path).then(() => {
+      if (!closed && selected === name) img.src = api.fileUrl(path);
+    }).catch(() => {});
+  }
+
   function renderDetails(): void {
     if (spec.folder) return;
     const file = entries?.find(entry => !entry.isFolder && entry.name === selected);
@@ -823,8 +837,10 @@ export function openExplorer(purpose: ExplorerPurpose, onPicked: (pick: Explorer
       details.replaceChildren(h('div', { class: 'xp-details-empty' }, icon(spec.icon, 30), h('p', { class: 'muted', text: t(`explorer.${spec.key}.choose`) })));
       return;
     }
+    const hero = h('div', { class: 'xp-hero' }, icon(fileIcon(file), 44));
+    if (kindOf(file) === 'image') showPreview(hero, joinPath(place.path, file.name), file.name);
     details.replaceChildren(
-      h('div', { class: 'xp-hero' }, icon(fileIcon(file), 44)),
+      hero,
       h('b', { class: 'xp-details-name', text: file.name }),
       h('dl', { class: 'xp-kv' },
         h('dt', { text: t('explorer.details.size' ) }), h('dd', { text: sizeText(file.sizeBytes) || '—' }),

@@ -5,7 +5,7 @@ import { explorer } from './helpers';
 
 async function openDestination(page: import('@playwright/test').Page) {
   await page.goto('/#/download');
-  await page.locator('.dest', { hasText: 'Carpeta local' }).click();
+  await page.locator('.dest').click();
   await expect(explorer(page)).toBeVisible();
 }
 
@@ -91,6 +91,8 @@ test('a cover is chosen from the images only: the rest stay out of the way until
 
   await window.locator('.xp-row', { hasText: 'portada-verano.png' }).click();
   await expect(window.locator('.xp-details')).toContainText('portada-verano.png');
+  // The details show the picture itself (the mock's URL is the path; the real one goes through the asset protocol).
+  await expect(window.locator('.xp-preview')).toHaveAttribute('src', /portada-verano.png/);
   await window.getByRole('button', { name: 'Usar esta imagen' }).click();
   await expect(window).toBeHidden();
   await expect(page.locator('.cover-x')).toBeVisible();
@@ -106,8 +108,9 @@ test('closing it without choosing leaves the cover as it was', async ({ page }) 
 
 test('the phone shows up in the same window, with its folders and a copy target', async ({ page }) => {
   await page.goto('/#/download');
-  await page.locator('.dest', { hasText: 'Dispositivo MTP' }).click();
+  await page.locator('.dest').click();
   const window = explorer(page);
+  await window.locator('.dev-row', { hasText: 'Pixel 8' }).click();
   await expect(window.locator('.crumbs')).toContainText('Pixel 8');
   await window.locator('.xp-row', { hasText: 'Music' }).click();
   await expect(window.locator('.mtp-foot')).toContainText('Pixel 8 › Music');
@@ -143,7 +146,7 @@ test('a starred folder is in the rail the next time, and the star takes it out a
   await expect(window.locator('.xp-place', { hasText: 'D:\\Música' })).toBeVisible();
 
   await window.getByRole('button', { name: 'Cancelar' }).click();
-  await page.locator('.dest', { hasText: 'Carpeta local' }).click();
+  await page.locator('.dest').click();
   window = explorer(page);
   await expect(window.locator('.xp-place', { hasText: 'D:\\Música' })).toBeVisible();
   await window.locator('.xp-place', { hasText: 'D:\\Música' }).click();
@@ -159,7 +162,7 @@ test('the next window starts in the folder chosen last', async ({ page }) => {
   await window.getByRole('button', { name: 'Guardar aquí' }).click();
   await expect(explorer(page)).toBeHidden();
 
-  await page.locator('.dest', { hasText: 'Carpeta local' }).click();
+  await page.locator('.dest').click();
   window = explorer(page);
   await expect(window.locator('.mtp-foot')).toContainText('D:\\Música');
   await expect(window.locator('.rail-label', { hasText: 'Recientes' })).toBeVisible();
@@ -202,7 +205,7 @@ test('searching the subfolders with nothing found says so and goes back', async 
 
 test('on a phone the same explorer shows the storages, and the SD card is only read', async ({ page }) => {
   await page.goto('/?mockAndroid#/download');
-  await page.locator('.dest', { hasText: 'Carpeta local' }).click();
+  await page.locator('.dest').click();
   const window = explorer(page);
   await expect(window.locator('.xp-place', { hasText: 'Almacenamiento interno' })).toContainText('libres');
   // No USB phones to look for from a phone.
@@ -229,7 +232,7 @@ test('on a phone, Android/data is blocked and the SD card can still be imported 
 
 test('on a phone without the access to files the explorer asks for it, and lists once it is given', async ({ page }) => {
   await page.goto('/?mockAndroid&mockNoStorage#/download');
-  await page.locator('.dest', { hasText: 'Carpeta local' }).click();
+  await page.locator('.dest').click();
   const window = explorer(page);
   await expect(window.locator('.empty')).toContainText('necesita acceso');
   await expect(window.getByRole('button', { name: 'Guardar aquí' })).toBeDisabled();

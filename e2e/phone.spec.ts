@@ -49,7 +49,6 @@ test('the player bar is only cover, title, play, next and close; Reproduciendo h
 test('on Android the tools come in the app, the music goes to Music/Soundify and only the MTP way is hidden', async ({ page }) => {
   await page.goto('/?mockAndroid#/download');
   await expect(page.locator('.status-strip.warning')).toBeHidden();
-  await expect(page.getByText('Dispositivo MTP')).toBeHidden();
   await expect(page.locator('.dest', { hasText: '/storage/emulated/0/Music/Soundify' })).toBeVisible();
 
   await page.goto('/?mockAndroid#/manager');

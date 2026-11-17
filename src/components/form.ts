@@ -87,44 +87,30 @@ export interface Destinations {
   device: () => DeviceTarget | null;
 }
 
-/** "Carpeta local" and "Dispositivo MTP", each saying what was chosen once it is. */
+/** One card for where the music goes: a folder of this computer or of a phone, both chosen in the explorer. */
 export function destinations(changed: () => void): Destinations {
   // On the phone the music goes to Music/Soundify unless another folder is picked.
   let text = onAndroid ? defaultMusicDir() : '';
   let device: DeviceTarget | null = null;
+  const small = h('small', { class: 'ellipsis' });
+  const node = h('button', { class: 'dest', onclick: () => openExplorer('destination', picked => {
+    if ('device' in picked) set(deviceLabel(picked.device), picked.device);
+    else if ('path' in picked) set(picked.path, null);
+  }) });
   const set = (value: string, target: DeviceTarget | null) => {
     text = value;
     device = target;
     paint();
     changed();
   };
-  const card = (iconName: 'folder' | 'device', titleKey: string, emptyKey: string, pick: () => void) => {
-    const small = h('small', { class: 'ellipsis' });
-    const node = h('button', { class: 'dest', onclick: pick }, icon(iconName, 20),
-      h('div', { class: 'min0' }, h('b', { text: t(titleKey) }), small));
-    return { node, paint: (on: boolean) => {
-      node.classList.toggle('on', on);
-      small.textContent = on ? text : t(emptyKey);
-      small.title = on ? text : '';
-    } };
-  };
-  /** The explorer reaches this computer and the phones alike: the card only says where it starts. */
-  const choose = (startOnDevice: boolean) => openExplorer('destination', picked => {
-    if ('device' in picked) set(deviceLabel(picked.device), picked.device);
-    else if ('path' in picked) set(picked.path, null);
-  }, { startOnDevice });
-  const folder = card('folder', 'form.dest.local', 'form.dest.local.empty', () => {
-    choose(false);
-  });
-  const phone = card('device', 'form.dest.device', 'form.dest.device.empty', () => choose(true));
-  // Nothing to plug a phone into from a phone.
-  phone.node.classList.add('desktop-only');
   function paint(): void {
-    folder.paint(!!text && !device);
-    phone.paint(!!text && !!device);
+    node.classList.toggle('on', !!text);
+    small.textContent = text || t('form.dest.empty');
+    small.title = text;
+    node.replaceChildren(icon(device ? 'device' : 'folder', 20), h('div', { class: 'min0' }, h('b', { text: t('form.dest') }), small));
   }
   paint();
-  return { node: h('div', { class: 'dests' }, folder.node, phone.node), value: () => text, device: () => device };
+  return { node: h('div', { class: 'dests' }, node), value: () => text, device: () => device };
 }
 
 // === COVER ===
