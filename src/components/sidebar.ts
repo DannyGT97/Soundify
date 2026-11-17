@@ -47,7 +47,12 @@ export function buildSidebar(): HTMLElement {
         entry.route === 'home' ? homeLogo(20) : icon(entry.icon, 20),
         h('span', { class: 'nav-label', text: label }),
         h('span', { class: 'nav-label-short', text: t(entry.short ?? entry.label) }));
-      button.addEventListener('click', () => navigate(entry.route === 'player' ? (ui.remote ? 'player' : ui.lastPlayerPage) : entry.route));
+      button.addEventListener('click', () => {
+        if (entry.route !== 'player') return navigate(entry.route);
+        if (ui.remote) return navigate('player');
+        if (ui.lastPlayerPage === 'player' && ui.lastPlayerBlock) return navigate('player', { b: ui.lastPlayerBlock });
+        navigate(ui.lastPlayerPage);
+      });
       buttons.set(entry.route, button);
       nav.append(button);
     }

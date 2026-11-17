@@ -495,3 +495,18 @@ test('a playlist that is not the one sounding opens at the top', async ({ page }
   await page.waitForTimeout(200);
   expect(await page.locator('.scroller').first().evaluate(el => el.scrollTop)).toBe(0);
 });
+
+test('the menu\'s «Reproductor» comes back to the playlist that was open, and to the list if the list was where it was left', async ({ page }) => {
+  await page.goto('/#/player?b=pl1:MP3');
+  await page.locator('.sidebar .nav-button', { hasText: 'Gestor de Playlists' }).click();
+  await expect(page).toHaveURL(/#\/manager/);
+  await page.locator('.sidebar .nav-button', { hasText: 'Reproductor' }).click();
+  await expect(page).toHaveURL(/#\/player\?b=pl1/);
+
+  // Back to the list with the arrow: that is where the menu leads from now on.
+  await page.locator('.detail .ambient .icon-button[title="Volver"]').click();
+  await expect(page).toHaveURL(/#\/player$/);
+  await page.locator('.sidebar .nav-button', { hasText: 'Gestor de Playlists' }).click();
+  await page.locator('.sidebar .nav-button', { hasText: 'Reproductor' }).click();
+  await expect(page).toHaveURL(/#\/player$/);
+});

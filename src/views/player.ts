@@ -29,7 +29,10 @@ import { changeCover, openFolder } from './manager';
  */
 export function playerView(params: Params): HTMLElement {
   ui.lastPlayerPage = 'player';
-  return params.b && findBlock(params.b) ? detailView(params.b, params) : libraryView();
+  const inside = !!params.b && !!findBlock(params.b);
+  // The menu's «Reproductor» comes back to the playlist that was open, not to the list (the arrow back to the list clears it).
+  ui.lastPlayerBlock = inside ? (params.b as string) : null;
+  return inside ? detailView(params.b as string, params) : libraryView();
 }
 
 function relative(days: number): string {

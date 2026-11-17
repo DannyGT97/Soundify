@@ -25,6 +25,8 @@ export const ui = {
   theme: 'dark' as Theme,
   playerPlacement: 'both' as PlayerPlacement,
   lastPlayerPage: 'player' as 'player' | 'now-playing',
+  /** The playlist (block key) the Reproductor was showing when it was left; null = its list of playlists. */
+  lastPlayerBlock: null as string | null,
   expandedPlaylists: new Set<string>(['pl1']),
   settingsTab: 'general',
   nowPlaying: null as NowPlaying | null,
