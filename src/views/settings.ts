@@ -340,7 +340,7 @@ function advanced(): HTMLElement[] {
     void showCookiesStatus(status, file);
   };
   const choose = async () => {
-    const file = await pickCookiesFile(t('settings.cookies.chooseFile'), t('settings.cookies.fileFilter'));
+    const file = await pickCookiesFile(t('settings.cookies.chooseFile'));
     if (file === null) return;
     save({ cookiesFile: file });
     show(file);

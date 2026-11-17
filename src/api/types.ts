@@ -62,11 +62,33 @@ export interface BrowseRoot {
   /** 0 when unknown (a place does not say). */
   totalBytes: number;
   freeBytes: number;
+  /** Can be read, not written (a phone's SD card). */
+  readOnly: boolean;
 }
 
 export interface BrowseRoots {
   places: BrowseRoot[];
   drives: BrowseRoot[];
+}
+
+/** What the explorer remembers: starred folders and the ones last chosen (newest first). */
+export interface ExplorerMemory {
+  favorites: string[];
+  recents: string[];
+}
+
+/** A Soundify playlist found below a folder. */
+export interface PlaylistHit {
+  path: string;
+  title: string;
+  format: string;
+  depth: number;
+}
+
+export interface FindResult {
+  hits: PlaylistHit[];
+  /** The search stopped at its limits: there may be more. */
+  truncated: boolean;
 }
 
 /** One thing in a folder of this computer (what the explorer lists). */

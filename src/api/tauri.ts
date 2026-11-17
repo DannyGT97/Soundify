@@ -7,7 +7,7 @@ import { getCurrentWindow } from '@tauri-apps/api/window';
 import { open } from '@tauri-apps/plugin-dialog';
 import type { Api } from '.';
 import type {
-  ActivityLine, AppUpdate, AppUpdateProgress, BrowseEntry, BrowseRoots, ConnectDevice, ConnectFirewall, ConnectIncoming, ConnectPlayerState, ConnectQueue, ConnectStatus, CopyOutcome, CopyProgress, CreatedPlaylist, DeleteResult, DeviceEntry, DeviceImportScan, DevicesView, DownloadNotice, ExportResult,
+  ActivityLine, AppUpdate, AppUpdateProgress, BrowseEntry, BrowseRoots, ExplorerMemory, FindResult, ConnectDevice, ConnectFirewall, ConnectIncoming, ConnectPlayerState, ConnectQueue, ConnectStatus, CopyOutcome, CopyProgress, CreatedPlaylist, DeleteResult, DeviceEntry, DeviceImportScan, DevicesView, DownloadNotice, ExportResult,
   FormatCatalog, ImportOutcome, ImportScan, PlayerMemory, Playlist, Preferences, StorageInfo, TasksViewWire, ToolDownload, ToolsReport, YtdlpCheck,
 } from './types';
 import { onAndroid } from '../platform';
@@ -65,6 +65,9 @@ export const tauriApi: Api = {
   listDevices: () => invoke<DevicesView>('list_devices'),
   browseRoots: () => invoke<BrowseRoots>('browse_roots'),
   browseList: path => invoke<BrowseEntry[]>('browse_list', { path }),
+  browseFindPlaylists: path => invoke<FindResult>('browse_find_playlists', { path }),
+  explorerMemory: () => invoke<ExplorerMemory>('explorer_memory'),
+  saveExplorerMemory: memory => invoke<void>('save_explorer_memory', { memory }),
   browseMkdir: (parent, name) => invoke<string>('browse_mkdir', { parent, name }),
   allowPickedFile: path => invoke<void>('allow_picked_file', { path }),
   listDeviceFolder: (deviceId, path) => invoke<DeviceEntry[]>('list_device_folder', { deviceId, path }),

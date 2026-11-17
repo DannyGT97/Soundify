@@ -305,6 +305,20 @@ pub fn save_player_memory(state: State<'_, AppState>, memory: PlayerMemory) -> R
     settings::save(&LocalStorage, &file, &current).map_err(CommandError::io)
 }
 
+/// The explorer's starred folders and the ones last chosen.
+#[tauri::command]
+pub fn explorer_memory(state: State<'_, AppState>) -> soundify_core::model::ExplorerMemory {
+    settings::explorer_memory(&settings::load(&LocalStorage, &state.paths.settings()))
+}
+
+#[tauri::command]
+pub fn save_explorer_memory(state: State<'_, AppState>, memory: soundify_core::model::ExplorerMemory) -> Result<(), CommandError> {
+    let file = state.paths.settings();
+    let mut current = settings::load(&LocalStorage, &file);
+    settings::set_explorer_memory(&mut current, &memory);
+    settings::save(&LocalStorage, &file, &current).map_err(CommandError::io)
+}
+
 // === CREAR PLAYLIST ===
 
 #[derive(Serialize)]

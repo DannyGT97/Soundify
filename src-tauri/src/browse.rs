@@ -6,12 +6,12 @@
 //! on the main thread.
 
 use std::io::ErrorKind;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 use log::warn;
 use serde::Serialize;
 use soundify_core::Location;
-use soundify_core::browse::{self, BrowseEntry, BrowseRoot};
+use soundify_core::browse::{self, BrowseEntry, BrowseRoot, FindResult};
 use soundify_core::storage::LocalStorage;
 use tauri::{AppHandle, Manager};
 
@@ -25,7 +25,9 @@ pub struct BrowseRoots {
 
 #[tauri::command(async)]
 pub fn browse_roots() -> BrowseRoots {
-    BrowseRoots { places: browse::home_dir().map(|home| browse::places(&home)).unwrap_or_default(), drives: browse::drives() }
+    // On a phone the usual folders live in the internal storage, not in a home.
+    let home = if cfg!(target_os = "android") { Some(PathBuf::from("/storage/emulated/0")) } else { browse::home_dir() };
+    BrowseRoots { places: home.map(|home| browse::places(&home)).unwrap_or_default(), drives: browse::drives() }
 }
 
 /// A folder's contents. The error says why in a key the explorer has a state for.
@@ -39,6 +41,12 @@ pub fn browse_list(path: String) -> Result<Vec<BrowseEntry>, CommandError> {
             _ => "explorer.error.unreadable",
         })
     })
+}
+
+/// The Soundify playlists below a folder (a few levels down): «Buscar en subcarpetas» of the importer.
+#[tauri::command(async)]
+pub fn browse_find_playlists(path: String) -> FindResult {
+    browse::find_playlists(&LocalStorage, &Location::path(&path))
 }
 
 /// «Nueva carpeta»: the new folder's path comes back.

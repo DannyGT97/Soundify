@@ -81,15 +81,12 @@ test('one tap controls a connected device: the bar shows its music and the butto
   await expect(page.locator('.np-device')).toContainText('Salón');
 });
 
-test('a device that starts playing is noticed, and one tap on the notice controls it', async ({ page }) => {
+test('a device that starts playing does not fill the screen with a notice (it shows only in the devices window)', async ({ page }) => {
   await page.goto('/?mockConnect#/home');
   await page.evaluate(() => (window as unknown as { __connect: { salonPlays: (on: boolean) => void } }).__connect.salonPlays(true));
-  const notice = page.locator('.toast', { hasText: 'Salón' });
-  await expect(notice).toContainText('Canción del salón');
-  await notice.getByRole('button', { name: 'Controlar' }).click();
-  await expect(barTitle(page)).toHaveText('Canción del salón');
-  // The devices button of the bar lights up while it is controlled.
-  await expect(page.locator('.player-bar .devices-button')).toHaveClass(/on/);
+  // Give the page the time a notice would take to show.
+  await page.waitForTimeout(600);
+  await expect(page.locator('.toast', { hasText: 'Salón' })).toHaveCount(0);
 });
 
 test('the list says what each device is playing', async ({ page }) => {

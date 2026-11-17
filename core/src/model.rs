@@ -128,6 +128,10 @@ pub struct UserSettings {
     /// instead of one after the other. Off by default; with `parallel_downloads` they still share
     /// two yt-dlp processes between them.
     pub parallel_blocks: bool,
+    /// The explorer's starred folders of this computer, in the order they were starred.
+    pub explorer_favorites: Vec<String>,
+    /// The folders the explorer last chose, the newest first.
+    pub explorer_recents: Vec<String>,
 }
 
 impl Default for UserSettings {
@@ -156,6 +160,8 @@ impl Default for UserSettings {
             concurrent_fragments: false,
             parallel_downloads: false,
             parallel_blocks: false,
+            explorer_favorites: Vec::new(),
+            explorer_recents: Vec::new(),
         }
     }
 }
@@ -205,6 +211,14 @@ pub struct PreferencesPatch {
 pub struct PlayerMemory {
     pub volume: f64,
     pub last: Option<LastPlayed>,
+}
+
+/// What the file explorer remembers: folders of this computer starred by the user, and the ones last chosen.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ExplorerMemory {
+    pub favorites: Vec<String>,
+    pub recents: Vec<String>,
 }
 
 /// The last file played: its archive (the block it came from), its id, and the

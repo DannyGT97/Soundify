@@ -8,7 +8,7 @@ use std::io::Result;
 use log::warn;
 
 use crate::Location;
-use crate::model::{LastPlayed, PlayerMemory, Preferences, PreferencesPatch, Theme, UserSettings};
+use crate::model::{ExplorerMemory, LastPlayed, PlayerMemory, Preferences, PreferencesPatch, Theme, UserSettings};
 use crate::storage::Storage;
 
 pub fn load(storage: &dyn Storage, file: &Location) -> UserSettings {
@@ -117,11 +117,40 @@ pub fn apply(settings: &mut UserSettings, patch: &PreferencesPatch) {
 pub fn reset(settings: &UserSettings) -> UserSettings {
     let mut fresh = UserSettings::default();
     set_player_memory(&mut fresh, &player_memory(settings));
+    // The folders the user starred are theirs, not a setting that goes back to factory.
+    fresh.explorer_favorites = settings.explorer_favorites.clone();
+    fresh.explorer_recents = settings.explorer_recents.clone();
     fresh
 }
 
 fn theme_of(appearance: &str) -> Theme {
     if appearance.starts_with("light") { Theme::Light } else { Theme::Dark }
+}
+
+/// How many starred folders and recent ones are kept.
+pub const MAX_FAVORITES: usize = 30;
+pub const MAX_RECENTS: usize = 6;
+
+fn tidy(list: &[String], max: usize) -> Vec<String> {
+    let mut out: Vec<String> = Vec::new();
+    for item in list.iter().map(|item| item.trim()).filter(|item| !item.is_empty()) {
+        if !out.iter().any(|seen| seen == item) {
+            out.push(item.to_string());
+        }
+    }
+    out.truncate(max);
+    out
+}
+
+/// The explorer's part of the settings.
+pub fn explorer_memory(settings: &UserSettings) -> ExplorerMemory {
+    ExplorerMemory { favorites: tidy(&settings.explorer_favorites, MAX_FAVORITES), recents: tidy(&settings.explorer_recents, MAX_RECENTS) }
+}
+
+/// Writes the explorer's part: no empty or repeated entries, and no more than the limits.
+pub fn set_explorer_memory(settings: &mut UserSettings, memory: &ExplorerMemory) {
+    settings.explorer_favorites = tidy(&memory.favorites, MAX_FAVORITES);
+    settings.explorer_recents = tidy(&memory.recents, MAX_RECENTS);
 }
 
 /// The player's part of the settings.
@@ -165,6 +194,27 @@ mod tests {
         storage.create_dir_all(&Location::path("/data/config")).unwrap();
         storage.write(&file, b"{ not json").unwrap();
         assert_eq!(load(&storage, &file), UserSettings::default());
+    }
+
+    #[test]
+    fn the_explorer_memory_is_tidied_and_survives_a_reset() {
+        let mut settings = UserSettings::default();
+        let messy = ExplorerMemory {
+            favorites: vec!["/d/Musica".into(), " ".into(), "/d/Musica".into(), "/c/Cosas".into()],
+            recents: (0..10).map(|i| format!("/r/{i}")).collect(),
+        };
+        set_explorer_memory(&mut settings, &messy);
+        let kept = explorer_memory(&settings);
+        assert_eq!(kept.favorites, ["/d/Musica", "/c/Cosas"]);
+        assert_eq!(kept.recents.len(), MAX_RECENTS);
+        assert_eq!(kept.recents[0], "/r/0");
+        assert_eq!(explorer_memory(&reset(&settings)), kept);
+    }
+
+    #[test]
+    fn an_old_settings_file_has_an_empty_explorer_memory() {
+        let settings: UserSettings = serde_json::from_str("{\"playerVolume\": 0.5}").unwrap();
+        assert_eq!(explorer_memory(&settings), ExplorerMemory::default());
     }
 
     #[test]

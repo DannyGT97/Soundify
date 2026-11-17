@@ -129,3 +129,111 @@ test('the keyboard walks the list: arrows move, Intro opens, Retroceso goes up',
   await page.keyboard.press('Backspace');
   await expect(window.locator('.crumbs button').last()).toHaveText('D:');
 });
+
+// === FASE 3: FAVORITAS, RECIENTES Y BUSCAR EN SUBCARPETAS ===
+
+test('a starred folder is in the rail the next time, and the star takes it out again', async ({ page }) => {
+  await openDestination(page);
+  let window = explorer(page);
+  await window.locator('.xp-place', { hasText: 'Disco (D:)' }).click();
+  await window.locator('.xp-row', { hasText: 'Música' }).click();
+  await window.getByRole('button', { name: 'Añadir a favoritas' }).click();
+  await expect(window.locator('.xp-place', { hasText: 'Favoritas' })).toHaveCount(0);
+  await expect(window.locator('.rail-label', { hasText: 'Favoritas' })).toBeVisible();
+  await expect(window.locator('.xp-place', { hasText: 'D:\\Música' })).toBeVisible();
+
+  await window.getByRole('button', { name: 'Cancelar' }).click();
+  await page.locator('.dest', { hasText: 'Carpeta local' }).click();
+  window = explorer(page);
+  await expect(window.locator('.xp-place', { hasText: 'D:\\Música' })).toBeVisible();
+  await window.locator('.xp-place', { hasText: 'D:\\Música' }).click();
+  await window.getByRole('button', { name: 'Quitar de favoritas' }).click();
+  await expect(window.locator('.rail-label', { hasText: 'Favoritas' })).toHaveCount(0);
+});
+
+test('the next window starts in the folder chosen last', async ({ page }) => {
+  await openDestination(page);
+  let window = explorer(page);
+  await window.locator('.xp-place', { hasText: 'Disco (D:)' }).click();
+  await window.locator('.xp-row', { hasText: 'Música' }).click();
+  await window.getByRole('button', { name: 'Guardar aquí' }).click();
+  await expect(explorer(page)).toBeHidden();
+
+  await page.locator('.dest', { hasText: 'Carpeta local' }).click();
+  window = explorer(page);
+  await expect(window.locator('.mtp-foot')).toContainText('D:\\Música');
+  await expect(window.locator('.rail-label', { hasText: 'Recientes' })).toBeVisible();
+});
+
+test('importing: when a folder shows no playlist the subfolders can be searched and several imported at once', async ({ page }) => {
+  await page.goto('/#/manager');
+  await page.getByRole('button', { name: 'Importar' }).click();
+  await page.getByRole('button', { name: 'Explorar archivos' }).click();
+  const window = explorer(page);
+  await window.locator('.xp-place', { hasText: 'Disco (D:)' }).click();
+  await expect(window.locator('.banner')).toContainText('ninguna playlist');
+  await window.getByRole('button', { name: 'Buscar en subcarpetas' }).click();
+
+  await expect(window.locator('.banner')).toContainText('2 playlists');
+  await expect(window.locator('.xp-row', { hasText: 'Lo-fi para estudiar' })).toContainText('Música');
+  await window.locator('.xp-row', { hasText: 'Bandas sonoras' }).click();
+  await expect(window.getByRole('button', { name: 'Importar (1)' })).toBeEnabled();
+  await window.locator('.xp-row', { hasText: 'Bandas sonoras' }).click();
+  await window.getByRole('button', { name: 'Importar (2)' }).click();
+
+  await expect(explorer(page)).toBeHidden();
+  await expect(page.getByRole('dialog')).toContainText('Lo-fi para estudiar');
+});
+
+test('searching the subfolders with nothing found says so and goes back', async ({ page }) => {
+  await page.goto('/#/manager');
+  await page.getByRole('button', { name: 'Importar' }).click();
+  await page.getByRole('button', { name: 'Explorar archivos' }).click();
+  const window = explorer(page);
+  await window.locator('.xp-place', { hasText: 'Descargas' }).click();
+  await window.getByRole('button', { name: 'Buscar en subcarpetas' }).click();
+  await expect(window.locator('.empty')).toContainText('No hay playlists');
+  await window.getByRole('button', { name: 'Volver a la carpeta' }).click();
+  await expect(window.locator('.banner')).toContainText('ninguna playlist');
+  await expect(window.locator('.crumbs button').last()).toHaveText('Downloads');
+});
+
+// === FASE 2: ANDROID ===
+
+test('on a phone the same explorer shows the storages, and the SD card is only read', async ({ page }) => {
+  await page.goto('/?mockAndroid#/download');
+  await page.locator('.dest', { hasText: 'Carpeta local' }).click();
+  const window = explorer(page);
+  await expect(window.locator('.xp-place', { hasText: 'Almacenamiento interno' })).toContainText('libres');
+  // No USB phones to look for from a phone.
+  await expect(window.locator('.rail-label', { hasText: 'Teléfonos' })).toHaveCount(0);
+  await expect(window.locator('.mtp-foot')).toContainText('/storage/emulated/0/Music');
+  await expect(window.getByRole('button', { name: 'Guardar aquí' })).toBeEnabled();
+
+  await window.locator('.xp-place', { hasText: 'Tarjeta SD' }).click();
+  await expect(window.locator('.xp-place', { hasText: 'Tarjeta SD' })).toContainText('solo lectura');
+  await expect(window.locator('.banner.warn-b')).toContainText('solo deja leer');
+  await expect(window.getByRole('button', { name: 'Guardar aquí' })).toBeDisabled();
+  await expect(window.getByRole('button', { name: 'Nueva carpeta' })).toBeDisabled();
+});
+
+test('on a phone, Android/data is blocked and the SD card can still be imported from', async ({ page }) => {
+  await page.goto('/?mockAndroid#/manager');
+  await page.getByRole('button', { name: 'Importar' }).click();
+  await page.getByRole('button', { name: 'Explorar archivos' }).click();
+  const window = explorer(page);
+  await window.locator('.xp-place', { hasText: 'Tarjeta SD' }).click();
+  await window.locator('.xp-row', { hasText: 'Music' }).click();
+  await expect(window.getByRole('button', { name: 'Buscar aquí' })).toBeEnabled();
+});
+
+test('on a phone without the access to files the explorer asks for it, and lists once it is given', async ({ page }) => {
+  await page.goto('/?mockAndroid&mockNoStorage#/download');
+  await page.locator('.dest', { hasText: 'Carpeta local' }).click();
+  const window = explorer(page);
+  await expect(window.locator('.empty')).toContainText('necesita acceso');
+  await expect(window.getByRole('button', { name: 'Guardar aquí' })).toBeDisabled();
+  await window.getByRole('button', { name: 'Dar acceso' }).click();
+  await expect(window.locator('.xp-row', { hasText: 'Soundify' })).toBeVisible();
+  await expect(window.getByRole('button', { name: 'Guardar aquí' })).toBeEnabled();
+});

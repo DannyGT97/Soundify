@@ -1,7 +1,7 @@
 import { h } from '../dom';
 import { icon, type IconName } from '../icons';
 import { t } from '../i18n';
-import { api, type BrowseRoots, type DeviceInfo, type DeviceTarget, type FormatBlock, type Playlist } from '../api';
+import { api, type BrowseRoots, type DeviceInfo, type DeviceTarget, type ExplorerMemory, type FormatBlock, type Playlist, type PlaylistHit } from '../api';
 import { closeButton, closeOverlay, openPanel } from '../components/overlay';
 import { openFloating, closeFloating } from '../components/floating';
 import { cover } from '../components/cover';
@@ -9,16 +9,18 @@ import { notify } from '../components/toasts';
 import { playlistPicture } from '../covers';
 import { ago } from '../relativeTime';
 import { MANIFEST_NAME, errorText } from '../transfer';
+import { onAndroid } from '../platform';
+import { grantStorage, needsStorageAccess } from '../storage';
 import {
-  IMAGE_EXTENSIONS, crumbsOf, daysSince, driveLetter, extensionOf, filterEntries, hasName, joinPath, kindOf, parentPath, playlistFolderName, playlistFromName,
-  sizeText, sortEntries, splitPath, validFolderName, type Crumb, type ExplorerEntry, type SortBy,
+  IMAGE_EXTENSIONS, crumbsOf, daysSince, driveFor, driveLetter, extensionOf, filterEntries, hasName, joinPath, kindOf, parentPath, playlistFolderName, playlistFromName,
+  remember, samePath, sizeText, sortEntries, toggled, validFolderName, type Crumb, type ExplorerEntry, type SortBy,
 } from '../explorerLogic';
 
 /** What the explorer is opened for: it changes the words, what can be picked and where it starts. */
 export type ExplorerPurpose = 'destination' | 'copy-folder' | 'copy-device' | 'import-folder' | 'import-device' | 'cover' | 'cookies';
 
-/** A folder or a file of this computer, or a folder of a phone. */
-export type ExplorerPick = { path: string } | { device: DeviceTarget };
+/** A folder or a file of this computer, a folder of a phone, or (importing, after «Buscar en subcarpetas») several playlist folders. */
+export type ExplorerPick = { path: string } | { device: DeviceTarget } | { paths: string[] };
 
 /** What «Copiar» is about to copy: shown in the head and in the footer. */
 export interface PickerSubject {
@@ -65,7 +67,27 @@ const POLL_MS = 4000;
 /** Phones answer slowly over USB: past this, a listing says it is still working. */
 const SLOW_MS = 1400;
 
-const PLACE_ICONS: Record<string, IconName> = { music: 'music', downloads: 'arrow-down', pictures: 'image', desktop: 'monitor' };
+const PLACE_ICONS: Record<string, IconName> = { music: 'music', downloads: 'arrow-down', pictures: 'image', camera: 'image', desktop: 'monitor' };
+
+/** Folders starred and chosen last, shared by every window and kept in settings.json. */
+let memory: ExplorerMemory | null = null;
+const RECENT_MAX = 6;
+
+async function loadMemory(): Promise<void> {
+  if (memory) return;
+  memory = await api.explorerMemory().catch(() => ({ favorites: [], recents: [] }));
+}
+
+function saveMemory(next: ExplorerMemory): void {
+  memory = next;
+  void api.saveExplorerMemory(next).catch(() => {});
+}
+
+/** The last name in a path, or the path itself at a root. */
+function folderLabel(path: string): string {
+  const crumbs = crumbsOf(path);
+  return crumbs.length > 1 ? (crumbs[crumbs.length - 1] as { label: string }).label : path;
+}
 
 // What was left the last time stays for the next: the way of looking, and where each purpose was.
 let view: 'grid' | 'list' = 'list';
@@ -85,6 +107,8 @@ export function deviceLabel(target: DeviceTarget): string {
  */
 export function openExplorer(purpose: ExplorerPurpose, onPicked: (pick: ExplorerPick) => void, options: ExplorerOptions = {}): void {
   const spec = SPECS[purpose];
+  // Phones over USB (MTP) are a desktop thing: a phone browses its own storage.
+  const deviceOn = spec.device && !onAndroid;
   const key = (part: string, ...args: (string | number)[]) => t(`explorer.${spec.key}.${part}`, ...args);
 
   let roots: BrowseRoots = { places: [], drives: [] };
@@ -109,6 +133,9 @@ export function openExplorer(purpose: ExplorerPurpose, onPicked: (pick: Explorer
   let slow = false;
   let closed = false;
   let picked = false;
+  // «Buscar en subcarpetas»: the playlists found below a folder, to import several at once.
+  let scan: { root: string; hits: PlaylistHit[] | null; truncated: boolean; chosen: Set<string> } | null = null;
+  let scanRequest = 0;
 
   const device = (): DeviceInfo | undefined => {
     const where = place;
@@ -130,6 +157,7 @@ export function openExplorer(purpose: ExplorerPurpose, onPicked: (pick: Explorer
     creating = true;
     renderContent();
   } }, icon('folder-plus', 16));
+  const starButton = h('button', { class: 'icon-button', onclick: () => toggleFavorite() }, icon('star', 15));
   const refresh = h('button', { class: 'icon-button', title: t('explorer.refresh'), onclick: () => void load() }, icon('sync', 15));
   const gridButton = h('button', { class: 'icon-button', title: t('explorer.grid'), onclick: () => setView('grid') }, icon('grid', 15));
   const listButton = h('button', { class: 'icon-button', title: t('explorer.list'), onclick: () => setView('list') }, icon('list', 16));
@@ -137,7 +165,7 @@ export function openExplorer(purpose: ExplorerPurpose, onPicked: (pick: Explorer
     up, crumbs,
     h('div', { class: 'bar-tools' },
       h('div', { class: 'mini-search' }, icon('search', 13), filterInput),
-      sortButton, !spec.folder || spec.scan ? null : newFolder, refresh, gridButton, listButton));
+      sortButton, !spec.folder || spec.scan ? null : newFolder, spec.local ? starButton : null, refresh, gridButton, listButton));
   const content = h('div', { class: 'browser-content', attrs: { tabindex: '0' } });
   const browserFoot = h('div', { class: 'browser-foot' });
   const details = h('aside', { class: 'xp-details' });
@@ -153,6 +181,14 @@ export function openExplorer(purpose: ExplorerPurpose, onPicked: (pick: Explorer
     if (!place || !verdict.ok) return;
     lastPlace[purpose] = place;
     picked = true;
+    if (scan) {
+      const paths = [...scan.chosen];
+      rememberFolder(scan.root);
+      closeOverlay();
+      onPicked({ paths });
+      return;
+    }
+    if (spec.folder && place.kind === 'local') rememberFolder(chosen ? joinPath(place.path, chosen) : place.path);
     closeOverlay();
     if (place.kind === 'device') {
       const phone = device();
@@ -169,12 +205,17 @@ export function openExplorer(purpose: ExplorerPurpose, onPicked: (pick: Explorer
     const no = (note: string) => ({ ok: false, line: '', note, warn: false });
     if (!place) return no(t('explorer.noneChosen'));
     if (failure) return no(t(failure === 'unplugged' ? 'explorer.unplugged.short' : 'explorer.error.short'));
+    if (scan) {
+      if (!scan.hits) return no(t('explorer.scan.searching'));
+      return scan.chosen.size ? { ok: true, line: t('explorer.scan.line', scan.chosen.size), note: t('explorer.scan.note'), warn: false } : no(t('explorer.scan.pickSome'));
+    }
     if (entries === null) return no(t('explorer.reading'));
     if (!spec.folder) {
       const file = entries.find(entry => !entry.isFolder && entry.name === selected);
       if (!file) return no(t(`explorer.${spec.key}.choose`));
       return { ok: true, line: file.name, note: [sizeText(file.sizeBytes), whenText(file.modified)].filter(Boolean).join(' · '), warn: false };
     }
+    if (!spec.scan && driveOf(place)?.readOnly) return no(t('explorer.readOnly'));
     const here = placeText(place, inside);
     if (spec.scan) return { ok: true, line: here, note: key('why'), warn: false };
     const subject = options.subject;
@@ -193,10 +234,13 @@ export function openExplorer(purpose: ExplorerPurpose, onPicked: (pick: Explorer
     return [phone?.name ?? '', ...where.path, ...(inside ? [inside] : [])].filter(Boolean).join(' › ');
   }
 
+  /** The disk or storage a place of this computer is on. */
+  function driveOf(where: Place): BrowseRoots['drives'][number] | undefined {
+    return where.kind === 'local' ? driveFor(where.path, roots.drives) : undefined;
+  }
+
   function freeText(where: Place): string {
-    if (where.kind !== 'local') return '';
-    const root = splitPath(where.path).root.toLowerCase();
-    const drive = roots.drives.find(d => splitPath(d.path).root.toLowerCase() === root);
+    const drive = driveOf(where);
     return drive && drive.totalBytes > 0 ? t('explorer.free', sizeText(drive.freeBytes), sizeText(drive.totalBytes)) : '';
   }
 
@@ -208,6 +252,25 @@ export function openExplorer(purpose: ExplorerPurpose, onPicked: (pick: Explorer
       return t(when.key, when.amount);
     }
     return new Date(iso as string).toLocaleDateString(undefined, { day: 'numeric', month: 'short', year: 'numeric' });
+  }
+
+  // === FAVOURITES AND RECENTS ===
+
+  const mem = (): ExplorerMemory => memory ?? { favorites: [], recents: [] };
+
+  function isFavorite(): boolean {
+    return place?.kind === 'local' && mem().favorites.some(path => samePath(path, (place as { path: string }).path));
+  }
+
+  function toggleFavorite(): void {
+    if (place?.kind !== 'local') return;
+    saveMemory({ ...mem(), favorites: toggled(mem().favorites, place.path) });
+    renderRail();
+    renderBar();
+  }
+
+  function rememberFolder(path: string): void {
+    saveMemory({ ...mem(), recents: remember(mem().recents, path, RECENT_MAX) });
   }
 
   // === MOVING ===
@@ -237,6 +300,8 @@ export function openExplorer(purpose: ExplorerPurpose, onPicked: (pick: Explorer
     cursor = -1;
     showAll = false;
     lost = null;
+    scan = null;
+    scanRequest++;
     renderRail();
     void load();
   }
@@ -266,6 +331,14 @@ export function openExplorer(purpose: ExplorerPurpose, onPicked: (pick: Explorer
       return;
     }
     const where = place;
+    if (onAndroid && where.kind === 'local' && needsStorageAccess()) {
+      entries = [];
+      failure = 'explorer.noaccess';
+      renderBar();
+      renderFoot();
+      renderContent();
+      return;
+    }
     // Before anything is drawn: the footer must not offer the new folder with the old folder's answer.
     entries = null;
     failure = null;
@@ -340,21 +413,31 @@ export function openExplorer(purpose: ExplorerPurpose, onPicked: (pick: Explorer
         parts.push(h('div', { class: 'rail-label', text: t('explorer.rail.places') }));
         for (const root of roots.places) {
           const name = root.id;
-          parts.push(placeButton(PLACE_ICONS[name] ?? 'folder', t(`explorer.place.${name}`), '', null, here === root.path, () => go({ kind: 'local', path: root.path })));
+          parts.push(placeButton(PLACE_ICONS[name] ?? 'folder', t(`explorer.place.${name}`), '', null, here !== null && samePath(here, root.path), () => go({ kind: 'local', path: root.path })));
         }
       }
+      const mine = (list: string[], label: string, iconName: IconName) => {
+        if (!list.length) return;
+        parts.push(h('div', { class: 'rail-label', text: label }));
+        for (const path of list) {
+          parts.push(placeButton(iconName, folderLabel(path), path, null, here !== null && samePath(here, path), () => go({ kind: 'local', path })));
+        }
+      };
+      mine(mem().favorites, t('explorer.rail.favorites'), 'star');
+      mine(mem().recents.filter(path => !mem().favorites.some(fav => samePath(fav, path))), t('explorer.rail.recents'), 'pending');
       if (roots.drives.length) {
         parts.push(h('div', { class: 'rail-label', text: t('explorer.rail.drives') }));
         for (const root of roots.drives) {
           const letter = driveLetter(root.path);
-          const label = letter ? t('explorer.drive', letter) : root.path;
-          const inside = here !== null && splitPath(here).root.toLowerCase() === splitPath(root.path).root.toLowerCase();
-          parts.push(placeButton('drive', label, root.totalBytes > 0 ? t('explorer.free', sizeText(root.freeBytes), sizeText(root.totalBytes)) : '',
+          const label = root.id === 'internal' ? t('explorer.internal') : root.id.startsWith('sd:') ? t('explorer.sd') : letter ? t('explorer.drive', letter) : root.path;
+          const inside = here !== null && driveFor(here, roots.drives)?.id === root.id;
+          const space = root.totalBytes > 0 ? t('explorer.free', sizeText(root.freeBytes), sizeText(root.totalBytes)) : '';
+          parts.push(placeButton(root.id === 'internal' ? 'device' : 'drive', label, root.readOnly ? [space, t('explorer.readOnlyShort')].filter(Boolean).join(' · ') : space,
             root.totalBytes > 0 ? spaceBar(root.totalBytes, root.freeBytes) : null, inside, () => go({ kind: 'local', path: root.path })));
         }
       }
     }
-    if (spec.device) {
+    if (deviceOn) {
       parts.push(h('div', { class: 'rail-label', text: t('explorer.rail.devices') }));
       for (const phone of devices) {
         const on = place?.kind === 'device' && place.id === phone.id;
@@ -387,7 +470,10 @@ export function openExplorer(purpose: ExplorerPurpose, onPicked: (pick: Explorer
     const here = place;
     bar.hidden = !here;
     up.disabled = !here || (here.kind === 'local' ? parentPath(here.path) === null : here.path.length === 0);
-    newFolder.disabled = !here || failure !== null || entries === null;
+    newFolder.disabled = !here || failure !== null || entries === null || scan !== null || (here.kind === 'local' && !!driveOf(here)?.readOnly);
+    starButton.disabled = here?.kind !== 'local';
+    starButton.classList.toggle('on', isFavorite());
+    starButton.title = t(isFavorite() ? 'explorer.favorite.remove' : 'explorer.favorite.add');
     gridButton.classList.toggle('on', view === 'grid');
     listButton.classList.toggle('on', view === 'list');
     if (!here) return;
@@ -415,7 +501,7 @@ export function openExplorer(purpose: ExplorerPurpose, onPicked: (pick: Explorer
     trail.title = trail.textContent;
     extra.textContent = verdict.ok ? verdict.note : '';
     extra.classList.toggle('warn', verdict.warn);
-    choose.textContent = key('action');
+    choose.textContent = scan && scan.chosen.size ? t('explorer.scan.action', scan.chosen.size) : key('action');
     choose.toggleAttribute('disabled', !verdict.ok);
   }
 
@@ -580,10 +666,20 @@ export function openExplorer(purpose: ExplorerPurpose, onPicked: (pick: Explorer
       browserFoot.hidden = true;
       return;
     }
+    if (failure === 'explorer.noaccess') {
+      content.replaceChildren(stateBox('lock', t('explorer.noaccess'), t('explorer.noaccess.body'),
+        h('button', { class: 'primary-button', text: t('explorer.noaccess.grant'), onclick: () => void grantAccess() })));
+      browserFoot.hidden = true;
+      return;
+    }
     if (failure) {
       content.replaceChildren(stateBox('lock', t(failure), t(`${failure}.body`),
         h('button', { class: 'secondary-button', text: t('explorer.up'), onclick: () => goUp() })));
       browserFoot.hidden = true;
+      return;
+    }
+    if (scan) {
+      paintScan(scan);
       return;
     }
     const shown = sortEntries(filterEntries(entries, filter), sortBy);
@@ -601,8 +697,12 @@ export function openExplorer(purpose: ExplorerPurpose, onPicked: (pick: Explorer
       const found = entries.filter(entry => entry.playlist).length;
       parts.push(found
         ? h('div', { class: 'banner' }, icon('ok', 16), h('span', { text: t('explorer.banner.found', found) }))
-        : h('div', { class: 'banner' }, icon('info', 16), h('span', { text: t('explorer.banner.looksDeeper') })));
+        : place?.kind === 'local'
+          ? h('div', { class: 'banner' }, icon('info', 16), h('span', { class: 'grow', text: t('explorer.banner.none') }),
+            h('button', { class: 'secondary-button small', text: t('explorer.banner.search'), onclick: () => startScan() }))
+          : h('div', { class: 'banner' }, icon('info', 16), h('span', { text: t('explorer.banner.looksDeeper') })));
     }
+    if (!spec.scan && place && driveOf(place)?.readOnly) parts.push(h('div', { class: 'banner warn-b' }, icon('warning', 16), h('span', { text: t('explorer.readOnly') })));
     if (creating) parts.push(newFolderRow());
 
     let index = 0;
@@ -631,6 +731,89 @@ export function openExplorer(purpose: ExplorerPurpose, onPicked: (pick: Explorer
     browserFoot.textContent = t('explorer.count', folders.length, files.length);
     visibleEntries = [...folders, ...files];
     content.querySelector('.cur')?.scrollIntoView({ block: 'nearest' });
+  }
+
+  // === «BUSCAR EN SUBCARPETAS» ===
+
+  function startScan(): void {
+    if (place?.kind !== 'local') return;
+    const root = place.path;
+    const asked = ++scanRequest;
+    scan = { root, hits: null, truncated: false, chosen: new Set() };
+    renderContent();
+    renderFoot();
+    renderBar();
+    void api.browseFindPlaylists(root).catch(() => ({ hits: [] as PlaylistHit[], truncated: false })).then(found => {
+      if (asked !== scanRequest || !scan || closed) return;
+      scan = { root, hits: found.hits, truncated: found.truncated, chosen: new Set(found.hits.map(hit => hit.path)) };
+      renderContent();
+      renderFoot();
+    });
+  }
+
+  function leaveScan(): void {
+    scan = null;
+    scanRequest++;
+    renderContent();
+    renderFoot();
+    renderBar();
+  }
+
+  /** Where a hit is, inside the folder that was searched. */
+  function insideRoot(root: string, path: string): string {
+    return path.slice(root.length).replace(/^[\\/]+/, '');
+  }
+
+  function paintScan(current: NonNullable<typeof scan>): void {
+    browserFoot.hidden = false;
+    visibleEntries = [];
+    const back = h('button', { class: 'secondary-button small', text: t('explorer.scan.back'), onclick: () => leaveScan() });
+    if (!current.hits) {
+      content.replaceChildren(h('div', { class: 'slow' }, h('span', { class: 'spin' }, icon('loader', 15)), h('span', { text: t('explorer.scan.searching') })),
+        h('div', { class: 'tiles' }, ...Array.from({ length: 5 }, () => h('div', { class: 'sk' }))));
+      browserFoot.textContent = '';
+      return;
+    }
+    const hits = current.hits;
+    if (!hits.length) {
+      content.replaceChildren(stateBox('search', t('explorer.scan.none'), t('explorer.scan.noneBody'), back));
+      browserFoot.textContent = '';
+      return;
+    }
+    const all = hits.every(hit => current.chosen.has(hit.path));
+    const rows = hits.map(hit => {
+      const on = current.chosen.has(hit.path);
+      return h('div', { class: `xp-row sfy${on ? ' sel' : ''}`, attrs: { role: 'checkbox', 'aria-checked': String(on) }, title: hit.path, onclick: () => {
+        if (on) current.chosen.delete(hit.path);
+        else current.chosen.add(hit.path);
+        renderContent();
+        renderFoot();
+      } },
+      h('span', { class: `xp-check${on ? ' on' : ''}` }, on ? icon('ok', 12) : null),
+      h('span', { class: 'fi' }, icon('music', 17)),
+      h('div', { class: 'grow min0' },
+        h('span', { class: 'xp-name ellipsis', text: hit.title }),
+        h('span', { class: 'xp-folder ellipsis', text: insideRoot(current.root, hit.path) })),
+      h('span', { class: 'xp-sub', text: hit.format.toUpperCase() }));
+    });
+    content.replaceChildren(
+      h('div', { class: 'banner' }, icon('ok', 16), h('span', { class: 'grow', text: t('explorer.scan.found', hits.length) }),
+        h('button', { class: 'secondary-button small', text: t(all ? 'explorer.scan.noneButton' : 'explorer.scan.allButton'), onclick: () => {
+          if (all) current.chosen.clear();
+          else hits.forEach(hit => current.chosen.add(hit.path));
+          renderContent();
+          renderFoot();
+        } }), back),
+      current.truncated ? h('div', { class: 'banner warn-b' }, icon('warning', 16), h('span', { text: t('explorer.scan.truncated') })) : '',
+      h('div', { class: 'xp-rows' }, ...rows));
+    browserFoot.textContent = t('explorer.scan.count', current.chosen.size, hits.length);
+  }
+
+  async function grantAccess(): Promise<void> {
+    await grantStorage();
+    roots = await api.browseRoots().catch(() => roots);
+    renderRail();
+    void load();
   }
 
   function renderDetails(): void {
@@ -690,7 +873,7 @@ export function openExplorer(purpose: ExplorerPurpose, onPicked: (pick: Explorer
 
   /** Asks for the phones again; when the chosen one is gone it says so, and when it is back it lists it again. */
   async function refreshDevices(): Promise<void> {
-    if (!spec.device || listing || closed) return;
+    if (!deviceOn || listing || closed) return;
     const answer = await api.listDevices().catch(() => ({ available: false, devices: [] as DeviceInfo[] }));
     if (closed) return;
     const first = !searched;
@@ -726,11 +909,14 @@ export function openExplorer(purpose: ExplorerPurpose, onPicked: (pick: Explorer
   function startLocal(): void {
     const remembered = lastPlace[purpose];
     if (remembered?.kind === 'local') return go(remembered);
+    // A folder chosen for a folder purpose starts the next one there (a file's folder says nothing about it).
+    const recent = spec.folder ? mem().recents[0] : undefined;
+    if (recent) return go({ kind: 'local', path: recent });
     const start = roots.places.find(root => root.id === 'music') ?? roots.places[0] ?? roots.drives[0];
     if (start) go({ kind: 'local', path: start.path });
   }
 
-  const poll = spec.device ? window.setInterval(() => void refreshDevices(), POLL_MS) : 0;
+  const poll = deviceOn ? window.setInterval(() => void refreshDevices(), POLL_MS) : 0;
 
   // === THE WINDOW ===
   const subject = options.subject;
@@ -741,7 +927,7 @@ export function openExplorer(purpose: ExplorerPurpose, onPicked: (pick: Explorer
     : null;
 
   /** Plan B for what this computer's own dialog does better (a network place, a library): the system's. */
-  const system = spec.local && !spec.device
+  const system = spec.local && !deviceOn
     ? h('button', { class: 'xp-link', text: t('explorer.system'), onclick: () => void systemDialog() })
     : null;
   async function systemDialog(): Promise<void> {
@@ -790,10 +976,11 @@ export function openExplorer(purpose: ExplorerPurpose, onPicked: (pick: Explorer
   // The disks first (so the window never waits for a slow phone), then the phones.
   void (async () => {
     if (spec.local) {
-      roots = await api.browseRoots().catch(() => ({ places: [], drives: [] }));
+      const [found] = await Promise.all([api.browseRoots().catch(() => ({ places: [], drives: [] })), loadMemory()]);
+      roots = found;
       if (closed) return;
       renderRail();
-      if (!options.startOnDevice || !spec.device) startLocal();
+      if (!options.startOnDevice || !deviceOn) startLocal();
     }
     void refreshDevices();
   })();

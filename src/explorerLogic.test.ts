@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
-  crumbsOf, daysSince, driveLetter, filterEntries, hasName, joinPath, kindOf, parentPath, playlistFolderName, playlistFromName, sizeText, sortEntries,
+  crumbsOf, daysSince, driveFor, driveLetter, isInside, remember, samePath, toggled, filterEntries, hasName, joinPath, kindOf, parentPath, playlistFolderName, playlistFromName, sizeText, sortEntries,
   splitPath, validFolderName, type ExplorerEntry,
 } from './explorerLogic';
 
@@ -43,6 +43,42 @@ describe('paths', () => {
     expect(driveLetter('c:\\')).toBe('C:');
     expect(driveLetter('D:')).toBe('D:');
     expect(driveLetter('D:\\Música')).toBeNull();
+  });
+});
+
+describe('where a path is', () => {
+  it('compares paths the way the system does', () => {
+    expect(samePath('D:\\Música\\', 'd:/música')).toBe(true);
+    expect(samePath('/Music', '/music')).toBe(false);
+    expect(samePath('/', '/')).toBe(true);
+  });
+
+  it('knows what is inside a folder, and not a lookalike', () => {
+    expect(isInside('D:\\Música\\Rock', 'D:\\')).toBe(true);
+    expect(isInside('D:\\Música', 'D:\\Música')).toBe(true);
+    expect(isInside('D:\\MúsicaX', 'D:\\Música')).toBe(false);
+    expect(isInside('/storage/emulated/0/Music', '/storage/emulated/0')).toBe(true);
+    expect(isInside('/storage/emulated/01/Music', '/storage/emulated/0')).toBe(false);
+    expect(isInside('/anything', '/')).toBe(true);
+  });
+
+  it('finds the disk a path is on, the deepest one when they nest', () => {
+    const drives = [{ path: '/', id: 'root' }, { path: '/storage/3A1F-0C22', id: 'sd' }, { path: '/storage/emulated/0', id: 'internal' }];
+    expect(driveFor('/storage/3A1F-0C22/Music', drives)?.id).toBe('sd');
+    expect(driveFor('/storage/emulated/0/Music', drives)?.id).toBe('internal');
+    expect(driveFor('/etc', drives)?.id).toBe('root');
+    expect(driveFor('C:\\x', [{ path: 'D:\\' }])).toBeUndefined();
+  });
+
+  it('keeps the recent folders newest first, once each, up to the limit', () => {
+    expect(remember(['/a', '/b', '/c'], '/b', 3)).toEqual(['/b', '/a', '/c']);
+    expect(remember(['/a', '/b', '/c'], '/d', 3)).toEqual(['/d', '/a', '/b']);
+    expect(remember([], 'D:\\x', 3)).toEqual(['D:\\x']);
+  });
+
+  it('stars a folder and unstars it', () => {
+    expect(toggled(['/a'], '/b')).toEqual(['/a', '/b']);
+    expect(toggled(['/a', '/b'], '/a')).toEqual(['/b']);
   });
 });
 

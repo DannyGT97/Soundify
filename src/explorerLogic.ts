@@ -88,6 +88,42 @@ export function driveLetter(path: string): string | null {
   return match ? `${(match[1] as string).toUpperCase()}:` : null;
 }
 
+/** A path compared the way its system does: Windows ignores capitals and takes either slash. */
+function normalized(path: string): string {
+  const windows = /^[A-Za-z]:/.test(path) || path.includes('\\');
+  const flat = windows ? path.replace(/\//g, '\\').toLowerCase() : path;
+  return flat.length > 1 ? flat.replace(/[\\/]+$/, '') : flat;
+}
+
+export function samePath(a: string, b: string): boolean {
+  return normalized(a) === normalized(b);
+}
+
+/** Is `path` the folder `root` or something inside it? */
+export function isInside(path: string, root: string): boolean {
+  const inner = normalized(path);
+  const outer = normalized(root);
+  if (inner === outer) return true;
+  if (outer === '/') return inner.startsWith('/');
+  // `C:\` keeps its slash once normalized to `c:`: the next character decides.
+  return inner.startsWith(`${outer}${/^[a-z]:/.test(outer) ? '\\' : '/'}`);
+}
+
+/** Of these disks, the one `path` is on (the deepest, if one sits inside another). */
+export function driveFor<T extends { path: string }>(path: string, drives: readonly T[]): T | undefined {
+  return drives.filter(drive => isInside(path, drive.path)).sort((a, b) => b.path.length - a.path.length)[0];
+}
+
+/** `path` at the front of a list of recent folders: once, and no more than `max`. */
+export function remember(list: readonly string[], path: string, max: number): string[] {
+  return [path, ...list.filter(item => !samePath(item, path))].slice(0, max);
+}
+
+/** `path` starred, or no longer if it was. */
+export function toggled(list: readonly string[], path: string): string[] {
+  return list.some(item => samePath(item, path)) ? list.filter(item => !samePath(item, path)) : [...list, path];
+}
+
 // === THE LIST ===
 
 /** Folders first, each group in the order asked; "10" after "9" (numeric names). */

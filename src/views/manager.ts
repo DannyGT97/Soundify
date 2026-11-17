@@ -324,7 +324,7 @@ function liveShape(): string {
 export async function changeCover(playlist: Playlist): Promise<void> {
   const block = playlist.formats[0];
   try {
-    const image = await pickCoverFile(t('cover.choose.title', playlist.title), t('cover.choose.filter'));
+    const image = await pickCoverFile(t('cover.choose.title', playlist.title));
     if (!image || !block) return;
     await api.setCover(block.key, image);
     // Every picked cover is called `cover.jpg`: the webview would keep showing the old one.

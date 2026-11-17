@@ -13,7 +13,7 @@ import { closeOverlay, openOverlay } from '../components/overlay';
 import { notify } from '../components/toasts';
 import { confirmDialog } from './confirm';
 import { deviceLabel, openExplorer } from './explorer';
-import { pickLocalFolder } from '../pickers';
+import { pickImportFolders, pickLocalFolder } from '../pickers';
 import {
   bulletList, copySummary, errorText, folderName, importSummary, nothingFound, nothingNew,
 } from '../transfer';
@@ -70,16 +70,20 @@ async function runCopy(playlist: Playlist, block: FormatBlock, copy: Copy): Prom
 
 /** Folder chooser → scan → confirmation if there is more than one → import → result. */
 export async function importFromFolder(): Promise<void> {
-  const folder = await pickLocalFolder('import-folder', t('manager.import.chooseFolder'));
-  if (!folder) return;
+  const chosen = await pickImportFolders(t('manager.import.chooseFolder'));
+  if (!chosen?.length) return;
   try {
-    const scan = await api.scanImport(folder);
-    if (scan.found === 0) { notify(nothingFound(folderName(folder))); return; }
-    if (scan.candidates.length === 0) { notify(nothingNew(scan.found)); return; }
+    // One folder the user pointed at, or several playlists found below one: each is looked at on its own.
+    const scans = await Promise.all(chosen.map(folder => api.scanImport(folder)));
+    const found = scans.reduce((sum, scan) => sum + scan.found, 0);
+    const seen = new Set<string>();
+    const candidates = scans.flatMap(scan => scan.candidates).filter(c => !seen.has(c.folder) && seen.add(c.folder));
+    if (found === 0) { notify(nothingFound(folderName(chosen[0] ?? ''))); return; }
+    if (candidates.length === 0) { notify(nothingNew(found)); return; }
 
-    const omitted = scan.found - scan.candidates.length;
-    const folders = scan.candidates.map(c => c.folder);
-    await confirmImport(scan.candidates, omitted, async () => {
+    const omitted = found - candidates.length;
+    const folders = candidates.map(c => c.folder);
+    await confirmImport(candidates, omitted, async () => {
       const outcomes = await api.importPlaylists(folders);
       await loadLibrary();
       notify(importSummary(outcomes, omitted));

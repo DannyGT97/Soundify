@@ -37,6 +37,8 @@ pub struct BrowseRoot {
     /// 0 when unknown (a place does not say).
     pub total_bytes: u64,
     pub free_bytes: u64,
+    /// Can be read but not written (a phone's SD card: Android gives apps no write access by path).
+    pub read_only: bool,
 }
 
 /// What a folder's own manifest says it is.
@@ -59,6 +61,30 @@ pub struct BrowseEntry {
     /// Set on a folder that carries a Soundify manifest.
     pub playlist: Option<BrowsePlaylist>,
 }
+
+/// A playlist found by [`find_playlists`]: where its folder is and what its manifest says.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PlaylistHit {
+    pub path: String,
+    pub title: String,
+    pub format: String,
+    /// How deep inside the folder searched it was (1 = directly in it).
+    pub depth: usize,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct FindResult {
+    pub hits: Vec<PlaylistHit>,
+    /// The search stopped at its limits: there may be more.
+    pub truncated: bool,
+}
+
+/// How far down and how much [`find_playlists`] looks before it stops.
+pub const FIND_MAX_DEPTH: usize = 4;
+pub const FIND_MAX_FOLDERS: usize = 5000;
+pub const FIND_MAX_HITS: usize = 200;
 
 #[derive(Debug, PartialEq, Eq)]
 pub enum BrowseError {
@@ -108,6 +134,32 @@ pub fn list(storage: &dyn Storage, folder: &Location) -> io::Result<Vec<BrowseEn
     Ok(entries)
 }
 
+/// The Soundify playlists inside `root`, up to [`FIND_MAX_DEPTH`] levels down. A playlist's own folder is not searched
+/// (its subfolders are not playlists); hidden folders and the ones that cannot be read are skipped.
+pub fn find_playlists(storage: &dyn Storage, root: &Location) -> FindResult {
+    let mut result = FindResult::default();
+    let mut visited = 0usize;
+    let mut pending: Vec<(Location, usize)> = vec![(root.clone(), 0)];
+    while let Some((folder, depth)) = pending.pop() {
+        let Ok(children) = storage.list(&folder) else { continue };
+        for child in children.into_iter().filter(|c| c.is_dir && !c.name.starts_with('.') && !HIDDEN_NAMES.contains(&c.name.as_str())) {
+            visited += 1;
+            if visited > FIND_MAX_FOLDERS || result.hits.len() >= FIND_MAX_HITS {
+                result.truncated = true;
+                result.hits.sort_by(|a, b| a.path.cmp(&b.path));
+                return result;
+            }
+            if let Ok(manifest) = transfer::read_manifest(storage, &child.location) {
+                result.hits.push(PlaylistHit { path: child.location.to_string(), title: manifest.title, format: manifest.format, depth: depth + 1 });
+            } else if depth + 1 < FIND_MAX_DEPTH {
+                pending.push((child.location, depth + 1));
+            }
+        }
+    }
+    result.hits.sort_by(|a, b| a.path.cmp(&b.path));
+    result
+}
+
 /// Creates `name` inside `parent` and says where it is. It never replaces: a
 /// folder (or file) with that name already there is an error.
 pub fn make_folder(storage: &dyn Storage, parent: &Location, name: &str) -> Result<Location, BrowseError> {
@@ -122,15 +174,16 @@ pub fn make_folder(storage: &dyn Storage, parent: &Location, name: &str) -> Resu
     Ok(made)
 }
 
-/// The user's usual folders that exist, under `home`.
+/// The user's usual folders that exist, under `home` (a phone calls Downloads «Download»).
 pub fn places(home: &Path) -> Vec<BrowseRoot> {
-    [("music", "Music"), ("downloads", "Downloads"), ("pictures", "Pictures"), ("desktop", "Desktop")]
-        .into_iter()
-        .filter_map(|(id, dir)| {
-            let path = home.join(dir);
-            path.is_dir().then(|| BrowseRoot { id: id.into(), kind: RootKind::Place, path: path.display().to_string(), total_bytes: 0, free_bytes: 0 })
-        })
-        .collect()
+    let mut found: Vec<BrowseRoot> = Vec::new();
+    for (id, dir) in [("music", "Music"), ("downloads", "Downloads"), ("downloads", "Download"), ("pictures", "Pictures"), ("camera", "DCIM"), ("desktop", "Desktop")] {
+        let path = home.join(dir);
+        if path.is_dir() && !found.iter().any(|root| root.id == id) {
+            found.push(BrowseRoot { id: id.into(), kind: RootKind::Place, path: path.display().to_string(), total_bytes: 0, free_bytes: 0, read_only: false });
+        }
+    }
+    found
 }
 
 /// The user's home: where the places are looked for.
@@ -138,19 +191,43 @@ pub fn home_dir() -> Option<PathBuf> {
     std::env::var_os("USERPROFILE").or_else(|| std::env::var_os("HOME")).map(PathBuf::from).filter(|p| p.is_dir())
 }
 
-/// The disks that answer right now, with their space. On Windows one per letter;
-/// elsewhere just the root.
+fn drive(id: String, path: String, read_only: bool) -> BrowseRoot {
+    let total_bytes = fs4::total_space(&path).unwrap_or(0);
+    let free_bytes = fs4::available_space(&path).unwrap_or(0);
+    BrowseRoot { id, kind: RootKind::Drive, path, total_bytes, free_bytes, read_only }
+}
+
+/// A phone's storages under `storage_dir` (`/storage`): the internal one, `emulated/0`, and each SD card or
+/// USB stick, a folder named like `3A1F-0C22`. The cards are read-only: apps write there only through the
+/// system's own chooser, not by path.
+pub fn android_storages(storage_dir: &Path) -> Vec<BrowseRoot> {
+    let mut roots = Vec::new();
+    let internal = storage_dir.join("emulated").join("0");
+    if internal.is_dir() {
+        roots.push(drive("internal".into(), internal.display().to_string(), false));
+    }
+    let mut cards: Vec<PathBuf> = std::fs::read_dir(storage_dir)
+        .map(|entries| entries.flatten().map(|entry| entry.path()).collect())
+        .unwrap_or_default();
+    cards.sort();
+    for card in cards {
+        let name = card.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
+        if name == "emulated" || name == "self" || !card.is_dir() {
+            continue;
+        }
+        roots.push(drive(format!("sd:{name}"), card.display().to_string(), true));
+    }
+    roots
+}
+
+/// The disks that answer right now, with their space. On Windows one per letter, on Android the phone's
+/// storages, elsewhere just the root.
 pub fn drives() -> Vec<BrowseRoot> {
+    if cfg!(target_os = "android") {
+        return android_storages(Path::new("/storage"));
+    }
     let candidates: Vec<String> = if cfg!(windows) { ('A'..='Z').map(|letter| format!("{letter}:\\")).collect() } else { vec!["/".to_string()] };
-    candidates
-        .into_iter()
-        .filter(|root| Path::new(root).exists())
-        .map(|root| {
-            let total_bytes = fs4::total_space(&root).unwrap_or(0);
-            let free_bytes = fs4::available_space(&root).unwrap_or(0);
-            BrowseRoot { id: format!("drive:{root}"), kind: RootKind::Drive, path: root, total_bytes, free_bytes }
-        })
-        .collect()
+    candidates.into_iter().filter(|root| Path::new(root).exists()).map(|root| drive(format!("drive:{root}"), root, false)).collect()
 }
 
 #[cfg(test)]
@@ -205,6 +282,42 @@ mod tests {
         assert!(entries.iter().find(|e| e.name == "Otra").unwrap().playlist.is_none());
     }
 
+    fn playlist_in(storage: &MemoryStorage, folder: &Location, title: &str) {
+        storage.create_dir_all(folder).unwrap();
+        let manifest = crate::model::PlaylistManifest { schema: 1, title: title.into(), format: "mp3".into(), ..Default::default() };
+        transfer::write_manifest(storage, folder, &manifest).unwrap();
+    }
+
+    #[test]
+    fn finds_playlists_down_the_subfolders_but_not_inside_a_playlist() {
+        let (storage, root) = memory();
+        playlist_in(&storage, &Location::path("/music/Rock (mp3)"), "Rock");
+        playlist_in(&storage, &Location::path("/music/Copias/2025/Pop (mp3)"), "Pop");
+        // Inside a playlist, what is below is no other playlist.
+        playlist_in(&storage, &Location::path("/music/Rock (mp3)/extra"), "Extra");
+        storage.create_dir_all(&Location::path("/music/.oculta")).unwrap();
+        playlist_in(&storage, &Location::path("/music/.oculta/Secreta (mp3)"), "Secreta");
+        let found = find_playlists(&storage, &root);
+        let titles: Vec<_> = found.hits.iter().map(|h| (h.title.as_str(), h.depth)).collect();
+        assert_eq!(titles, [("Pop", 3), ("Rock", 1)]);
+        assert!(!found.truncated);
+    }
+
+    #[test]
+    fn does_not_search_deeper_than_its_limit() {
+        let (storage, root) = memory();
+        playlist_in(&storage, &Location::path("/music/a/b/c/d/Honda (mp3)"), "Honda");
+        playlist_in(&storage, &Location::path("/music/a/b/c/Justa (mp3)"), "Justa");
+        let titles: Vec<_> = find_playlists(&storage, &root).hits.into_iter().map(|h| h.title).collect();
+        assert_eq!(titles, ["Justa"]);
+    }
+
+    #[test]
+    fn finding_in_a_missing_folder_finds_nothing() {
+        let (storage, _) = memory();
+        assert_eq!(find_playlists(&storage, &Location::path("/nada")), FindResult::default());
+    }
+
     #[test]
     fn listing_a_missing_folder_fails() {
         let (storage, _) = memory();
@@ -239,6 +352,36 @@ mod tests {
         std::fs::create_dir(home.path().join("Downloads")).unwrap();
         let ids: Vec<_> = places(home.path()).into_iter().map(|r| r.id).collect();
         assert_eq!(ids, ["music", "downloads"]);
+    }
+
+    #[test]
+    fn a_phones_storages_are_the_internal_one_and_the_cards_which_only_read() {
+        let storage = tempfile::tempdir().unwrap();
+        std::fs::create_dir_all(storage.path().join("emulated").join("0")).unwrap();
+        std::fs::create_dir(storage.path().join("3A1F-0C22")).unwrap();
+        std::fs::create_dir(storage.path().join("self")).unwrap();
+        std::fs::write(storage.path().join("stray.txt"), b"x").unwrap();
+        let roots = android_storages(storage.path());
+        let summary: Vec<_> = roots.iter().map(|r| (r.id.as_str(), r.read_only)).collect();
+        assert_eq!(summary, [("internal", false), ("sd:3A1F-0C22", true)]);
+    }
+
+    #[test]
+    fn a_phone_without_a_card_has_only_the_internal_storage() {
+        let storage = tempfile::tempdir().unwrap();
+        std::fs::create_dir_all(storage.path().join("emulated").join("0")).unwrap();
+        assert_eq!(android_storages(storage.path()).len(), 1);
+        assert!(android_storages(&storage.path().join("missing")).is_empty());
+    }
+
+    #[test]
+    fn a_phones_download_folder_counts_as_downloads() {
+        let home = tempfile::tempdir().unwrap();
+        for dir in ["Music", "Download", "DCIM"] {
+            std::fs::create_dir(home.path().join(dir)).unwrap();
+        }
+        let ids: Vec<_> = places(home.path()).into_iter().map(|r| r.id).collect();
+        assert_eq!(ids, ["music", "downloads", "camera"]);
     }
 
     #[test]

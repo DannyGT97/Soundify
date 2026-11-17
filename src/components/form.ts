@@ -111,12 +111,10 @@ export function destinations(changed: () => void): Destinations {
   /** The explorer reaches this computer and the phones alike: the card only says where it starts. */
   const choose = (startOnDevice: boolean) => openExplorer('destination', picked => {
     if ('device' in picked) set(deviceLabel(picked.device), picked.device);
-    else set(picked.path, null);
+    else if ('path' in picked) set(picked.path, null);
   }, { startOnDevice });
   const folder = card('folder', 'form.dest.local', 'form.dest.local.empty', () => {
-    // On Android the phone's own folder chooser still does this (the explorer comes later).
-    if (onAndroid) void api.pickFolder(t('download.folder.choose')).then(chosen => { if (chosen) set(chosen, null); });
-    else choose(false);
+    choose(false);
   });
   const phone = card('device', 'form.dest.device', 'form.dest.device.empty', () => choose(true));
   // Nothing to plug a phone into from a phone.
@@ -159,7 +157,7 @@ export function urlCover(playlist: boolean, emptyKey: string, changed: () => voi
   const tile = h('button', { class: 'url-cover', onclick: async () => {
     let image: string | null = null;
     try {
-      image = await pickCoverFile(t('newPlaylist.cover.title'), t('cover.choose.filter'));
+      image = await pickCoverFile(t('newPlaylist.cover.title'));
     } catch (error) {
       console.warn('cover: could not pick it', error);
       notify({ tone: 'error', text: t('cover.choose.failed') });

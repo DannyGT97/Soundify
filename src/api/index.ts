@@ -5,7 +5,7 @@
 // emits the matching topic (`tasks`, `player`), and the views follow that.
 
 import type {
-  AppUpdate, AppUpdateProgress, BrowseEntry, BrowseRoots, ConnectCommand, ConnectDevice, ConnectFirewall, ConnectIncoming, ConnectPlayerState, ConnectQueue, ConnectStatus, CopyOutcome, CopyProgress, CreatedPlaylist, DeleteResult, DeviceEntry, DeviceImportScan, DevicesView, DeviceTarget, DownloadNotice, DownloadRequest,
+  AppUpdate, AppUpdateProgress, BrowseEntry, BrowseRoots, ExplorerMemory, FindResult, ConnectCommand, ConnectDevice, ConnectFirewall, ConnectIncoming, ConnectPlayerState, ConnectQueue, ConnectStatus, CopyOutcome, CopyProgress, CreatedPlaylist, DeleteResult, DeviceEntry, DeviceImportScan, DevicesView, DeviceTarget, DownloadNotice, DownloadRequest,
   ExportResult, FormatCatalog, ImportOutcome, ImportScan, PlayerBackend, PlayerMemory, Playlist,
   Preferences, PreferencesPatch,
   StorageInfo, ToolDownload, ToolId, ToolsReport, WindowControls, YtdlpCheck,
@@ -87,6 +87,11 @@ export interface Api {
   browseRoots(): Promise<BrowseRoots>;
   /** What a folder of this computer holds. Rejects with an `ApiError` (`explorer.error.*`). */
   browseList(path: string): Promise<BrowseEntry[]>;
+  /** The Soundify playlists below a folder (a few levels down). */
+  browseFindPlaylists(path: string): Promise<FindResult>;
+  /** The explorer's starred folders and recent ones. */
+  explorerMemory(): Promise<ExplorerMemory>;
+  saveExplorerMemory(memory: ExplorerMemory): Promise<void>;
   /** «Nueva carpeta»: the new folder's path. Rejects with an `ApiError` (`explorer.newFolder.*`). */
   browseMkdir(parent: string, name: string): Promise<string>;
   /** Lets the page show the image the user just picked (the asset scope is opened for that one file). */
