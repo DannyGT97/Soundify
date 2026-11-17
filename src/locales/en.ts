@@ -180,7 +180,6 @@ export const en: Record<string, string> = {
   'connect.address': 'Address of this device:',
   'connect.noDiscovery': 'The other devices cannot be searched for automatically on this network: type the address above on the other one.',
   'connect.startError': 'Soundify Connect could not start: {0}',
-  'connect.autoDetected': '"{0}" is playing "{1}".',
   'connect.strict.desc': 'Safer: new devices do not connect by themselves and have to type the PIN this one shows.',
   'connect.strict': 'Ask for a PIN to pair',
   'connect.playing': 'Playing: {0}',

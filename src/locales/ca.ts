@@ -180,7 +180,6 @@ export const ca: Record<string, string> = {
   'connect.address': 'Adreça d\'aquest dispositiu:',
   'connect.noDiscovery': 'No es poden cercar els altres dispositius automàticament en aquesta xarxa: escriu a l\'altre l\'adreça de dalt.',
   'connect.startError': 'Soundify Connect no s\'ha pogut iniciar: {0}',
-  'connect.autoDetected': '«{0}» està reproduint «{1}».',
   'connect.strict.desc': 'Més segur: els dispositius nous no es connecten sols i cal escriure el PIN que mostra aquest.',
   'connect.strict': 'Demana un PIN per aparellar',
   'connect.playing': 'Sonant: {0}',

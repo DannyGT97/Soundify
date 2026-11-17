@@ -192,7 +192,6 @@ export const es: Record<string, string> = {
   'connect.address': 'Dirección de este dispositivo:',
   'connect.noDiscovery': 'No se pueden buscar los otros dispositivos automáticamente en esta red: escribe en el otro la dirección de arriba.',
   'connect.startError': 'Soundify Connect no pudo iniciarse: {0}',
-  'connect.autoDetected': '«{0}» está reproduciendo «{1}».',
   'connect.strict.desc': 'Más seguro: los dispositivos nuevos no se conectan solos y hay que escribir el PIN que enseña este.',
   'connect.strict': 'Pedir un PIN para emparejar',
   'connect.playing': 'Sonando: {0}',

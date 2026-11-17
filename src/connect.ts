@@ -41,36 +41,10 @@ export async function loadConnect(): Promise<void> {
   // too, and a forced publish here made each device answer each state with its own, round and round. With three devices
   // that grew until a controller's queue overflowed and it was dropped, over and over. A controller that connects later is
   // sent the last state by the back itself, and changes are published by `subscribe('player')`.
+  // What another device is playing is shown only in the Devices window («Sonando: …»), never as a notice: one per song
+  // flooded the screen and the notice list.
   publishIfWorth(!wasRunning && !!connect.status?.running);
-  announcePlaying();
   emit('connect');
-}
-
-// === ANOTHER DEVICE STARTS PLAYING ===
-
-/** Which file each device was last announced playing, so it is said once and not at every refresh. */
-const announced = new Map<string, string>();
-
-/**
- * Like Spotify noticing you listen somewhere else: when a device starts playing and this one is not
- * playing or controlling anything, a notice offers to control it with one tap.
- */
-function announcePlaying(): void {
-  for (const device of connect.devices) {
-    const title = device.playing ? device.nowPlaying?.title : undefined;
-    if (!title) {
-      announced.delete(device.id);
-      continue;
-    }
-    if (announced.get(device.id) === title) continue;
-    announced.set(device.id, title);
-    if (ui.remote || ui.playing || !device.ready) continue;
-    notify({
-      tone: 'neutral',
-      text: t('connect.autoDetected', device.name, title),
-      action: { label: t('connect.control'), run: () => void controlDevice(device) },
-    });
-  }
 }
 
 export function startConnect(): void {
