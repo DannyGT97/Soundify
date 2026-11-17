@@ -31,3 +31,27 @@ for (const window of WINDOWS) {
     });
   }
 }
+
+// On a phone the same: a title that is long (or a big scale) must not push its icon and the bell onto lines of their own.
+// A phone is ~411 CSS px wide; the zoom lays the page out in fewer.
+for (const scale of [100, 125, 150, 175]) {
+  test(`on a phone at ${scale}% every title keeps its icon and its bell on its first line`, async ({ page }) => {
+    await page.setViewportSize({ width: Math.round(411 / (scale / 100)), height: Math.round(850 / (scale / 100)) });
+    const problems: string[] = [];
+    for (const route of ['#/home', '#/download', '#/new-playlist', '#/player', '#/manager', '#/settings']) {
+      await page.goto(`/?mockAndroid${route}`);
+      await page.locator('.screen').first().waitFor();
+      const row = await page.evaluate(() => {
+        const title = document.querySelector<HTMLElement>('.title-row .page-title');
+        const icon = document.querySelector<HTMLElement>('.title-row .title-icon');
+        const tools = document.querySelector<HTMLElement>('.title-row .title-tools');
+        if (!title || !icon || !tools) return null;
+        const top = (el: HTMLElement) => el.getBoundingClientRect().top;
+        return { iconToTools: Math.abs(top(icon) - top(tools)), titleHeight: title.getBoundingClientRect().height, overflow: title.scrollWidth - title.clientWidth };
+      });
+      // Icon and bell sit on one line, and the title wraps to at most two of its own.
+      if (row && (row.iconToTools > 24 || row.overflow > 1)) problems.push(`${route}: ${JSON.stringify(row)}`);
+    }
+    expect(problems).toEqual([]);
+  });
+}

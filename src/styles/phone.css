@@ -60,6 +60,16 @@
   .now-empty { border: 0; border-radius: 0; }
   .page-title { font-size: 22px; }
   .title-row { flex-wrap: wrap; row-gap: 8px; }
+  /* A long title (or a big scale) wraps inside its own space instead of pushing the icon and the bell onto other lines. */
+  .title-row.plain { flex-wrap: nowrap; }
+  .title-row.plain .page-title { flex: 1 1 0; min-width: 0; overflow-wrap: anywhere; line-height: 1.15; }
+  .title-row.plain > .grow { display: none; }
+  /* A button in the title row loses its words when the row (as laid out, scale included) gets narrow: the title needs the room. */
+  .title-row { container-type: inline-size; }
+  @container (max-width: 340px) {
+    .title-row .title-compact { padding: 0; width: 40px; height: 40px; justify-content: center; flex: none; }
+    .title-row .title-compact span { display: none; }
+  }
 
   /* The two forms share a tab: this says which one is open and goes to the other. */
   .form-switch {

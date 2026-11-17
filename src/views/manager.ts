@@ -95,7 +95,7 @@ export function managerView(params: Params): HTMLElement {
   if (focus) requestAnimationFrame(() => [...list.querySelectorAll<HTMLElement>('.pm-block')]
     .find(el => el.dataset.block === focus)?.scrollIntoView({ block: 'center', behavior: 'smooth' }));
 
-  const importButton = h('button', { class: 'secondary-button', onclick: openImportHelp },
+  const importButton = h('button', { class: 'secondary-button title-compact', onclick: openImportHelp },
     icon('import', 16), h('span', { text: t('manager.import') }));
 
   return h('div', { class: 'screen' },

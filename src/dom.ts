@@ -44,7 +44,9 @@ export function setTitleTools(make: () => Node): void {
 
 /** The title row every screen opens with, at the same height as the menu's header. */
 export function titleRow(iconName: IconName | null, title: string, ...extra: Child[]): HTMLElement {
-  return h('div', { class: 'title-row' },
+  // Without a field between the title and the tools (the ring and the bell) the title shares the row with them and wraps inside its own space.
+  const hasField = extra.some(node => node instanceof Element && (node.matches('input') || node.querySelector('input') !== null));
+  return h('div', { class: `title-row${hasField ? '' : ' plain'}` },
     iconName ? h('span', { class: 'title-icon' }, iconName === 'home' ? homeLogo(26) : icon(iconName, 26)) : null,
     h('h1', { class: 'page-title', text: title }),
     ...extra,
