@@ -472,3 +472,26 @@ test('opened from the Gestor, the arrow goes back to it, on the same playlist', 
   await page.locator('.ambient > .icon-button.back').click();
   await expect(page).toHaveURL(/#\/manager\?open=pl1/);
 });
+
+test('coming back to the playlist that sounds, the list opens where the sounding file is', async ({ page }) => {
+  await page.goto('/#/player?b=pl1:MP3');
+  const last = page.locator('.track-row:not(.off)').last();
+  await last.scrollIntoViewIfNeeded();
+  await last.click();
+  await expect(page.locator('.track-row.playing')).toHaveCount(1);
+
+  await page.goto('/#/manager');
+  await page.goto('/#/player?b=pl1:MP3');
+  const playing = page.locator('.track-row.playing');
+  await expect(playing).toBeInViewport();
+  // Not stuck at the top: the list was scrolled to it.
+  expect(await page.locator('.scroller').first().evaluate(el => el.scrollTop)).toBeGreaterThan(100);
+});
+
+test('a playlist that is not the one sounding opens at the top', async ({ page }) => {
+  await page.goto('/#/player?b=pl1:MP3');
+  await page.locator('.track-row:not(.off)').last().click();
+  await page.goto('/#/player?b=pl2:M4A');
+  await page.waitForTimeout(200);
+  expect(await page.locator('.scroller').first().evaluate(el => el.scrollTop)).toBe(0);
+});

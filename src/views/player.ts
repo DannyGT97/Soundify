@@ -576,5 +576,11 @@ function detailView(key: string, params: Params): HTMLElement {
   detail.style.setProperty('--h', String(hueOf(playlist.title)));
   scroller.addEventListener('scroll', () => detail.classList.toggle('stuck', scroller.scrollTop > hero.offsetHeight - 56));
 
+  // Coming back to the playlist that sounds, the list opens where the sounding file is (picked far down, it was a scroll to find it again).
+  // The screen is not in the page yet: the next frame it is, and has a size to scroll to.
+  if (ui.nowPlaying?.blockKey === block.key) {
+    requestAnimationFrame(() => tracks.querySelector('.track-row.playing')?.scrollIntoView({ block: 'center' }));
+  }
+
   return h('div', { class: 'screen detail-screen' }, detail);
 }
