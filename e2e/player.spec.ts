@@ -72,10 +72,10 @@ test('the back arrow of Reproduciendo (top right) goes to the playlist that is p
   await page.locator('.track-row').first().click();
   await page.goto('/#/manager');
   await page.goto('/#/now-playing');
-  const back = page.locator('.np-head .np-back');
-  const box = await back.boundingBox();
-  const width = page.viewportSize()?.width ?? 0;
-  expect(box && box.x > width / 2).toBe(true);
+  // The playlist's name, with an arrow at its left, is the way back: there is no other arrow.
+  const back = page.locator('.np-head .np-head-link');
+  await expect(back.locator('.np-back')).toBeVisible();
+  await expect(page.locator('.np-head .icon-button.np-back')).toHaveCount(0);
   await back.click();
   await expect(page).toHaveURL(/#\/player\?b=pl1/);
 });

@@ -51,11 +51,7 @@ export function nowPlayingView(): HTMLElement {
     else if (ui.nowPlaying) navigate('player', { b: ui.nowPlaying.blockKey });
     else navigate('player');
   };
-  const back = h('button', { class: 'icon-button np-back', onclick: goToPlaylist }, icon('back', 22));
   const paintBack = () => {
-    const label = t(ui.remote ? 'nowPlaying.backRemote' : 'nowPlaying.back');
-    back.title = label;
-    back.setAttribute('aria-label', label);
     controls.classList.toggle('remote', !!ui.remote);
   };
   // Where the sound goes: this device, or the headphones / Bluetooth device that is connected.
@@ -92,10 +88,11 @@ export function nowPlayingView(): HTMLElement {
   // The window's title: the playlist that sounds (and, when it is on another device, that it is a remote playlist).
   const headEyebrow = h('div', { class: 'np-head-eyebrow' });
   const headTitle = h('div', { class: 'np-head-name ellipsis' });
-  // Pressing it goes to the playlist (the same as the arrow), with the playlist's cover at its left.
+  // Pressing it goes to the playlist: the arrow at its left says it is also the way back, so there is no other arrow.
+  const backArrow = h('span', { class: 'np-back' }, icon('back', 20));
   const headCover = h('span', { class: 'np-head-cover' });
-  const head = h('button', { class: 'np-head-title np-head-link grow min0', attrs: { type: 'button' }, onclick: goToPlaylist },
-    headCover, h('span', { class: 'np-head-text min0' }, headEyebrow, headTitle));
+  const head = h('button', { class: 'np-head-title np-head-link min0', attrs: { type: 'button' }, onclick: goToPlaylist },
+    backArrow, headCover, h('span', { class: 'np-head-text min0' }, headEyebrow, headTitle));
   const paintHead = () => {
     const np = ui.nowPlaying;
     const found = np && !ui.remote ? findBlock(np.blockKey) : null;
@@ -114,7 +111,7 @@ export function nowPlayingView(): HTMLElement {
     backdrop,
     h('div', { class: 'np-tint' }),
     h('div', { class: 'np-content' },
-      h('div', { class: 'np-head' }, head, activityButtons(), back),
+      h('div', { class: 'np-head' }, head, activityButtons()),
       empty,
       art,
       info,

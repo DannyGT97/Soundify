@@ -32,8 +32,6 @@ export interface ExplorerOptions {
   /** The head's title when the purpose's own is not specific enough ("¿Dónde quieres copiar …?"). */
   title?: string;
   subject?: PickerSubject;
-  /** Starts on the first phone (the destination's «Dispositivo MTP» card). */
-  startOnDevice?: boolean;
   /** The window closed without picking anything. */
   onCancel?: () => void;
 }
@@ -912,7 +910,7 @@ export function openExplorer(purpose: ExplorerPurpose, onPicked: (pick: Explorer
         renderContent();
         renderFoot();
       }
-    } else if (!place && devices[0] && (!spec.local || options.startOnDevice)) {
+    } else if (!place && devices[0] && !spec.local) {
       go({ kind: 'device', id: devices[0].id, path: [] });
     } else if (!place && first && spec.local) {
       startLocal();
@@ -996,7 +994,7 @@ export function openExplorer(purpose: ExplorerPurpose, onPicked: (pick: Explorer
       roots = found;
       if (closed) return;
       renderRail();
-      if (!options.startOnDevice || !deviceOn) startLocal();
+      startLocal();
     }
     void refreshDevices();
   })();

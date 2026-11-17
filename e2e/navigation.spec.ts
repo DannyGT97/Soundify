@@ -22,8 +22,8 @@ for (const { route, title } of SCREENS) {
   test(`the ${route} screen loads with its title`, async ({ page }) => {
     failOnPageErrors(page);
     await page.goto(`/#/${route}`);
-    // Reproduciendo has no title: it has the way back instead.
-    if (route === 'now-playing') await expect(page.locator('#page .np-back')).toBeVisible();
+    // Reproduciendo has no page title: its head names the playlist that sounds (and is the way back).
+    if (route === 'now-playing') await expect(page.locator('#page .np-head')).toBeVisible();
     else await expect(page.locator('#page .page-title').first()).toHaveText(title);
   });
 }

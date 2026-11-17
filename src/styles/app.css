@@ -269,13 +269,19 @@ select.input { cursor: pointer; }
 .np-art .np-media { width: 100%; height: 100%; object-fit: contain; background: var(--sp-black); border-radius: 10px; }
 .np-head { display: flex; align-items: center; }
 .np-head-title { text-align: left; }
-.np-head-link { display: flex; align-items: center; gap: 10px; padding: 0; background: none; color: inherit; cursor: pointer; border-radius: 8px; }
+.np-head-link { display: flex; align-items: center; gap: 10px; padding: 4px 12px 4px 6px; margin-left: -6px; background: none; color: inherit; cursor: pointer; border-radius: 10px; transition: background .12s; }
+.np-head-link { max-width: calc(100% - 56px); }
+.np-head-link + * { margin-left: auto; }
+.np-head-link:hover:not(:disabled) { background: var(--sp-nav-hover); }
+.np-head-link:focus-visible { outline: 2px solid var(--sp-accent); outline-offset: 2px; }
 .np-head-link:disabled { cursor: default; }
 .np-head-cover { flex: none; display: inline-flex; }
 .np-head-text { display: block; min-width: 0; }
 .np-head-eyebrow { font-size: 11px; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; color: var(--sp-accent, var(--sp-text-dim)); }
 .np-head-name { color: var(--sp-text-strong); font-size: 15px; font-weight: 700; }
-.np-back { color: var(--sp-text-strong); }
+.np-back { display: inline-flex; flex: none; color: var(--sp-muted); transition: transform .12s, color .12s; }
+.np-head-link:hover:not(:disabled) .np-back { color: var(--sp-text-strong); transform: translateX(-2px); }
+.np-head-link:disabled .np-back { visibility: hidden; }
 .np-info { display: flex; flex-direction: column; align-items: center; gap: 4px; text-align: center; }
 /* Where it sounds: this device quietly, headphones or a Bluetooth device in the accent. */
 .np-device { display: inline-flex; align-items: center; gap: 6px; max-width: 100%; margin-top: 2px; color: var(--sp-muted); font-size: 12px; font-weight: 600; }
