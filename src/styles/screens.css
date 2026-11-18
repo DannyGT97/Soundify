@@ -610,7 +610,7 @@ button.dev-row:hover { background: var(--sp-nav-hover); }
 .pl-card.cast-now .pl-art, .cast-edge { box-shadow: 0 0 0 2px var(--sp-live); border-radius: 8px; }
 .cast-banner { display: flex; align-items: center; gap: 14px; flex-wrap: wrap; margin: 12px 0; padding: 14px 16px; border-radius: 12px; border: 1px solid color-mix(in srgb, var(--sp-live) 45%, transparent); background: linear-gradient(100deg, color-mix(in srgb, var(--sp-live) 18%, transparent), transparent 70%); }
 .cast-banner > .icon { color: var(--sp-live); flex: none; }
-.cast-banner span { display: block; color: var(--sp-muted); font-size: 13px; }
+.cast-banner .grow span { display: block; color: var(--sp-muted); font-size: 13px; }
 .cast-banner > .grow { flex: 1 1 240px; }
 .cast-banner > .primary-button { flex: 0 0 auto; }
 @media (max-width: 600px) { .cast-banner > .primary-button { flex: 1 1 100%; justify-content: center; } }

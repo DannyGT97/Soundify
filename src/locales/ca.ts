@@ -292,6 +292,7 @@ export const ca: Record<string, string> = {
   'player.devices.idle': 'Sense música ara',
   'player.devices.note': '«Escoltar aquí» comença a l\'instant, sense confirmar res a l\'altre dispositiu. Per treure\'n l\'accés a un, oblida\'l a Ajustes. També pots passar-ho tu des de l\'altre amb «Escoltar en».',
   'connect.castFrom': 'Des de «{0}»',
+  'connect.said.left': "{0} ha deixat d'escoltar",
   'connect.said.castEnd': '{0} ja no reprodueix aquí',
   'connect.castLost': 'S\'ha perdut la connexió amb «{0}»: s\'ha aturat la música',
   'connect.switch.off': 'Soundify Connect està desactivat: activa-ho a Ajustos per veure els teus dispositius.',

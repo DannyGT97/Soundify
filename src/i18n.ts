@@ -304,6 +304,7 @@ export const es: Record<string, string> = {
   'player.devices.idle': 'Sin música ahora',
   'player.devices.note': '«Escuchar aquí» empieza al momento, sin confirmar nada en el otro dispositivo. Para quitarle el acceso a uno, olvídalo en Ajustes. También puedes pasarlo tú desde el otro con «Escuchar en».',
   'connect.castFrom': 'Desde «{0}»',
+  'connect.said.left': '{0} ha dejado de escuchar',
   'connect.said.castEnd': '{0} ya no reproduce aquí',
   'connect.castLost': 'Se perdió la conexión con «{0}»: se paró la música',
   'connect.switch.off': 'Soundify Connect está desactivado: actívalo en Ajustes para ver tus dispositivos.',

@@ -292,6 +292,7 @@ export const en: Record<string, string> = {
   'player.devices.idle': 'No music now',
   'player.devices.note': '“Listen here” starts at once, with nothing to confirm on the other device. To take access away from one, forget it in Ajustes. You can also pass it yourself from the other one with “Listen on”.',
   'connect.castFrom': 'From “{0}”',
+  'connect.said.left': '{0} stopped listening',
   'connect.said.castEnd': '{0} is no longer playing here',
   'connect.castLost': 'Lost the connection with “{0}”: the music stopped',
   'connect.switch.off': 'Soundify Connect is off: turn it on in Settings to see your devices.',
