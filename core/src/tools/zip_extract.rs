@@ -19,10 +19,12 @@ pub fn extract_matching(zip: &Path, target_for: impl Fn(&str) -> Option<PathBuf>
 
     for index in 0..archive.len() {
         let mut entry = archive.by_index(index).map_err(io::Error::other)?;
-        if is_directory_entry(entry.name(), entry.is_dir(), entry.size()) {
+        // A name that is not valid text cannot be one of the files that matter: skipped.
+        let Ok(name) = entry.name().map(|name| name.into_owned()) else { continue };
+        if is_directory_entry(&name, entry.is_dir(), entry.size()) {
             continue;
         }
-        let Some(target) = target_for(entry.name()) else { continue };
+        let Some(target) = target_for(&name) else { continue };
         if let Some(parent) = target.parent() {
             fs::create_dir_all(parent)?;
         }
