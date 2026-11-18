@@ -1,6 +1,6 @@
 // The way into «Dispositivos» (Soundify Connect) from the bar and the side menu, like the
 // speaker icon of Spotify. Its icon and colour say what is going on: this device's music on another
-// one («Escuchar en»: cast, green), another one controlled from here (gamepad, blue), or nothing
+// one («Escuchar en»: cast, green), another one controlled from here (remote, blue), or nothing
 // (a screen, with a dot while some device plays). Hidden while Connect is off.
 
 import { connect } from '../connect';

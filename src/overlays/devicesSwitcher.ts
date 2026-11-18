@@ -1,7 +1,7 @@
 // The speaker icon of the bar and the device chip of Reproduciendo: only the list of devices, to switch between them.
 // Two different things, in two sections with their own colour and icon (`design/connect-cast-prototype.html`):
 //   «Escuchar en» (green, cast): passes what plays HERE to another device, which reads the files from this one (`cast.ts`).
-//   «Controlar otro dispositivo» (blue, gamepad): drives what ANOTHER device plays, from its own music (`connect.ts`).
+//   «Controlar otro dispositivo» (blue, remote): drives what ANOTHER device plays, from its own music (`connect.ts`).
 // Above them, while one of the two is going on, a box says so with the ways out. Everything about managing devices
 // (pairing, PIN, firewall, address) is in Ajustes: «¿No ves tu dispositivo?» goes there.
 

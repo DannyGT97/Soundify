@@ -242,7 +242,7 @@ export const en: Record<string, string> = {
   'connect.cast.playingYours': 'Playing your music',
   'connect.cast.needsMusic': 'Play something in the Player to pass it to another device.',
   'connect.cast.whileControlling': 'Stop controlling “{0}” to pass your music.',
-  'connect.control.help': 'Drive the music already playing on another device. It does not change what plays.',
+  'connect.control.help': 'Control the media files of another device.',
   'connect.control.go': 'Control',
   'connect.control.banner': 'Controlling “{0}”',
   'connect.control.bannerHelp': 'Its music plays, not yours.',

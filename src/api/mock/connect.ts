@@ -42,6 +42,12 @@ const salonLibrary: Array<ConnectLibraryEntry & { items: Array<{ videoId: string
   { key: 'salon:mix', title: 'Mix', format: 'MP3', video: false, count: 3, cover: 'remote-1', items: [{ videoId: 'remote-1', title: 'Canción del salón' }, { videoId: 'remote-2', title: 'Siguiente del salón' }, { videoId: 'remote-3', title: 'Tercera del salón' }] },
   { key: 'salon:cocina', title: 'Cocina', format: 'MP3', video: false, count: 2, cover: 'kitchen-1', items: [{ videoId: 'kitchen-1', title: 'Para cocinar' }, { videoId: 'kitchen-2', title: 'Para fregar' }] },
 ];
+// `?mockManyPlaylists`: «Salón» has six playlists instead of two (to see the library with a mosaic).
+if (typeof location !== 'undefined' && new URLSearchParams(location.search).has('mockManyPlaylists')) {
+  for (const [n, title] of ['Rock', 'Jazz', 'Gimnasio', 'Viajes'].entries()) {
+    salonLibrary.push({ key: `salon:extra${n}`, title, format: 'MP3', video: false, count: 10 + n, cover: `extra${n}-1`, items: [{ videoId: `extra${n}-1`, title: `${title} 1` }] });
+  }
+}
 /** `?mockSalonIdle` (or `__connect.salonIdle()`): «Salón» plays nothing, so no playlist is its current one. */
 let salonIdle = typeof location !== 'undefined' && new URLSearchParams(location.search).has('mockSalonIdle');
 const published_libraries: ConnectLibraryEntry[][] = [];

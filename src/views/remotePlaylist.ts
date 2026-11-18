@@ -47,6 +47,18 @@ function pick(videoId: string): void {
   else playRemoteTrack(videoId);
 }
 
+/** The cells of the big picture of the library: one per playlist, up to four (the layout follows how many: `[data-n]` in the CSS). */
+function mosaicCells(entries: ConnectLibraryEntry[]): HTMLElement[] {
+  const shown = entries.slice(0, 4);
+  return shown.map((entry, index) => {
+    const tile = cover(entry.title, entry.video, 84);
+    // The tall cells (two side by side, or the big one of three) are half as wide as they are high: the picture is cut for that.
+    const tall = shown.length === 2 || (shown.length === 3 && index === 0);
+    if (entry.cover) showPicture(tile, { kind: 'thumbnail', id: entry.cover }, tall ? 0.5 : 1);
+    return tile;
+  });
+}
+
 function libraryRow(entry: ConnectLibraryEntry): HTMLElement {
   const tile = cover(entry.title, entry.video, 40);
   // Its picture: the thumbnail of its first file (this device fetches it if it does not have it, like in every list).
@@ -194,6 +206,9 @@ export function remotePlaylistView(): HTMLElement {
   } }, icon('search', 18));
   const miniTitle = h('b', { class: 'ellipsis grow' });
   const heroCover = cover(device.name, false, 168);
+  // The list of playlists has no picture of its own: up to four of theirs side by side (one alone fills the tile).
+  const heroMosaic = h('div', { class: 'cover-mosaic', attrs: { 'aria-hidden': 'true' } });
+  heroMosaic.hidden = true;
   let shownFor: object | null | undefined;
 
   // Between the files that are listed and the list of playlists: one button, and it says where it goes.
@@ -224,6 +239,13 @@ export function remotePlaylistView(): HTMLElement {
     sub.textContent = [t('remotePlaylist.on', device.name), library ? t('remotePlaylist.playlists', connect.library.length) : queue ? t('remotePlaylist.files', queue.items.length) : ''].filter(Boolean).join(' · ');
     // The big picture: the playlist's, or (in the list) the first one's, so it is never an empty tile.
     const firstCover = connect.library.find(entry => entry.cover)?.cover;
+    const several = library && connect.library.length > 1;
+    heroMosaic.hidden = !several;
+    heroCover.hidden = several;
+    if (several) {
+      heroMosaic.dataset.n = String(Math.min(4, connect.library.length));
+      heroMosaic.replaceChildren(...mosaicCells(connect.library));
+    }
     showPicture(heroCover, library ? (firstCover ? { kind: 'thumbnail', id: firstCover } : null) : queuePicture(queue));
     eyebrow.textContent = library ? t('remotePlaylist.libraryEyebrow', device.name) : t('remotePlaylist.eyebrow');
     searchToggle.hidden = false;
@@ -251,7 +273,7 @@ export function remotePlaylistView(): HTMLElement {
   const hero = h('div', { class: 'ambient' },
     backButton(' back'),
     h('div', { class: 'hero' },
-      h('span', { class: 'hero-cover' }, heroCover),
+      h('span', { class: 'hero-cover' }, heroCover, heroMosaic),
       h('div', { class: 'grow min0' },
         eyebrow,
         heading,

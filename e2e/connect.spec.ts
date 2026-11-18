@@ -554,3 +554,16 @@ test('while a playlist plays there, «Todas las playlists» goes to the library 
   await page.getByRole('button', { name: 'Lo que suena' }).click();
   await expect(page.locator('.track-row')).toHaveCount(3);
 });
+
+test('the big picture of a device library is a mosaic of its playlists (up to four)', async ({ page }) => {
+  await page.goto('/?mockConnect&mockSalonIdle&mockManyPlaylists#/settings');
+  await openDevices(page, '/?mockConnect&mockSalonIdle&mockManyPlaylists#/settings');
+  await row(page, 'tv').getByRole('button', { name: 'Controlar' }).click();
+  await page.evaluate(() => { location.hash = '#/player'; });
+  await page.locator('.pl-card', { hasText: 'Playlists' }).click();
+  await expect(page.locator('[data-library]')).toHaveCount(6);
+  await expect(page.locator('.cover-mosaic > *')).toHaveCount(4);
+  // Opening one: its own picture, not the mosaic.
+  await page.locator('[data-library="salon:cocina"]').click();
+  await expect(page.locator('.cover-mosaic')).toBeHidden();
+});

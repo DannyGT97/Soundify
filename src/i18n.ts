@@ -254,7 +254,7 @@ export const es: Record<string, string> = {
   'connect.cast.playingYours': 'Sonando tu música',
   'connect.cast.needsMusic': 'Pon algo en el Reproductor para poder pasarlo a otro dispositivo.',
   'connect.cast.whileControlling': 'Deja de controlar «{0}» para pasar tu música.',
-  'connect.control.help': 'Maneja la música que ya suena en otro. No cambia lo que suena.',
+  'connect.control.help': 'Controla los archivos multimedia de otro dispositivo.',
   'connect.control.go': 'Controlar',
   'connect.control.banner': 'Controlando «{0}»',
   'connect.control.bannerHelp': 'Suena su música, no la tuya.',

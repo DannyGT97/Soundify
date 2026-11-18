@@ -153,7 +153,8 @@ export const mockApi: Api = {
   castUrl: (videoId, part) => `mock-cast://${part}/${videoId}`,
   connectCastClear: async () => {},
   connectCastCurrent: async () => null,
-  thumbnail: async () => null,
+  // `?mockThumbs`: a coloured picture per video (4:3 like YouTube's), to see lists with real pictures. Off: none, as ever.
+  thumbnail: async id => (typeof location !== 'undefined' && new URLSearchParams(location.search).has('mockThumbs') ? mockThumb(id) : null),
   // A drawn square stands in for the picture, so the form's states can be seen.
   urlThumbnail: async url => {
     await new Promise(resolve => window.setTimeout(resolve, 500));
@@ -426,4 +427,12 @@ function finish(id: number, status: TaskStatus): void {
   startReady();
   if (queued && ui.running.length) return;
   if (status === 'ok') onNotice({ status: 'OK', key: 'tasks.status.ok', args: [] });
+}
+
+/** A made-up thumbnail: a colour from the id, with its first letters. */
+function mockThumb(id: string): string {
+  let hash = 0;
+  for (const ch of id) hash = (hash * 31 + ch.charCodeAt(0)) % 360;
+  const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="320" height="240" viewBox="0 0 320 240"><rect width="320" height="240" fill="#000"/><rect y="30" width="320" height="180" fill="hsl(${hash} 65% 45%)"/><text x="160" y="140" font-family="Arial" font-size="64" font-weight="800" fill="#fff" text-anchor="middle">${id.slice(0, 2).toUpperCase()}</text></svg>`;
+  return `data:image/svg+xml;utf8,${encodeURIComponent(svg)}`;
 }

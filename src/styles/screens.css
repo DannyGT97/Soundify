@@ -550,8 +550,10 @@ button.dev-row:hover { background: var(--sp-nav-hover); }
 .cx .card.cx-device.offline { opacity: .6; }
 .cx .cx-actions { margin-top: 8px; align-items: center; }
 .cx .cx-pin-input { width: 150px; letter-spacing: 2px; text-align: center; }
-.cx .card.cx-pin { display: flex; flex-direction: row; align-items: center; gap: 14px; padding: 12px 14px; }
-.cx .cx-pin-code { font-size: 26px; font-weight: 800; letter-spacing: 3px; color: var(--sp-text-strong); font-variant-numeric: tabular-nums; }
+.cx .card.cx-pin { display: flex; flex-direction: row; flex-wrap: wrap; align-items: center; gap: 10px 14px; padding: 12px 14px; }
+/* The six digits stay on ONE line: when the card is narrow (a phone) the explanation goes above and the code and its button below. */
+.cx .card.cx-pin > :first-child { flex: 1 1 200px; min-width: 0; }
+.cx .cx-pin-code { font-size: 26px; font-weight: 800; letter-spacing: 3px; color: var(--sp-text-strong); font-variant-numeric: tabular-nums; white-space: nowrap; }
 .cx .cx-add .input { flex: 1; min-width: 0; }
 .cx .cx-switch { padding: 4px 2px; }
 .np-device { background: none; border: none; cursor: pointer; padding: 4px 8px; border-radius: 14px; font: inherit; }
@@ -561,7 +563,7 @@ button.dev-row:hover { background: var(--sp-nav-hover); }
 .cx .card.cx-firewall { display: flex; flex-direction: row; align-items: center; gap: 14px; padding: 12px 14px; }
 
 /* The devices window (`overlays/devicesSwitcher.ts`): «Escuchar en» in the colour of what is going on (--sp-live, cast)
-   and «Controlar» in its own (--sp-control, gamepad), so the two are never taken for each other. */
+   and «Controlar» in its own (--sp-control, remote), so the two are never taken for each other. */
 .cx-switcher { --cx-cast: var(--sp-live); --cx-control: var(--sp-control, #6ea8ff); }
 .cx .cx-section { display: flex; align-items: center; gap: 8px; margin-top: 6px; font-size: 12px; font-weight: 800; letter-spacing: .06em; text-transform: uppercase; color: var(--sp-muted); }
 .cx .cx-section-cast > .icon { color: var(--cx-cast); }
@@ -588,6 +590,12 @@ button.dev-row:hover { background: var(--sp-nav-hover); }
 .cx .cx-banner-cast .cx-banner-head > .icon { color: var(--cx-cast); }
 .cx .cx-banner-control { border: 1px solid var(--cx-control); background: color-mix(in srgb, var(--cx-control) 8%, var(--sp-card, transparent)); }
 .cx .cx-banner-control .cx-banner-head > .icon { color: var(--cx-control); }
+/* The big picture of a device's library: four of its playlists' pictures in a square. */
+.cover-mosaic { display: grid; grid-template-columns: 1fr 1fr; grid-template-rows: 1fr 1fr; gap: 2px; width: 168px; height: 168px; border-radius: 8px; overflow: hidden; background: var(--sp-card-border, #333); box-shadow: 0 8px 24px var(--sp-shadow-soft, #0006); }
+.cover-mosaic > .cover { width: 100% !important; height: 100% !important; border-radius: 0; }
+/* Two: side by side. Three: one tall on the left. Four: the square. */
+.cover-mosaic[data-n="2"] { grid-template-rows: 1fr; }
+.cover-mosaic[data-n="3"] > :first-child { grid-row: span 2; }
 /* The way into the window, in the same colours. */
 .devices-button.is-cast { color: var(--sp-live); }
 .devices-button.is-control { color: var(--sp-control, #6ea8ff); }
