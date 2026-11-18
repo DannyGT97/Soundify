@@ -569,6 +569,9 @@ button.dev-row:hover { background: var(--sp-nav-hover); }
 .cx .cx-hint { margin: -6px 0 0; }
 .cx .cx-empty { margin: 0; padding: 4px 2px; }
 .cx .card.cx-device { align-items: center; }
+/* A row is a button: the pointer, not the text cursor of the words inside it. */
+.cx .cx-pick, .cx .cx-pick * { cursor: pointer; user-select: none; }
+.cx .cx-pick.offline, .cx .cx-pick.offline * { cursor: default; }
 .cx .cx-device-icon { flex: none; width: 36px; height: 36px; border-radius: 10px; display: inline-flex; align-items: center; justify-content: center; background: var(--sp-field); color: var(--sp-text); }
 .cx .cx-go { flex: none; font-size: 12px; font-weight: 700; color: var(--sp-muted); border: 1px solid var(--sp-border, rgba(127,127,127,.35)); border-radius: 14px; padding: 4px 10px; white-space: nowrap; }
 .cx .cx-end { flex: none; display: inline-flex; }

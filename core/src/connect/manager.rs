@@ -20,7 +20,7 @@ use super::cast::SharedFile;
 use super::client::{self, ClientError, Event, Session};
 use super::discovery::{Change, Discovery};
 use super::pairing::{self, Known, KnownDevices, Pairing, Trusted};
-use super::protocol::{CastStart, Command, DeviceInfo, PROTOCOL, PlayerState, QueueInfo, ServerMessage};
+use super::protocol::{CastStart, Command, DeviceInfo, LibraryEntry, MAX_LIBRARY, PROTOCOL, PlayerState, QueueInfo, ServerMessage};
 use super::server::{Host, Server};
 use super::stats::{self, short};
 use super::tls::{Expect, TlsIdentity};
@@ -44,6 +44,10 @@ pub trait Listener: Send + Sync {
     fn remote_state(&self, device_id: &str, state: PlayerState);
     /// A device says which playlist it is playing (None = none).
     fn remote_queue(&self, _device_id: &str, _queue: Option<QueueInfo>) {}
+    /// A device says which playlists it has (its own library).
+    fn remote_library(&self, _device_id: &str, _playlists: Vec<LibraryEntry>) {}
+    /// A device gives the files of a playlist of its library that was asked for.
+    fn remote_browse(&self, _device_id: &str, _key: &str, _queue: Option<QueueInfo>) {}
     /// The connection to the device being controlled is over without the user asking.
     fn remote_closed(&self, device_id: &str, reason: Option<String>);
 }
@@ -130,6 +134,8 @@ struct Nearby {
     needs_pin: bool,
     /// Found by it connecting here, not announced on the network: nothing will say when it is gone, so it is let go of as soon as its connection fails.
     learned: bool,
+    /// The playlists of its own library, as it last said.
+    library: Vec<LibraryEntry>,
     /// Another version of Connect (`outdated` / `newer`): shown, never connected to.
     version: Option<&'static str>,
 }
@@ -158,6 +164,7 @@ struct HostAdapter {
     pairing: Arc<Pairing>,
     state: Arc<Mutex<PlayerState>>,
     queue: Arc<Mutex<Option<QueueInfo>>>,
+    library: Arc<Mutex<Vec<LibraryEntry>>>,
     player: Arc<dyn Player>,
 }
 
@@ -172,6 +179,10 @@ impl Host for HostAdapter {
 
     fn queue(&self) -> Option<QueueInfo> {
         self.queue.lock().unwrap().clone()
+    }
+
+    fn library(&self) -> Vec<LibraryEntry> {
+        self.library.lock().unwrap().clone()
     }
 
     fn command(&self, who: &Trusted, command: Command) -> Result<(), String> {
@@ -198,6 +209,8 @@ pub struct Connect {
     /// «Escuchar en»: the device this one passed what it plays to.
     casting: Mutex<Option<String>>,
     queue: Arc<Mutex<Option<QueueInfo>>>,
+    /// This device's own library, as the page last said (kept for whoever connects).
+    library: Arc<Mutex<Vec<LibraryEntry>>>,
     running: Mutex<Option<Running>>,
     nearby: Mutex<HashMap<String, Nearby>>,
     /// One per paired device that is on the network: how its state is known and how it is controlled.
@@ -244,6 +257,7 @@ impl Connect {
             state: Arc::new(Mutex::new(PlayerState::default())),
             casting: Mutex::new(None),
             queue: Arc::new(Mutex::new(None)),
+            library: Arc::new(Mutex::new(Vec::new())),
             running: Mutex::new(None),
             nearby: Mutex::new(HashMap::new()),
             sessions: Mutex::new(HashMap::new()),
@@ -337,7 +351,7 @@ impl Connect {
         if self.known.get(&own).is_some() {
             let _ = self.known.forget(&own);
         }
-        let host = Arc::new(HostAdapter { me: Arc::downgrade(self), info: self.info(), pairing: self.pairing.clone(), state: self.state.clone(), queue: self.queue.clone(), player: self.player.clone() });
+        let host = Arc::new(HostAdapter { me: Arc::downgrade(self), info: self.info(), pairing: self.pairing.clone(), state: self.state.clone(), queue: self.queue.clone(), library: self.library.clone(), player: self.player.clone() });
         let server = match Server::start(preferred_port, host.clone(), self.pairing.clone(), self.tls.clone()) {
             Ok(server) => server,
             // The preferred port is taken (another copy of the app): any free one.
@@ -436,14 +450,23 @@ impl Connect {
                     return;
                 }
                 let version = mismatch(found.info.v);
+                // Another version of Soundify on THIS very device (the installed app next to a test copy, say): it is not
+                // another device, and could not be connected to or forgotten from here. Same version is left alone: two copies
+                // of this one on a machine (dev and installed) do see each other, as they always did.
+                if version.is_some() && super::beacon::local_ipv4().is_some_and(|mine| found.addrs.contains(&IpAddr::V4(mine))) {
+                    return;
+                }
                 self.swallowed.lock().unwrap().remove(&found.info.device_id);
                 let Some(ip) = found.addrs.iter().find(|ip| matches!(ip, IpAddr::V4(_))).or(found.addrs.first()) else { return };
                 let addr = SocketAddr::new(*ip, found.port);
                 let id = found.info.device_id.clone();
                 {
                     let mut nearby = self.nearby.lock().unwrap();
-                    let (state, queue, needs_pin, manual) = nearby.get(&id).map(|n| (n.state.clone(), n.queue.clone(), n.needs_pin, n.manual)).unwrap_or((None, None, false, false));
-                    nearby.insert(id.clone(), Nearby { info: found.info, addr, manual, state, queue, needs_pin, learned: false, version });
+                    let (state, queue, library, needs_pin, manual) = nearby
+                        .get(&id)
+                        .map(|n| (n.state.clone(), n.queue.clone(), n.library.clone(), n.needs_pin, n.manual))
+                        .unwrap_or((None, None, Vec::new(), false, false));
+                    nearby.insert(id.clone(), Nearby { info: found.info, addr, manual, state, queue, library, needs_pin, learned: false, version });
                 }
                 self.listener.devices_changed();
                 if version.is_none() {
@@ -517,7 +540,7 @@ impl Connect {
             if !manual && nearby.contains_key(&info.device_id) {
                 return Ok(info);
             }
-            nearby.insert(info.device_id.clone(), Nearby { info: info.clone(), addr, manual, state: None, queue: None, needs_pin: !info.open, learned: !manual, version: None });
+            nearby.insert(info.device_id.clone(), Nearby { info: info.clone(), addr, manual, state: None, queue: None, library: Vec::new(), needs_pin: !info.open, learned: !manual, version: None });
         }
         self.listener.devices_changed();
         self.connect_to(&info.device_id);
@@ -584,6 +607,8 @@ impl Connect {
             match event {
                 Event::Message(ServerMessage::State { state }) => connect.got_state(&device, state),
                 Event::Message(ServerMessage::Queue { queue }) => connect.got_queue(&device, queue),
+                Event::Message(ServerMessage::Library { playlists }) => connect.got_library(&device, playlists),
+                Event::Message(ServerMessage::Browse { key, queue }) => connect.listener.remote_browse(&device, &key, queue),
                 Event::Message(_) => {}
                 Event::Closed(reason) => connect.session_closed(&device, generation, reason),
             }
@@ -662,6 +687,14 @@ impl Connect {
             nearby.queue = queue.clone();
         }
         self.listener.remote_queue(id, queue);
+    }
+
+    fn got_library(&self, id: &str, mut playlists: Vec<LibraryEntry>) {
+        playlists.truncate(MAX_LIBRARY);
+        if let Some(nearby) = self.nearby.lock().unwrap().get_mut(id) {
+            nearby.library = playlists.clone();
+        }
+        self.listener.remote_library(id, playlists);
     }
 
     /// The connection ended by itself (the other app closed, the network dropped): tried again for a while.
@@ -946,9 +979,20 @@ impl Connect {
         self.selected.lock().unwrap().clone()
     }
 
+    /// What this device last said it plays (what the page published): to put the screen back as it was if the page was
+    /// reloaded while a pass sounded here.
+    pub fn own_state(&self) -> PlayerState {
+        self.state.lock().unwrap().clone()
+    }
+
     /// What the device being controlled said last (what to show right away on choosing it).
     pub fn state_of(&self, device_id: &str) -> Option<PlayerState> {
         self.nearby.lock().unwrap().get(device_id).and_then(|n| n.state.clone())
+    }
+
+    /// The playlists a device said its library has.
+    pub fn library_of(&self, device_id: &str) -> Vec<LibraryEntry> {
+        self.nearby.lock().unwrap().get(device_id).map(|n| n.library.clone()).unwrap_or_default()
     }
 
     /// The playlist a device said it is playing.
@@ -981,6 +1025,23 @@ impl Connect {
         *self.queue.lock().unwrap() = queue.clone();
         if let Some(running) = self.running.lock().unwrap().as_ref() {
             running.server.publish_queue(&queue);
+        }
+    }
+
+    /// This device's own library (its playlists, without files): kept for whoever connects, and sent to those who are.
+    pub fn publish_library(&self, mut playlists: Vec<LibraryEntry>) {
+        playlists.truncate(MAX_LIBRARY);
+        *self.library.lock().unwrap() = playlists.clone();
+        if let Some(running) = self.running.lock().unwrap().as_ref() {
+            running.server.publish_library(&playlists);
+        }
+    }
+
+    /// The files of a playlist of this device's library that a controller asked for (`None`: there is none by that key).
+    pub fn publish_browse(&self, key: &str, queue: Option<QueueInfo>) {
+        let queue = queue.map(QueueInfo::limited);
+        if let Some(running) = self.running.lock().unwrap().as_ref() {
+            running.server.publish_browse(key, &queue);
         }
     }
 

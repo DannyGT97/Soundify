@@ -24,7 +24,7 @@ use super::pairing::{self, PairError, Pairing, Started, Trusted};
 use super::resilient::Resilient;
 use super::tls::{self, Conn, TlsIdentity};
 use super::stats::{self, short};
-use super::protocol::{BASE, ClientMessage, Command, DeviceInfo, PING_EVERY, PairConfirm, PairRequest, PairResponse, PairStarted, PlayerState, QueueInfo, SILENCE_LIMIT, ServerMessage};
+use super::protocol::{BASE, ClientMessage, Command, DeviceInfo, LibraryEntry, PING_EVERY, PairConfirm, PairRequest, PairResponse, PairStarted, PlayerState, QueueInfo, SILENCE_LIMIT, ServerMessage};
 
 /// Connections served at once (controllers plus whatever else knocks).
 pub const MAX_CONNECTIONS: usize = 16;
@@ -39,6 +39,10 @@ pub trait Host: Send + Sync {
     /// The playlist that plays now (sent to a controller after the state, when there is one).
     fn queue(&self) -> Option<QueueInfo> {
         None
+    }
+    /// The playlists of this device's own library (sent to a controller as soon as it connects, when there are any).
+    fn library(&self) -> Vec<LibraryEntry> {
+        Vec::new()
     }
     /// Does what the controller asked. `Err` is the reason, which goes back in the `ack`.
     fn command(&self, who: &Trusted, command: Command) -> Result<(), String>;
@@ -58,6 +62,9 @@ struct Mailbox {
 struct Pending {
     state: Option<PlayerState>,
     queue: Option<Option<QueueInfo>>,
+    library: Option<Vec<LibraryEntry>>,
+    /// The files of the playlist asked for last (a controller asks for one at a time).
+    browse: Option<(String, Option<QueueInfo>)>,
 }
 
 impl Mailbox {
@@ -67,6 +74,14 @@ impl Mailbox {
 
     fn put_queue(&self, queue: &Option<QueueInfo>) {
         self.pending.lock().unwrap().queue = Some(queue.clone());
+    }
+
+    fn put_library(&self, library: &[LibraryEntry]) {
+        self.pending.lock().unwrap().library = Some(library.to_vec());
+    }
+
+    fn put_browse(&self, key: &str, queue: &Option<QueueInfo>) {
+        self.pending.lock().unwrap().browse = Some((key.to_string(), queue.clone()));
     }
 
     /// What is waiting, and the mailbox is empty again.
@@ -144,6 +159,20 @@ impl Server {
         for outbox in self.shared.outboxes.lock().unwrap().iter() {
             outbox.mailbox.put_state(state);
             stats::states_sent(1);
+        }
+    }
+
+    /// Tells every controller the playlists of this device's library.
+    pub fn publish_library(&self, library: &[LibraryEntry]) {
+        for outbox in self.shared.outboxes.lock().unwrap().iter() {
+            outbox.mailbox.put_library(library);
+        }
+    }
+
+    /// Tells the controllers the files of a playlist one of them asked for.
+    pub fn publish_browse(&self, key: &str, queue: &Option<QueueInfo>) {
+        for outbox in self.shared.outboxes.lock().unwrap().iter() {
+            outbox.mailbox.put_browse(key, queue);
         }
     }
 
@@ -398,6 +427,10 @@ fn session(shared: &Shared, stream: Conn, who: &Trusted, peer: Option<std::net::
     if let Some(queue) = shared.host.queue() {
         send(&mut socket, &ServerMessage::Queue { queue: Some(queue) })?;
     }
+    let library = shared.host.library();
+    if !library.is_empty() {
+        send(&mut socket, &ServerMessage::Library { playlists: library })?;
+    }
     let mut last_ping = Instant::now();
     let mut last_heard = Instant::now();
     while !shared.stop.load(Ordering::SeqCst) {
@@ -408,6 +441,12 @@ fn session(shared: &Shared, stream: Conn, who: &Trusted, peer: Option<std::net::
         }
         if let Some(queue) = pending.queue {
             send(&mut socket, &ServerMessage::Queue { queue })?;
+        }
+        if let Some(playlists) = pending.library {
+            send(&mut socket, &ServerMessage::Library { playlists })?;
+        }
+        if let Some((key, queue)) = pending.browse {
+            send(&mut socket, &ServerMessage::Browse { key, queue })?;
         }
         if last_heard.elapsed() >= SILENCE_LIMIT {
             return Ok("it stopped answering");

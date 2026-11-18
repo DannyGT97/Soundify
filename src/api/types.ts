@@ -335,9 +335,24 @@ export type ConnectCommand =
   /** «Escuchar en»: the controller passes what IT plays; this device plays it reading the files from it. */
   | ({ cmd: 'cast' } & ConnectCast)
   /** The controller ended its pass: what it passed stops here. */
-  | { cmd: 'castEnd'; reason?: string };
+  | { cmd: 'castEnd'; reason?: string }
+  /** Asks for the files of a playlist of the device's own library (a `ConnectLibraryEntry.key`): it answers with `onConnectRemoteBrowse`. */
+  | { cmd: 'browse'; key: string }
+  /** Plays that file of that playlist of the device's own library, from the start. */
+  | { cmd: 'playFrom'; key: string; videoId: string };
+/** One playlist of a device's own library, as it lists it to a controller (no files). */
+export interface ConnectLibraryEntry { key: string; title: string; format: string; video: boolean; count: number }
 /** One file of a queue passed to this device. */
 export interface ConnectCastItem { videoId: string; title: string; duration: number; format: string; video: boolean; cover: boolean }
+/** A pass that sounds on this device, as the back remembers it: to take it back up after the page was reloaded (Android). */
+export interface ConnectCastCurrent {
+  from: string;
+  pass: ConnectCast;
+  /** Where the native player reads its files: the audio is the native player's and goes on by itself. */
+  castBase: string | null;
+  /** What this device last said it plays (the page published it): which file, where, playing or not. */
+  state: ConnectPlayerState;
+}
 /** What the page asks to pass: the queue as it plays here, with each file's place on THIS device (never sent). */
 export interface ConnectCastRequest {
   deviceId: string;

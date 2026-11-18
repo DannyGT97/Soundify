@@ -17,6 +17,21 @@ pub const SCHEME: &str = "soundify-cast";
 #[derive(Default, Clone)]
 pub struct CastInbox(pub Arc<Inbox>);
 
+/// What the page needs to take a pass back up when it was reloaded while it sounded (Android closes the window and
+/// keeps the player's service alive: the audio goes on and the screen starts again from this device's last file). The
+/// address, the ticket and the certificate never leave the back.
+#[derive(Default)]
+pub struct CastMemory(pub std::sync::Mutex<Option<CastSnapshot>>);
+
+#[derive(Clone, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CastSnapshot {
+    pub from: String,
+    pub pass: soundify_core::connect::protocol::CastStart,
+    /// Android: where the native player reads the files (so the page knows the audio is the native player's).
+    pub cast_base: Option<String>,
+}
+
 /// `soundify-cast://localhost/media/<videoId>` (or `http://soundify-cast.localhost/...` on Windows and Android).
 pub fn handle<R: Runtime>(context: UriSchemeContext<'_, R>, request: Request<Vec<u8>>, responder: UriSchemeResponder) {
     let app: AppHandle<R> = context.app_handle().clone();
@@ -47,6 +62,7 @@ pub fn handle<R: Runtime>(context: UriSchemeContext<'_, R>, request: Request<Vec
 
 /// This device plays something of its own (or the pass ended here): nothing more is read from the other one.
 #[tauri::command]
-pub fn connect_cast_clear(state: State<'_, CastInbox>) {
+pub fn connect_cast_clear(state: State<'_, CastInbox>, memory: State<'_, CastMemory>) {
     state.0.clear();
+    *memory.0.lock().unwrap() = None;
 }

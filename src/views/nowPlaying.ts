@@ -6,7 +6,7 @@ import { t } from '../i18n';
 import { findBlock } from '../library';
 import { isPhone, onAndroid } from '../platform';
 import { currentRoute, navigate, onLeave } from '../router';
-import { currentIsVideo, hidePip, parkVideo, showPip, videoView } from '../player';
+import { castBlockInfo, castHere, currentIsVideo, hidePip, parkVideo, showPip, videoView } from '../player';
 import { chooseAutoPip } from '../preferences';
 import { subscribe, ui } from '../state';
 import { cover } from '../components/cover';
@@ -103,14 +103,17 @@ export function nowPlayingView(): HTMLElement {
     backArrow, headCover, h('span', { class: 'np-head-text min0' }, headEyebrow, headTitle));
   const paintHead = () => {
     const np = ui.nowPlaying;
-    const found = np && !ui.remote ? findBlock(np.blockKey) : null;
-    const name = !np ? '' : ui.remote ? (connect.queue?.playlist ?? '') : found?.playlist.title ?? '';
-    headEyebrow.textContent = np && ui.remote ? t('remotePlaylist.eyebrow') : '';
-    headEyebrow.hidden = !(np && ui.remote);
+    const passed = np ? castHere() : null;
+    const found = np && !ui.remote && !passed ? findBlock(np.blockKey) : null;
+    const name = !np ? '' : passed ? passed.playlist : ui.remote ? (connect.queue?.playlist ?? '') : found?.playlist.title ?? '';
+    // Another device's music played here: whose it is (there is no playlist of this device to go back to).
+    headEyebrow.textContent = passed ? t('connect.castFrom', passed.from) : np && ui.remote ? t('remotePlaylist.eyebrow') : '';
+    headEyebrow.hidden = !(np && (ui.remote || passed));
     headTitle.textContent = name;
-    head.title = name ? t(ui.remote ? 'nowPlaying.backRemote' : 'nowPlaying.back') : '';
-    head.disabled = !name;
+    head.title = name && !passed ? t(ui.remote ? 'nowPlaying.backRemote' : 'nowPlaying.back') : '';
+    head.disabled = !name || !!passed;
     if (!name) headCover.replaceChildren();
+    else if (passed) headCover.replaceChildren(cover(name, false, 36));
     else if (ui.remote) headCover.replaceChildren(cover(name, false, 36, queuePicture(connect.queue)));
     else if (found) headCover.replaceChildren(cover(name, found.block.video, 36, playlistPicture(found.playlist)));
   };
@@ -207,7 +210,7 @@ export function nowPlayingView(): HTMLElement {
     backdrop.replaceChildren(video ? '' : cover(np.track.title, false, 600, { kind: 'thumbnail', id: np.track.id }));
     backdrop.hidden = video;
     title.textContent = np.track.title;
-    meta.textContent = found ? found.block.format : '';
+    meta.textContent = found ? found.block.format : castBlockInfo()?.format ?? '';
   };
   onLeave(subscribe('player', refresh));
   onLeave(subscribe('player', paintHead));

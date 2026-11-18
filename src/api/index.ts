@@ -4,7 +4,7 @@
 // Live progress does not come back from these calls: the back feeds `ui` and
 // emits the matching topic (`tasks`, `player`), and the views follow that.
 
-import type { ConnectCastRequest,
+import type { ConnectLibraryEntry, ConnectCastCurrent, ConnectCastRequest,
   AppUpdate, AppUpdateProgress, BrowseEntry, BrowseRoots, ExplorerMemory, FindResult, ConnectCommand, ConnectDevice, ConnectFirewall, ConnectIncoming, ConnectPlayerState, ConnectQueue, ConnectStatus, CopyOutcome, CopyProgress, CreatedPlaylist, DeleteResult, DeviceEntry, DeviceImportScan, DevicesView, DeviceTarget, DownloadNotice, DownloadRequest,
   ExportResult, FormatCatalog, ImportOutcome, ImportScan, PlayerBackend, PlayerMemory, Playlist,
   Preferences, PreferencesPatch,
@@ -160,6 +160,16 @@ export interface Api {
   connectCast(request: ConnectCastRequest): Promise<void>;
   /** The pass ends: nothing more can be read from here and the other device stops. */
   connectCastEnd(reason: string): Promise<void>;
+  /** A pass that sounds here and the page does not know (it was reloaded), or null. */
+  connectCastCurrent(): Promise<ConnectCastCurrent | null>;
+  /** The playlists of the library of a device (the one being controlled), as it last said. */
+  connectLibraryOf(deviceId: string): Promise<ConnectLibraryEntry[]>;
+  /** This device's own library (playlists without files), for those who control it. */
+  connectPublishLibrary(playlists: ConnectLibraryEntry[]): void;
+  /** The files of a playlist of this device's library that a controller asked for (null: there is none by that key). */
+  connectPublishBrowse(key: string, queue: ConnectQueue | null): void;
+  onConnectRemoteLibrary(listener: (deviceId: string, playlists: ConnectLibraryEntry[]) => void): void;
+  onConnectRemoteBrowse(listener: (deviceId: string, key: string, queue: ConnectQueue | null) => void): void;
   /**
    * The file of a video's thumbnail, or null while it is not on disk: then it
    * is fetched in the background and `onThumbnailReady` gets its id.

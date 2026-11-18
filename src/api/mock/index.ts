@@ -152,6 +152,7 @@ export const mockApi: Api = {
   fileUrl: path => path,
   castUrl: (videoId, part) => `mock-cast://${part}/${videoId}`,
   connectCastClear: async () => {},
+  connectCastCurrent: async () => null,
   thumbnail: async () => null,
   // A drawn square stands in for the picture, so the form's states can be seen.
   urlThumbnail: async url => {

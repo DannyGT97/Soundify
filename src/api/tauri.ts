@@ -7,7 +7,7 @@ import { getCurrentWindow } from '@tauri-apps/api/window';
 import { open } from '@tauri-apps/plugin-dialog';
 import type { Api } from '.';
 import type {
-  ActivityLine, AppUpdate, AppUpdateProgress, BrowseEntry, BrowseRoots, ExplorerMemory, FindResult, ConnectDevice, ConnectFirewall, ConnectIncoming, ConnectPlayerState, ConnectQueue, ConnectStatus, CopyOutcome, CopyProgress, CreatedPlaylist, DeleteResult, DeviceEntry, DeviceImportScan, DevicesView, DownloadNotice, ExportResult,
+  ActivityLine, AppUpdate, AppUpdateProgress, BrowseEntry, BrowseRoots, ExplorerMemory, FindResult, ConnectCastCurrent, ConnectLibraryEntry, ConnectDevice, ConnectFirewall, ConnectIncoming, ConnectPlayerState, ConnectQueue, ConnectStatus, CopyOutcome, CopyProgress, CreatedPlaylist, DeleteResult, DeviceEntry, DeviceImportScan, DevicesView, DownloadNotice, ExportResult,
   FormatCatalog, ImportOutcome, ImportScan, PlayerMemory, Playlist, Preferences, StorageInfo, TasksViewWire, ToolDownload, ToolsReport, YtdlpCheck,
 } from './types';
 import { onAndroid } from '../platform';
@@ -117,6 +117,12 @@ export const tauriApi: Api = {
   connectCastClear: () => invoke('connect_cast_clear'),
   connectCast: request => invoke('connect_cast', { request }),
   connectCastEnd: reason => invoke('connect_cast_end', { reason }),
+  connectCastCurrent: () => invoke<ConnectCastCurrent | null>('connect_cast_current'),
+  connectLibraryOf: deviceId => invoke<ConnectLibraryEntry[]>('connect_library_of', { deviceId }),
+  connectPublishLibrary: playlists => void invoke('connect_publish_library', { playlists }).catch(() => {}),
+  connectPublishBrowse: (key, queue) => void invoke('connect_publish_browse', { key, queue }).catch(() => {}),
+  onConnectRemoteLibrary: listener => void listen<{ deviceId: string; playlists: ConnectLibraryEntry[] }>('connect-remote-library', event => listener(event.payload.deviceId, event.payload.playlists)),
+  onConnectRemoteBrowse: listener => void listen<{ deviceId: string; key: string; queue: ConnectQueue | null }>('connect-remote-browse', event => listener(event.payload.deviceId, event.payload.key, event.payload.queue)),
   thumbnail: id => invoke<string | null>('thumbnail', { id }),
   urlThumbnail: (url, playlist) => invoke<string | null>('url_thumbnail', { url, playlist }),
   onThumbnailReady: listener => void listen<string>('thumbnail-ready', event => listener(event.payload)),

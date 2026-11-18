@@ -505,3 +505,51 @@ test('a device with an older Soundify is listed as such and cannot be used', asy
   await expect(old).toHaveClass(/offline/);
   await expect(page.locator('.overlay-window [data-device="old"]')).toHaveCount(0);
 });
+
+test('Reproduciendo shows what another device passed here, replacing what was shown of this device', async ({ page }) => {
+  await page.goto('/?mockConnect#/player?b=pl1:MP3');
+  await page.locator('.tracks .track-row:not(.off)').first().click();
+  await page.evaluate(() => { location.hash = '#/now-playing'; });
+  const own = await page.locator('.np-info .np-title, .np-title').first().textContent();
+  await incoming(page, pass);
+  await expect(page.locator('.np-title').first()).toHaveText('Segunda del móvil');
+  expect(own).not.toBe('Segunda del móvil');
+  // Its playlist and where it comes from, not a playlist of this device.
+  await expect(page.locator('.np-head-name')).toHaveText('Rock del móvil');
+  await incoming(page, { cmd: 'next' });
+  await expect(page.locator('.np-title').first()).toHaveText('Tercera del móvil');
+});
+
+// Controlling a device that plays nothing: its library is listed, to pick a playlist, see its songs and start one.
+test('a device that plays nothing lists its playlists, and a song of one can be started from here', async ({ page }) => {
+  await page.goto('/?mockConnect&mockSalonIdle#/settings');
+  await openDevices(page, '/?mockConnect&mockSalonIdle#/settings');
+  await row(page, 'tv').getByRole('button', { name: 'Controlar' }).click();
+  await page.evaluate(() => { location.hash = '#/player'; });
+  await page.locator('.pl-card', { hasText: 'Playlists' }).click();
+  // Nothing plays there: the playlists of its library, not an empty list.
+  await expect(page.locator('.np-head-name, h1').first()).toContainText('Playlists');
+  await expect(page.locator('[data-library]')).toHaveCount(2);
+  await expect(page.locator('[data-library="salon:cocina"]')).toContainText('2 canciones');
+  // One of them: its songs (nothing starts by looking).
+  await page.locator('[data-library="salon:cocina"]').click();
+  await expect(page.locator('.track-row')).toHaveCount(2);
+  await expect(page.locator('.track-row').first()).toContainText('Para cocinar');
+  await expect(page.locator('.player-bar')).toBeHidden();
+  // A song: it plays THERE, and what is shown is now what plays.
+  await page.locator('.track-row').nth(1).click();
+  await expect(barTitle(page)).toHaveText('Para fregar');
+  await expect(page.locator('[data-library]')).toHaveCount(0);
+  await expect(page.locator('.track-row')).toHaveCount(2);
+});
+
+test('while a playlist plays there, «Todas las playlists» goes to the library and back to what plays', async ({ page }) => {
+  await openDevices(page);
+  await row(page, 'tv').getByRole('button', { name: 'Controlar' }).click();
+  await page.evaluate(() => { location.hash = '#/remote-playlist'; });
+  await expect(page.locator('.track-row')).toHaveCount(3);
+  await page.getByRole('button', { name: 'Todas las playlists' }).click();
+  await expect(page.locator('[data-library]')).toHaveCount(2);
+  await page.getByRole('button', { name: 'Lo que suena' }).click();
+  await expect(page.locator('.track-row')).toHaveCount(3);
+});

@@ -91,7 +91,9 @@ export type LocalAction =
   | { kind: 'toggle' } | { kind: 'next' } | { kind: 'previous' }
   | { kind: 'seek'; seconds: number } | { kind: 'volume'; volume: number }
   | { kind: 'shuffle' } | { kind: 'repeat'; times: number }
-  | { kind: 'play'; videoId: string };
+  | { kind: 'play'; videoId: string }
+  | { kind: 'browse'; key: string }
+  | { kind: 'playFrom'; key: string; videoId: string };
 
 export function actionsFor(command: ConnectCommand, now: { playing: boolean; shuffle: boolean; repeat: 'off' | 'all' | 'one' }): LocalAction[] {
   switch (command.cmd) {
@@ -111,6 +113,8 @@ export function actionsFor(command: ConnectCommand, now: { playing: boolean; shu
     }
     case 'playTrack': return [{ kind: 'play', videoId: command.videoId }];
     case 'take': return [];
+    case 'browse': return [{ kind: 'browse', key: command.key }];
+    case 'playFrom': return [{ kind: 'playFrom', key: command.key, videoId: command.videoId }];
     // A pass is not a press of a button: `connect.ts` hands it to the player as a whole.
     case 'cast': return [];
     case 'castEnd': return [];

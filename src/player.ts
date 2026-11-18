@@ -192,6 +192,19 @@ export function leaveRemote(snapshot: LocalSnapshot): void {
   emit('player');
 }
 
+/** The files of a playlist of this device's library that can be played, in the order the Reproductor shows them (a controller browsing it). */
+export function browseQueue(blockKey: string): { playlist: string; items: Array<{ videoId: string; title: string }> } | null {
+  const found = findBlock(blockKey);
+  if (!found) return null;
+  return { playlist: found.playlist.title, items: queueOf(blockKey).map(tr => ({ videoId: tr.id, title: tr.title })) };
+}
+
+/** A controller picked a file of a playlist of this device's library: it plays from there. False if the file is not there (any more). */
+export function playFromBlock(blockKey: string, videoId: string): boolean {
+  const index = queueOf(blockKey).findIndex(tr => tr.id === videoId);
+  return index >= 0 && start(blockKey, index, true);
+}
+
 /** The files of the block that sounds, in the order it plays them, for handing the playback to another device. */
 export function currentQueue(): { playlist: string; items: Array<{ videoId: string; title: string }>; index: number } | null {
   if (!ui.nowPlaying || !currentBlock) return null;
@@ -209,11 +222,7 @@ export function playCast(from: string, pass: ConnectCast, nativeBase?: string): 
   const items = pass.items.filter(item => item.videoId);
   if (items.length === 0 || pass.index < 0 || pass.index >= items.length) return false;
   void savePosition();
-  const tracks: Track[] = items.map((item, n) => ({
-    id: item.videoId, number: n + 1, title: item.title, addedDaysAgo: 0, seconds: item.duration, status: 'ok', file: null,
-    // Android: audio through the native player (it goes on with the screen off) by the local relay; video through the webview.
-    url: nativeBase && !item.video ? `${nativeBase}media/${encodeURIComponent(item.videoId)}` : api.castUrl(item.videoId, 'media'),
-  }));
+  const tracks = castTracks(items, nativeBase);
   cast = { from, playlist: pass.playlist, tracks, items: new Map(items.map(item => [item.videoId, item])) };
   ui.castFrom = from;
   ui.shuffle = pass.shuffle;
@@ -225,6 +234,43 @@ export function playCast(from: string, pass: ConnectCast, nativeBase?: string): 
   retriedId = '';
   load(queue.current(), pass.playing, pass.position);
   return true;
+}
+
+/**
+ * The page started while a pass sounded here (it only happens on Android, where the audio is the native player's and goes
+ * on without the page): the queue, the file and the second come back from what the back remembers and this device last
+ * published, and nothing is loaded: it is already playing.
+ */
+async function resumeCast(): Promise<boolean> {
+  const current = await api.connectCastCurrent().catch(() => null);
+  if (!current?.castBase || current.pass.items.length === 0) return false;
+  const { pass, state } = current;
+  const tracks = castTracks(pass.items, current.castBase);
+  const found = tracks.findIndex(track => track.id === state.nowPlaying?.videoId);
+  const index = found >= 0 ? found : Math.min(pass.index, tracks.length - 1);
+  cast = { from: current.from, playlist: pass.playlist, tracks, items: new Map(pass.items.map(item => [item.videoId, item])) };
+  ui.castFrom = current.from;
+  ui.shuffle = state.shuffle;
+  ui.repeat = state.repeat;
+  queue = new PlayerQueue(tracks, index);
+  queue.repeat = state.repeat;
+  currentBlock = CAST_KEY;
+  const track = tracks[index] as Track;
+  ui.nowPlaying = { blockKey: CAST_KEY, track };
+  ui.position = state.position;
+  ui.duration = state.duration || track.seconds;
+  ui.playing = state.playing;
+  engine.setModes?.(ui.shuffle, ui.repeat);
+  emit('player');
+  return true;
+}
+
+function castTracks(items: ConnectCastItem[], nativeBase?: string): Track[] {
+  return items.map((item, n) => ({
+    id: item.videoId, number: n + 1, title: item.title, addedDaysAgo: 0, seconds: item.duration, status: 'ok', file: null,
+    // Android: audio through the native player (it goes on with the screen off) by the local relay; video through the webview.
+    url: nativeBase && !item.video ? `${nativeBase}media/${encodeURIComponent(item.videoId)}` : api.castUrl(item.videoId, 'media'),
+  }));
 }
 
 /** The device that passed it took it back (or stopped it): nothing of it sounds here any more. */
@@ -422,6 +468,9 @@ export function savePosition(): Promise<void> {
  */
 export async function restoreLast(): Promise<void> {
   memory = await api.playerMemory().catch(() => memory);
+  // A pass from another device was sounding here when the page started (Android closed the window and kept the player's
+  // service): the screen takes it back up instead of showing this device's last file, which would also load over it.
+  if (await resumeCast()) return;
   // When the volume is the device's it is not ours to set at startup: the slider shows where it is.
   if (!engine.externalVolume) {
     ui.volume = memory.volume;

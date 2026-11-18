@@ -9,12 +9,12 @@
 // Being controlled = this player's state is published whenever it is worth it, and what
 // the controller asks is done with the same functions the buttons call.
 
-import { api, type ConnectDevice, type ConnectPlayerState, type ConnectQueue, type ConnectStatus } from './api';
+import { api, type ConnectLibraryEntry, type ConnectDevice, type ConnectPlayerState, type ConnectQueue, type ConnectStatus } from './api';
 import { notify } from './components/toasts';
 import { count, logEvent } from './diag';
 import { VOLUME_ECHO_MS, actionsFor, describeCommand, projectPosition, remoteTrack, shouldPublish, toWireState, volumeToShow } from './connectLogic';
 import { t } from './i18n';
-import { findBlock } from './library';
+import { findBlock, library as libraryOf, onDisk } from './library';
 import * as player from './player';
 import { emit, subscribe, ui } from './state';
 import { errorText } from './transfer';
@@ -25,6 +25,12 @@ export const connect = {
   devices: [] as ConnectDevice[],
   /** The playlist the device being controlled is playing: its «remote playlist» (null until it says). */
   queue: null as ConnectQueue | null,
+  /** The playlists of the library of the device being controlled: what to pick from when nothing plays there. */
+  library: [] as ConnectLibraryEntry[],
+  /** The playlist of that library that is being browsed (its files arrive after asking; `queue` null = still loading). */
+  browsed: null as { key: string; title: string; queue: ConnectQueue | null } | null,
+  /** Show the library even though the device plays a playlist (to pick another). */
+  pickingLibrary: false,
 };
 
 /** The device list and who is connected, as the back has them now. */
@@ -38,6 +44,7 @@ export async function loadConnect(): Promise<void> {
   } catch {
     return;
   }
+  if (!wasRunning && connect.status?.running) publishLibrarySoon();
   // Turned on just now: say what is playing. Only then: every state that arrives from another device refreshes this list
   // too, and a forced publish here made each device answer each state with its own, round and round. With three devices
   // that grew until a controller's queue overflowed and it was dropped, over and over. A controller that connects later is
@@ -61,6 +68,10 @@ export function startConnect(): void {
   });
   api.onConnectRemoteState(onRemoteState);
   api.onConnectRemoteQueue(onRemoteQueue);
+  api.onConnectRemoteLibrary(onRemoteLibrary);
+  api.onConnectRemoteBrowse(onRemoteBrowse);
+  // This device's own library, for whoever controls it: said when it changes (and the back keeps it for whoever connects).
+  subscribe('library', publishLibrarySoon);
   api.onConnectRemoteClosed(onRemoteClosed);
   api.onConnectCommand(incoming => onCommand(incoming.command, incoming.from, incoming.castBase));
   player.onCastLost(from => {
@@ -124,7 +135,8 @@ function onCommand(command: Parameters<typeof actionsFor>[0], from = '', castBas
   count('commandIn');
   // A slider dragged sends dozens: they are counted, not written.
   if (command.cmd !== 'volume' && command.cmd !== 'seek') logEvent('info', 'connect', `command ${command.cmd} from ${from || '?'}${ui.remote ? ` (this device was controlling ${ui.remote.name}: it stops)` : ''}`);
-  if (ui.remote) {
+  // Listing a playlist for a controller changes nothing here: this device goes on controlling another one, if it did.
+  if (ui.remote && command.cmd !== 'browse') {
     void api.connectDeselect().catch(() => {});
     leave();
   }
@@ -145,9 +157,33 @@ function onCommand(command: Parameters<typeof actionsFor>[0], from = '', castBas
       case 'shuffle': player.toggleShuffle(); break;
       case 'repeat': for (let press = 0; press < action.times; press++) player.cycleRepeat(); break;
       case 'play': player.playTrackById(action.videoId); break;
+      case 'browse': api.connectPublishBrowse(action.key, player.browseQueue(action.key)); break;
+      case 'playFrom': player.playFromBlock(action.key, action.videoId); break;
     }
   }
   publishIfWorth(true);
+}
+
+/** This device's library, as a controller lists it: every playlist in every format with files on disk (no files, just the summary). */
+function libraryEntries(): ConnectLibraryEntry[] {
+  const entries: ConnectLibraryEntry[] = [];
+  for (const playlist of libraryOf.playlists) {
+    for (const block of playlist.formats) {
+      const count = onDisk(block.tracks).length;
+      if (count > 0 && player.isPlayable(block.format)) entries.push({ key: block.key, title: playlist.title, format: block.format, video: block.video, count });
+    }
+  }
+  return entries;
+}
+
+let libraryTimer: number | undefined;
+/** Said a moment after the library changed (a download touches it many times), and only while Connect is on. */
+function publishLibrarySoon(): void {
+  if (libraryTimer !== undefined || !connect.status?.running) return;
+  libraryTimer = window.setTimeout(() => {
+    libraryTimer = undefined;
+    if (connect.status?.running) api.connectPublishLibrary(libraryEntries());
+  }, 800);
 }
 
 /** The same notice is not repeated while a slider is dragged or a button pressed again and again. */
@@ -220,6 +256,9 @@ async function beginControl(device: ConnectDevice, current: ConnectPlayerState |
   remoteState = current;
   receivedAt = Date.now();
   connect.queue = await api.connectQueueOf(device.id).catch(() => null);
+  connect.library = await api.connectLibraryOf(device.id).catch(() => []);
+  connect.browsed = null;
+  connect.pickingLibrary = false;
   if (current) show(current, current.position);
   else emit('player');
   void loadConnect();
@@ -267,6 +306,9 @@ function leave(): void {
   volumeSentAt = 0;
   remoteState = null;
   connect.queue = null;
+  connect.library = [];
+  connect.browsed = null;
+  connect.pickingLibrary = false;
   if (snapshot) {
     ui.remote = null;
     player.leaveRemote(snapshot);
@@ -314,6 +356,44 @@ function moveClock(): void {
 function onRemoteQueue(deviceId: string, queue: ConnectQueue | null): void {
   if (ui.remote?.deviceId !== deviceId) return;
   connect.queue = queue;
+  // It plays a playlist now (the one just picked, or another): that is what is shown, not the list to pick from.
+  if (queue) {
+    connect.browsed = null;
+    connect.pickingLibrary = false;
+  }
+  emit('connect');
+}
+
+function onRemoteLibrary(deviceId: string, playlists: ConnectLibraryEntry[]): void {
+  if (ui.remote?.deviceId !== deviceId) return;
+  connect.library = playlists;
+  emit('connect');
+}
+
+function onRemoteBrowse(deviceId: string, key: string, queue: ConnectQueue | null): void {
+  if (ui.remote?.deviceId !== deviceId || connect.browsed?.key !== key) return;
+  connect.browsed = { ...connect.browsed, queue: queue ?? { playlist: connect.browsed.title, items: [] } };
+  emit('connect');
+}
+
+/** Lists the files of a playlist of the device being controlled (it plays nothing for that). */
+export function browseRemote(entry: ConnectLibraryEntry): void {
+  if (!ui.remote) return;
+  connect.browsed = { key: entry.key, title: entry.title, queue: null };
+  connect.pickingLibrary = false;
+  emit('connect');
+  route({ cmd: 'browse', key: entry.key });
+}
+
+/** Plays a file of the playlist being browsed, on the device being controlled. */
+export function playRemoteFrom(key: string, videoId: string): void {
+  route({ cmd: 'playFrom', key, videoId });
+}
+
+/** Back to the list of playlists of the device being controlled (or to the one it plays). */
+export function showRemoteLibrary(show: boolean): void {
+  connect.browsed = null;
+  connect.pickingLibrary = show;
   emit('connect');
 }
 

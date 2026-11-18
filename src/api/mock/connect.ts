@@ -6,13 +6,13 @@
 // something of it, make a device start playing, or drop the connection.
 
 import type { Api } from '..';
-import type { ConnectCommand, ConnectDevice, ConnectFirewall, ConnectIncoming, ConnectPlayerState, ConnectQueue, ConnectStatus } from '../types';
+import type { ConnectLibraryEntry, ConnectCommand, ConnectDevice, ConnectFirewall, ConnectIncoming, ConnectPlayerState, ConnectQueue, ConnectStatus } from '../types';
 
 type ConnectApi = Pick<Api,
   | 'connectRequestLocalNetwork' | 'connectFirewallStatus' | 'connectFirewallAllow' | 'connectNetworkPrivate' | 'connectStatus' | 'connectSetEnabled' | 'connectSetName' | 'connectSetOpen' | 'connectDevices' | 'connectAdd' | 'connectPin' | 'connectRenewPin'
   | 'connectPair' | 'connectForget' | 'connectForgetController' | 'connectSelect' | 'connectDeselect' | 'connectSend' | 'connectPublish' | 'connectPublishQueue' | 'connectQueueOf'
   | 'onConnectDevices' | 'onConnectRemoteState' | 'onConnectRemoteQueue' | 'onConnectRemoteClosed' | 'onConnectCommand'
-  | 'connectCast' | 'connectCastEnd'>;
+  | 'connectCast' | 'connectCastEnd' | 'connectLibraryOf' | 'connectPublishLibrary' | 'connectPublishBrowse' | 'onConnectRemoteLibrary' | 'onConnectRemoteBrowse'>;
 
 const PIN_OF_STRICT = '123456';
 
@@ -35,9 +35,20 @@ let onRemoteState: (deviceId: string, state: ConnectPlayerState) => void = () =>
 let onRemoteClosed: (deviceId: string) => void = () => {};
 let onRemoteQueue: (deviceId: string, queue: ConnectQueue | null) => void = () => {};
 let onCommand: (incoming: ConnectIncoming) => void = () => {};
+let onRemoteBrowse: (deviceId: string, key: string, queue: ConnectQueue | null) => void = () => {};
+
+/** «Salón» has its own library: two playlists to list and browse even when nothing plays there. */
+const salonLibrary: Array<ConnectLibraryEntry & { items: Array<{ videoId: string; title: string }> }> = [
+  { key: 'salon:mix', title: 'Mix', format: 'MP3', video: false, count: 3, items: [{ videoId: 'remote-1', title: 'Canción del salón' }, { videoId: 'remote-2', title: 'Siguiente del salón' }, { videoId: 'remote-3', title: 'Tercera del salón' }] },
+  { key: 'salon:cocina', title: 'Cocina', format: 'MP3', video: false, count: 2, items: [{ videoId: 'kitchen-1', title: 'Para cocinar' }, { videoId: 'kitchen-2', title: 'Para fregar' }] },
+];
+/** `?mockSalonIdle` (or `__connect.salonIdle()`): «Salón» plays nothing, so no playlist is its current one. */
+let salonIdle = typeof location !== 'undefined' && new URLSearchParams(location.search).has('mockSalonIdle');
+const published_libraries: ConnectLibraryEntry[][] = [];
 
 /** What the controlled device is doing. */
 let remote: ConnectPlayerState = emptyRemote(false);
+if (salonIdle) remote = { ...remote, nowPlaying: null };
 /** What this device published (for the tests to read). */
 const published: ConnectPlayerState[] = [];
 /** What this device passed to another one, and the reasons its passes ended (for the tests to read). */
@@ -79,6 +90,21 @@ function apply(command: ConnectCommand): void {
     case 'repeat': remote.repeat = command.mode ?? (remote.repeat === 'off' ? 'all' : remote.repeat === 'all' ? 'one' : 'off'); break;
     case 'take': break;
     case 'playTrack': playItem(remoteQueue.items.findIndex(item => item.videoId === command.videoId), true); break;
+    case 'browse': {
+      const entry = salonLibrary.find(e => e.key === command.key);
+      window.setTimeout(() => onRemoteBrowse('tv', command.key, entry ? { playlist: entry.title, items: entry.items.map(i => ({ ...i })) } : null), 0);
+      break;
+    }
+    case 'playFrom': {
+      const entry = salonLibrary.find(e => e.key === command.key);
+      if (!entry) break;
+      salonIdle = false;
+      remoteQueue.playlist = entry.title;
+      remoteQueue.items = entry.items.map(i => ({ ...i }));
+      playItem(remoteQueue.items.findIndex(item => item.videoId === command.videoId), true);
+      window.setTimeout(() => onRemoteQueue('tv', { ...remoteQueue, items: [...remoteQueue.items] }), 0);
+      break;
+    }
   }
 }
 
@@ -120,6 +146,9 @@ if (typeof window !== 'undefined') {
       onRemoteQueue('tv', { ...remoteQueue, items: [...remoteQueue.items] });
     },
     /** «Salón» starts (or stops) playing on its own, as somebody pressing play there. */
+    /** «Salón» plays nothing (and says no playlist): what is left is its library. */
+    salonIdle: () => { salonIdle = true; remote = { ...remote, nowPlaying: null, playing: false }; sync(); onDevices(); },
+    libraries: published_libraries,
     salonPlays: (playing: boolean) => { remote = emptyRemote(playing); sync(); onDevices(); },
   };
 }
@@ -180,7 +209,7 @@ export const mockConnect: ConnectApi = {
     if (!device?.paired) failure('connect.error.notPaired');
     selected = deviceId;
     // Choosing it does not start anything by itself: what it is doing stays as it is.
-    if (!remote.nowPlaying) remote = emptyRemote(false);
+    if (!remote.nowPlaying && !salonIdle) remote = emptyRemote(false);
     change();
     return { ...remote };
   },
@@ -216,7 +245,12 @@ export const mockConnect: ConnectApi = {
   },
   connectPublish: state => { published.push(state); },
   connectPublishQueue: queue => { publishedQueues.push(queue); },
-  connectQueueOf: async deviceId => (deviceId === 'tv' ? { ...remoteQueue, items: [...remoteQueue.items] } : null),
+  connectQueueOf: async deviceId => (deviceId === 'tv' && !salonIdle ? { ...remoteQueue, items: [...remoteQueue.items] } : null),
+  connectLibraryOf: async deviceId => (deviceId === 'tv' ? salonLibrary.map(({ items: _items, ...entry }) => entry) : []),
+  connectPublishLibrary: playlists => { published_libraries.push(playlists); },
+  connectPublishBrowse: () => {},
+  onConnectRemoteLibrary: () => {},
+  onConnectRemoteBrowse: listener => { onRemoteBrowse = listener; },
   onConnectRemoteQueue: listener => { onRemoteQueue = listener; },
   onConnectDevices: listener => { onDevices = listener; },
   onConnectRemoteState: listener => { onRemoteState = listener; },

@@ -72,7 +72,9 @@ fn main() {
     let storage: Arc<dyn Storage> = Arc::new(MemoryStorage::default());
     storage.create_dir_all(&Location::path("/p")).unwrap();
     let server = Server::start(own_port, Arc::new(Quiet), Arc::new(Pairing::load(storage, Location::path("/p/t.json"))), Arc::new(TlsIdentity::ephemeral())).expect("own server");
-    let ticket = server.tickets().grant([("probe1".to_string(), SharedFile { media: file.clone(), cover: None })]);
+    // PROBE_ITEMS=3: a queue of several files (all the same one), and a «next» every 8 s, as a person pressing it.
+    let count: usize = std::env::var("PROBE_ITEMS").ok().and_then(|n| n.parse().ok()).unwrap_or(1);
+    let ticket = server.tickets().grant((1..=count).map(|n| (format!("probe{n}"), SharedFile { media: file.clone(), cover: None })));
 
     let (tx, rx) = mpsc::channel();
     let session = Session::open(addr, &paired.token, &Expect::Pinned(paired.fingerprint.clone()), move |event| {
@@ -81,13 +83,20 @@ fn main() {
     .expect("session");
     println!("SESSION   open");
 
+    // PROBE_MODE=library: as a controller of a phone that plays nothing: list its library, open a playlist, play a song of it.
+    if std::env::var("PROBE_MODE").as_deref() == Ok("library") {
+        library_mode(&session, &rx);
+        return;
+    }
     let pass = CastStart {
         host: String::new(),
         port: server.port(),
         fingerprint: server.fingerprint().to_string(),
         ticket,
         playlist: "Prueba de la sonda".into(),
-        items: vec![CastItem { video_id: "probe1".into(), title: "Canción de la sonda".into(), duration: 0.0, format: file.extension().and_then(|e| e.to_str()).unwrap_or("mp3").to_lowercase(), video: false, cover: false }],
+        items: (1..=count)
+            .map(|n| CastItem { video_id: format!("probe{n}"), title: format!("Canción {n} de la sonda"), duration: 90.0, format: file.extension().and_then(|e| e.to_str()).unwrap_or("mp3").to_lowercase(), video: false, cover: false })
+            .collect(),
         index: 0,
         position: 5.0,
         playing: true,
@@ -99,6 +108,8 @@ fn main() {
 
     let until = Instant::now() + Duration::from_secs(seconds);
     let mut paused = false;
+    let mut last_next = Instant::now();
+    let mut step_no = 0usize;
     while Instant::now() < until {
         match rx.recv_timeout(Duration::from_millis(500)) {
             Ok(Event::Message(ServerMessage::State { state })) => println!(
@@ -116,6 +127,21 @@ fn main() {
             }
             Err(_) => {}
         }
+        if count > 1 && last_next.elapsed() > Duration::from_secs(8) {
+            last_next = Instant::now();
+            // PROBE_SCRIPT=next,play:3,toggle : one step every 8 s (default: only «next»).
+            let script = std::env::var("PROBE_SCRIPT").unwrap_or_else(|_| "next".into());
+            let steps: Vec<&str> = script.split(',').collect();
+            let step = steps[step_no % steps.len()];
+            step_no += 1;
+            let command = match step.split_once(':') {
+                Some(("play", n)) => Command::PlayTrack { video_id: format!("probe{n}") },
+                _ if step == "toggle" => Command::Toggle,
+                _ => Command::Next,
+            };
+            println!("STEP      {step}");
+            session.send(command);
+        }
         if !paused && until - Instant::now() < Duration::from_secs(8) {
             paused = true;
             session.send(Command::Pause);
@@ -130,5 +156,45 @@ fn main() {
             println!("STATE     playing={} {}", state.playing, state.now_playing.map(|n| n.title).unwrap_or_default());
         }
     }
+    println!("DONE");
+}
+
+fn library_mode(session: &Session, rx: &mpsc::Receiver<Event>) {
+    let until = Instant::now() + Duration::from_secs(16);
+    let (mut asked, mut played) = (false, false);
+    let mut key = String::new();
+    while Instant::now() < until {
+        match rx.recv_timeout(Duration::from_millis(500)) {
+            Ok(Event::Message(ServerMessage::Library { playlists })) => {
+                println!("LIBRARY   {} playlists", playlists.len());
+                for entry in playlists.iter().take(5) {
+                    println!("          {} · {} · {} files · key={}", entry.title, entry.format, entry.count, entry.key);
+                }
+                if !asked && let Some(first) = playlists.first() {
+                    asked = true;
+                    key = first.key.clone();
+                    session.send(Command::Browse { key: key.clone() });
+                    println!("BROWSE    asked for {key}");
+                }
+            }
+            Ok(Event::Message(ServerMessage::Browse { key: got, queue })) => {
+                let items = queue.as_ref().map_or(0, |q| q.items.len());
+                println!("BROWSED   {got}: {items} files, first: {}", queue.as_ref().and_then(|q| q.items.first()).map_or("-", |i| i.title.as_str()));
+                if !played && let Some(item) = queue.and_then(|q| q.items.into_iter().nth(1)) {
+                    played = true;
+                    session.send(Command::PlayFrom { key: key.clone(), video_id: item.video_id });
+                    println!("PLAYFROM  sent (second file)");
+                }
+            }
+            Ok(Event::Message(ServerMessage::State { state })) => println!("STATE     playing={} {}", state.playing, state.now_playing.map(|n| n.title).unwrap_or_default()),
+            Ok(Event::Message(ServerMessage::Ack { ok, error, .. })) => println!("ACK       ok={ok} {}", error.unwrap_or_default()),
+            Ok(Event::Closed(reason)) => {
+                println!("CLOSED    {reason:?}");
+                return;
+            }
+            _ => {}
+        }
+    }
+    session.send(Command::Pause);
     println!("DONE");
 }

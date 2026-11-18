@@ -106,8 +106,9 @@ function libraryView(): HTMLElement {
       h('div', { class: 'pl-art' },
         cover(queue?.playlist || device.name, false, 160, queuePicture(queue)),
         h('span', { class: 'badge' }, icon('monitor', 11), h('span', { text: device.name }))),
-      h('div', { class: 'pl-title ellipsis', text: queue?.playlist || t('remotePlaylist.eyebrow') }),
-      h('div', { class: 'pl-sub ellipsis', text: queue ? `${t('remotePlaylist.eyebrow')} · ${t('remotePlaylist.files', queue.items.length)}` : t('remotePlaylist.waiting') }));
+      h('div', { class: 'pl-title ellipsis', text: queue?.playlist || (connect.library.length ? t('remotePlaylist.libraryTitle') : t('remotePlaylist.eyebrow')) }),
+      // Nothing plays there: its playlists are listed instead of waiting for it to say one.
+      h('div', { class: 'pl-sub ellipsis', text: queue ? `${t('remotePlaylist.eyebrow')} · ${t('remotePlaylist.files', queue.items.length)}` : connect.library.length ? t('remotePlaylist.playlists', connect.library.length) : t('remotePlaylist.waiting') }));
     card.addEventListener('keydown', event => {
       if (event.key === 'Enter' && event.target === card) navigate('remote-playlist');
     });

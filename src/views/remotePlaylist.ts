@@ -1,9 +1,11 @@
 // The playlist of the device being controlled (Soundify Connect): what it is playing, listed here so a song can be
 // picked from this device. Technically a «remote playlist»: the files are on that device, and it says which one.
+// When it plays nothing (or the user wants another playlist) this lists ITS library instead, to pick a playlist, see its files
+// and start one: nothing has to sound on that device first.
 
-import type { ConnectQueueItem } from '../api';
+import type { ConnectLibraryEntry, ConnectQueue, ConnectQueueItem } from '../api';
 import { cover } from '../components/cover';
-import { connect, playRemoteTrack } from '../connect';
+import { browseRemote, connect, playRemoteFrom, playRemoteTrack, showRemoteLibrary } from '../connect';
 import { hueOf, queuePicture, showPicture } from '../covers';
 import { h } from '../dom';
 import { t } from '../i18n';
@@ -28,6 +30,38 @@ function stateOf(item: ConnectQueueItem): 'playing' | 'paused' | 'idle' {
   return ui.playing ? 'playing' : 'paused';
 }
 
+/** The files that are listed: the playlist browsed, or the one that plays (null while a browsed one is loading, or in the library). */
+function shownQueue(): ConnectQueue | null {
+  if (connect.browsed) return connect.browsed.queue;
+  return connect.pickingLibrary ? null : connect.queue;
+}
+
+/** The list of playlists of the device's library, rather than the files of one. */
+function libraryMode(): boolean {
+  return !connect.browsed && (connect.pickingLibrary || !connect.queue);
+}
+
+/** Picking a file: the playlist browsed starts from it, the one that plays goes to it. */
+function pick(videoId: string): void {
+  if (connect.browsed) playRemoteFrom(connect.browsed.key, videoId);
+  else playRemoteTrack(videoId);
+}
+
+function libraryRow(entry: ConnectLibraryEntry): HTMLElement {
+  const tile = cover(entry.title, entry.video, 40);
+  const element = h('div', { class: 'track lib-row', attrs: { role: 'button', tabindex: '0', 'data-library': entry.key } },
+    tile,
+    h('span', { class: 't row-title ellipsis', text: entry.title }),
+    h('span', { class: 'd', text: `${entry.format} · ${t('remotePlaylist.files', entry.count)}` }));
+  element.addEventListener('click', () => browseRemote(entry));
+  element.addEventListener('keydown', event => {
+    if (event.key !== 'Enter') return;
+    event.preventDefault();
+    browseRemote(entry);
+  });
+  return element;
+}
+
 function row(item: ConnectQueueItem, number: number): HTMLElement {
   const state = stateOf(item);
   const current = state !== 'idle';
@@ -42,11 +76,11 @@ function row(item: ConnectQueueItem, number: number): HTMLElement {
   element.dataset.id = item.videoId;
   element.dataset.number = String(number);
   element.dataset.state = state;
-  element.addEventListener('click', () => playRemoteTrack(item.videoId));
+  element.addEventListener('click', () => pick(item.videoId));
   element.addEventListener('keydown', event => {
     if (event.key !== 'Enter') return;
     event.preventDefault();
-    playRemoteTrack(item.videoId);
+    pick(item.videoId);
   });
   return element;
 }
@@ -67,7 +101,7 @@ export function remotePlaylistView(): HTMLElement {
   let filter = '';
   // The same sorting as a local playlist (# and title; it has no download date). It only changes how it is listed
   // here: the other device plays its own order.
-  const orderKey = () => `remote:${device.deviceId}:${connect.queue?.playlist ?? ''}`;
+  const orderKey = () => `remote:${device.deviceId}:${shownQueue()?.playlist ?? connect.browsed?.title ?? ''}`;
   const COLUMNS: { key: SortKey; class: string; label: string }[] = [
     { key: 'number', class: 'n', label: '#' },
     { key: 'title', class: '', label: t('player.column.title') },
@@ -97,20 +131,28 @@ export function remotePlaylistView(): HTMLElement {
   };
   const fillTracks = () => {
     refreshHeaders();
-    const items: Numbered[] = (connect.queue?.items ?? []).map((item, index) => ({ ...item, number: index + 1, addedDaysAgo: 0 }));
+    cols.hidden = libraryMode();
+    if (libraryMode()) {
+      const entries = filterByTitle(connect.library.map(entry => ({ ...entry })), filter);
+      tracks.replaceChildren(...entries.map(libraryRow));
+      none.hidden = entries.length > 0;
+      none.textContent = !connect.library.length ? t('remotePlaylist.libraryEmpty', device.name) : t('player.search.none', filter.trim());
+      return;
+    }
+    const items: Numbered[] = (shownQueue()?.items ?? []).map((item, index) => ({ ...item, number: index + 1, addedDaysAgo: 0 }));
     const shown = sortTracks(filterByTitle(items, filter), orderOf(orderKey()));
     tracks.replaceChildren(...shown.map(item => row(item, item.number)));
     none.hidden = shown.length > 0;
-    none.textContent = !items.length ? t('remotePlaylist.empty') : t('player.search.none', filter.trim());
+    none.textContent = connect.browsed && !connect.browsed.queue ? t('remotePlaylist.loading') : !items.length ? t('remotePlaylist.empty') : t('player.search.none', filter.trim());
   };
 
   // Play/pause, shuffle and search, like a local playlist: they go to the device being controlled.
-  const sounds = () => !!ui.nowPlaying && !!connect.queue?.items.some(item => item.videoId === ui.nowPlaying?.track.id);
+  const sounds = () => !!ui.nowPlaying && !!shownQueue()?.items.some(item => item.videoId === ui.nowPlaying?.track.id);
   const playButton = (big: boolean) => h('button', { class: `round-play${big ? ' big' : ''}`, onclick: () => {
     if (sounds()) player.togglePlay();
     else {
-      const first = connect.queue?.items[0];
-      if (first) playRemoteTrack(first.videoId);
+      const first = shownQueue()?.items[0];
+      if (first) pick(first.videoId);
     }
   } });
   const heroPlay = playButton(true);
@@ -122,9 +164,11 @@ export function remotePlaylistView(): HTMLElement {
       button.replaceChildren(icon(playing ? 'pause' : 'play', iconSize, true));
       button.title = t(playing ? 'player.pause' : 'player.play');
       button.setAttribute('aria-label', button.title);
-      button.disabled = !connect.queue?.items.length;
+      button.disabled = !shownQueue()?.items.length;
+      button.hidden = libraryMode();
     }
-    shuffle.disabled = !connect.queue?.items.length;
+    shuffle.disabled = !shownQueue()?.items.length;
+    shuffle.hidden = libraryMode();
     shuffle.classList.toggle('on', ui.shuffle);
   };
   const search = h('input', { class: 'input track-search', attrs: { type: 'search', placeholder: t('songs.searchPlaceholder'), 'aria-label': t('player.search') } });
@@ -149,16 +193,35 @@ export function remotePlaylistView(): HTMLElement {
   const heroCover = cover(device.name, false, 168);
   let shownFor: object | null | undefined;
 
+  // Between the files that are listed and the list of playlists: one button, and it says where it goes.
+  const switchButton = h('button', { class: 'secondary-button remote-switch' });
+  switchButton.addEventListener('click', () => {
+    if (libraryMode()) showRemoteLibrary(false);
+    else showRemoteLibrary(true);
+  });
+  const paintSwitch = () => {
+    const library = libraryMode();
+    // In the library: back to what plays (only if it plays a playlist). Elsewhere: to the library (only if it has any).
+    switchButton.hidden = library ? !connect.queue : !connect.library.length;
+    switchButton.textContent = library ? t('remotePlaylist.backToPlaying') : t('remotePlaylist.allPlaylists');
+  };
+
+  /** What is shown, to tell when it changed (the queue and the browsed playlist are replaced, never edited). */
+  const shownNow = (): object | null => (libraryMode() ? connect.library : connect.browsed ?? connect.queue);
+
   const fill = () => {
-    const queue = connect.queue;
-    shownFor = queue;
-    const title = queue?.playlist || t('remotePlaylist.eyebrow');
+    const queue = shownQueue();
+    shownFor = shownNow();
+    const library = libraryMode();
+    const title = library ? t('remotePlaylist.libraryTitle') : queue?.playlist || connect.browsed?.title || t('remotePlaylist.eyebrow');
     heading.textContent = title;
     heading.title = title;
     miniTitle.textContent = title;
     detail.style.setProperty('--h', String(hueOf(title)));
-    sub.textContent = [t('remotePlaylist.on', device.name), queue ? t('remotePlaylist.files', queue.items.length) : ''].filter(Boolean).join(' · ');
-    showPicture(heroCover, queuePicture(queue));
+    sub.textContent = [t('remotePlaylist.on', device.name), library ? t('remotePlaylist.playlists', connect.library.length) : queue ? t('remotePlaylist.files', queue.items.length) : ''].filter(Boolean).join(' · ');
+    showPicture(heroCover, library ? null : queuePicture(queue));
+    searchToggle.hidden = false;
+    paintSwitch();
     fillTracks();
     refreshPlay();
     tracks.querySelector('.playing')?.scrollIntoView({ block: 'center' });
@@ -188,7 +251,7 @@ export function remotePlaylistView(): HTMLElement {
         heading,
         sub)),
     h('div', { class: 'actions' },
-      heroPlay, shuffle,
+      heroPlay, shuffle, switchButton,
       h('div', { class: 'spacer' }),
       search, searchToggle));
   const scroller = h('div', { class: 'scroller' }, hero, cols, tracks, none);
@@ -204,7 +267,8 @@ export function remotePlaylistView(): HTMLElement {
   onLeave(subscribe('connect', () => {
     // The device is not being controlled any more: back to the player.
     if (!ui.remote) return navigate('player');
-    if (connect.queue !== shownFor) fill();
+    if (shownNow() !== shownFor) fill();
+    else paintSwitch();
   }));
   onLeave(subscribe('player', paint));
   const onKey = (event: KeyboardEvent) => {

@@ -16,7 +16,7 @@ use soundify_core::connect::discovery::{Discovery, Mdns};
 use soundify_core::connect::stats::short;
 use soundify_core::connect::manager::{Connect, ConnectError, DeviceView, Identity, Listener, PREFERRED_PORT, Player};
 use soundify_core::connect::pairing::{KnownDevices, Pairing, Trusted, new_device_id};
-use soundify_core::connect::protocol::{Command, PlayerState, QueueInfo};
+use soundify_core::connect::protocol::{Command, LibraryEntry, PlayerState, QueueInfo};
 use soundify_core::settings;
 use soundify_core::storage::{LocalStorage, Storage};
 use tauri::{AppHandle, Emitter, Manager, State};
@@ -120,12 +120,20 @@ impl Player for AppPlayer {
                 cast.ticket.clear();
                 cast.host.clear();
                 cast.fingerprint.clear();
+                if cast_base.is_some()
+                    && let Some(memory) = self.app.try_state::<crate::cast::CastMemory>()
+                {
+                    *memory.0.lock().unwrap() = Some(crate::cast::CastSnapshot { from: who.name.clone(), pass: (*cast).clone(), cast_base: cast_base.clone() });
+                }
                 Command::Cast(cast)
             }
             // An older pass of another device does not end the one that plays now.
             Command::CastEnd { reason } => {
                 if !self.inbox.end_from(&who.controller_id) {
                     return Ok(());
+                }
+                if let Some(memory) = self.app.try_state::<crate::cast::CastMemory>() {
+                    *memory.0.lock().unwrap() = None;
                 }
                 Command::CastEnd { reason }
             }
@@ -156,6 +164,21 @@ struct RemoteQueue<'a> {
 
 #[derive(Serialize, Clone)]
 #[serde(rename_all = "camelCase")]
+struct RemoteLibrary<'a> {
+    device_id: &'a str,
+    playlists: &'a [LibraryEntry],
+}
+
+#[derive(Serialize, Clone)]
+#[serde(rename_all = "camelCase")]
+struct RemoteBrowse<'a> {
+    device_id: &'a str,
+    key: &'a str,
+    queue: &'a Option<QueueInfo>,
+}
+
+#[derive(Serialize, Clone)]
+#[serde(rename_all = "camelCase")]
 struct RemoteClosed<'a> {
     device_id: &'a str,
     reason: Option<&'a str>,
@@ -173,6 +196,14 @@ impl Listener for AppListener {
 
     fn remote_queue(&self, device_id: &str, queue: Option<QueueInfo>) {
         let _ = self.app.emit("connect-remote-queue", RemoteQueue { device_id, queue: &queue });
+    }
+
+    fn remote_library(&self, device_id: &str, playlists: Vec<LibraryEntry>) {
+        let _ = self.app.emit("connect-remote-library", RemoteLibrary { device_id, playlists: &playlists });
+    }
+
+    fn remote_browse(&self, device_id: &str, key: &str, queue: Option<QueueInfo>) {
+        let _ = self.app.emit("connect-remote-browse", RemoteBrowse { device_id, key, queue: &queue });
     }
 
     fn remote_closed(&self, device_id: &str, reason: Option<String>) {
@@ -677,6 +708,21 @@ pub fn connect_cast(app: AppHandle, state: State<'_, ConnectState>, request: Cas
     Ok(())
 }
 
+/// What a pass that sounds here needs to be shown again after a reload of the page (None: nothing passed to this device).
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CastCurrent {
+    #[serde(flatten)]
+    snapshot: crate::cast::CastSnapshot,
+    state: PlayerState,
+}
+
+#[tauri::command]
+pub fn connect_cast_current(state: State<'_, ConnectState>, memory: State<'_, crate::cast::CastMemory>) -> Option<CastCurrent> {
+    let snapshot = memory.0.lock().unwrap().clone()?;
+    Some(CastCurrent { snapshot, state: state.connect.own_state() })
+}
+
 /// The pass ends: nothing more can be read from here, and the other device stops.
 #[tauri::command]
 pub fn connect_cast_end(app: AppHandle, state: State<'_, ConnectState>, reason: String) {
@@ -688,6 +734,24 @@ pub fn connect_cast_end(app: AppHandle, state: State<'_, ConnectState>, reason: 
 #[tauri::command]
 pub fn connect_queue_of(state: State<'_, ConnectState>, device_id: String) -> Option<QueueInfo> {
     state.connect.queue_of(&device_id)
+}
+
+/// The playlists a device said its library has (the one being controlled: what to pick from before anything plays).
+#[tauri::command]
+pub fn connect_library_of(state: State<'_, ConnectState>, device_id: String) -> Vec<LibraryEntry> {
+    state.connect.library_of(&device_id)
+}
+
+/// This device's own library (playlists without files), for those who control it.
+#[tauri::command]
+pub fn connect_publish_library(state: State<'_, ConnectState>, playlists: Vec<LibraryEntry>) {
+    state.connect.publish_library(playlists);
+}
+
+/// The files of a playlist of this device's library that a controller asked for.
+#[tauri::command]
+pub fn connect_publish_browse(state: State<'_, ConnectState>, key: String, queue: Option<QueueInfo>) {
+    state.connect.publish_browse(&key, queue);
 }
 
 /// The playlist this device is playing, for those who control it.

@@ -73,6 +73,7 @@ pub fn run() {
   builder
     .register_asynchronous_uri_scheme_protocol(cast::SCHEME, cast::handle)
     .manage(cast::CastInbox::default())
+    .manage(cast::CastMemory::default())
     .manage(app_update::AppUpdates::default())
     .manage(AppState {
       paths,
@@ -169,6 +170,10 @@ pub fn run() {
       cast::connect_cast_clear,
       connect::connect_cast,
       connect::connect_cast_end,
+      connect::connect_cast_current,
+      connect::connect_library_of,
+      connect::connect_publish_library,
+      connect::connect_publish_browse,
       commands::refresh_library,
       commands::formats,
       commands::tool_health,

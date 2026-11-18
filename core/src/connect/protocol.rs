@@ -184,7 +184,31 @@ pub enum Command {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         reason: Option<String>,
     },
+    /// Asks for the files of one playlist of this device's library (the key of a [`LibraryEntry`]): the device answers with a
+    /// `ServerMessage::Browse`. Changes nothing of what plays: it is how a controller lists a playlist that is not playing.
+    Browse { key: String },
+    /// Plays this file of that playlist of this device's library, from the start (what a controller does when it picks a file
+    /// of a playlist it browsed).
+    #[serde(rename_all = "camelCase")]
+    PlayFrom { key: String, video_id: String },
 }
+
+/// One playlist (in one format) of a device's own library: what a controller lists to pick from before anything plays.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct LibraryEntry {
+    /// Only means something to the device that gave it (it is sent back in `Browse` and `PlayFrom`).
+    pub key: String,
+    pub title: String,
+    /// `MP3`, `MP4`...
+    pub format: String,
+    pub video: bool,
+    /// Files on that device (the ones that can be played).
+    pub count: u32,
+}
+
+/// The most playlists of a library that are listed to a controller.
+pub const MAX_LIBRARY: usize = 1000;
 
 /// One file of a queue that is passed.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -241,6 +265,8 @@ impl Command {
             Command::Repeat { mode: Some(mode) } if !["off", "all", "one"].contains(&mode.as_str()) => Err("repeat: unknown mode".into()),
             Command::PlayTrack { video_id } if video_id.is_empty() || video_id.len() > 128 => Err("playTrack: bad video id".into()),
             Command::Cast(cast) => cast.validate(),
+            Command::Browse { key } if key.is_empty() || key.len() > 1024 => Err("browse: bad key".into()),
+            Command::PlayFrom { key, video_id } if key.is_empty() || key.len() > 1024 || video_id.is_empty() || video_id.len() > 128 => Err("playFrom: bad key or id".into()),
             _ => Ok(()),
         }
     }
@@ -277,6 +303,10 @@ pub enum ServerMessage {
     State { state: PlayerState },
     /// The playlist that plays (None = nothing). Said after the first state and whenever the playlist changes: it can be long.
     Queue { queue: Option<QueueInfo> },
+    /// The playlists of the device's own library (summary: no files). Said when a controller connects and when it changes.
+    Library { playlists: Vec<LibraryEntry> },
+    /// The files of the playlist a controller asked for (`Command::Browse`); `None` = there is no such playlist (any more).
+    Browse { key: String, queue: Option<QueueInfo> },
     Ack { id: u64, ok: bool, error: Option<String> },
 }
 
@@ -459,5 +489,22 @@ mod tests {
             breaks(&mut bad);
             assert!(Command::Cast(Box::new(bad)).validate().is_err(), "case {n}");
         }
+    }
+
+    #[test]
+    fn browsing_a_library_travels_and_is_checked() {
+        let entry = LibraryEntry { key: "pl1:MP3".into(), title: "Rock".into(), format: "MP3".into(), video: false, count: 12 };
+        let message = ServerMessage::Library { playlists: vec![entry] };
+        let json = serde_json::to_value(&message).unwrap();
+        assert_eq!(json["t"], "library");
+        assert_eq!(json["playlists"][0]["count"], 12);
+        assert_eq!(serde_json::from_value::<ServerMessage>(json).unwrap(), message);
+        let browse = ClientMessage::Cmd { id: 1, command: Command::PlayFrom { key: "pl1:MP3".into(), video_id: "abc".into() } };
+        let json = serde_json::to_value(&browse).unwrap();
+        assert_eq!((json["cmd"].as_str(), json["videoId"].as_str()), (Some("playFrom"), Some("abc")));
+        assert_eq!(serde_json::from_value::<ClientMessage>(json).unwrap(), browse);
+        assert!(Command::Browse { key: String::new() }.validate().is_err());
+        assert!(Command::PlayFrom { key: "k".into(), video_id: "x".repeat(129) }.validate().is_err());
+        assert!(Command::Browse { key: "pl1:MP3".into() }.validate().is_ok());
     }
 }
