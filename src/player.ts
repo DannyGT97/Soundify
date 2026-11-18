@@ -6,7 +6,7 @@
 // The last file and its second are kept between runs (`PlayerMemory`): at
 // startup it comes back to the bar PAUSED where it was left.
 
-import { api, playerBackend as engine, type ConnectCast, type ConnectCastItem, type ConnectCommand, type PlayerMemory, type Track } from './api';
+import { api, playerBackend as engine, type ConnectQueueItem, type ConnectCast, type ConnectCastItem, type ConnectCommand, type PlayerMemory, type Track } from './api';
 import { findBlock, onDisk } from './library';
 import { PlayerQueue, nextRepeat } from './playerQueue';
 import { emit, ui } from './state';
@@ -193,10 +193,14 @@ export function leaveRemote(snapshot: LocalSnapshot): void {
 }
 
 /** The files of a playlist of this device's library that can be played, in the order the Reproductor shows them (a controller browsing it). */
-export function browseQueue(blockKey: string): { playlist: string; items: Array<{ videoId: string; title: string }> } | null {
+export function browseQueue(blockKey: string): { playlist: string; items: ConnectQueueItem[] } | null {
   const found = findBlock(blockKey);
   if (!found) return null;
-  return { playlist: found.playlist.title, items: queueOf(blockKey).map(tr => ({ videoId: tr.id, title: tr.title })) };
+  // ALL its files, in the order of the Reproductor: with when each arrived and, if it is not on disk, why it cannot be played.
+  const items = sortTracks(found.block.tracks, orderOf(blockKey)).map(tr => ({
+    videoId: tr.id, title: tr.title, addedDaysAgo: tr.addedDaysAgo, status: tr.status === 'ok' ? null : tr.status,
+  }));
+  return { playlist: found.playlist.title, items };
 }
 
 /** A controller picked a file of a playlist of this device's library: it plays from there. False if the file is not there (any more). */
@@ -206,12 +210,12 @@ export function playFromBlock(blockKey: string, videoId: string): boolean {
 }
 
 /** The files of the block that sounds, in the order it plays them, for handing the playback to another device. */
-export function currentQueue(): { playlist: string; items: Array<{ videoId: string; title: string }>; index: number } | null {
+export function currentQueue(): { playlist: string; items: ConnectQueueItem[]; index: number } | null {
   if (!ui.nowPlaying || !currentBlock) return null;
   const tracks = queueOf(currentBlock);
   const index = tracks.findIndex(tr => tr.id === ui.nowPlaying?.track.id);
   if (index < 0) return null;
-  return { playlist: playlistTitle(), items: tracks.map(tr => ({ videoId: tr.id, title: tr.title })), index };
+  return { playlist: playlistTitle(), items: tracks.map(tr => ({ videoId: tr.id, title: tr.title, addedDaysAgo: tr.addedDaysAgo })), index };
 }
 
 /**

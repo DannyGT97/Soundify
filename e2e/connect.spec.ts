@@ -534,8 +534,15 @@ test('a device that plays nothing lists its playlists, and a song of one can be 
   await expect(page.locator('[data-library="salon:cocina"]')).toContainText('2 canciones');
   // One of them: its songs (nothing starts by looking).
   await page.locator('[data-library="salon:cocina"]').click();
-  await expect(page.locator('.track-row')).toHaveCount(2);
+  // All its files: the one not on disk there is listed too, dimmed, with its state, and the filters find it.
+  await expect(page.locator('.track-row')).toHaveCount(3);
   await expect(page.locator('.track-row').first()).toContainText('Para cocinar');
+  await expect(page.locator('.track-row').first()).toContainText('hace 5 días');
+  await expect(page.locator('.track-row.off')).toContainText('Pendientes');
+  await expect(page.locator('.state-chips .fchip')).toHaveCount(3);
+  await page.locator('.state-chips .fchip', { hasText: 'Pendientes' }).click();
+  await expect(page.locator('.track-row')).toHaveCount(1);
+  await page.locator('.state-chips .fchip', { hasText: 'Todos' }).click();
   await expect(page.locator('.player-bar')).toBeHidden();
   // A song: it plays THERE, and what is shown is now what plays.
   await page.locator('.track-row').nth(1).click();

@@ -14,10 +14,33 @@ import * as player from '../player';
 import { navigate, onLeave } from '../router';
 import { filterByTitle } from '../search';
 import { subscribe, ui } from '../state';
+import { ago } from '../relativeTime';
 import { nextOrder, orderOf, setOrder, sortTracks, type SortKey } from '../trackOrder';
 
 /** A file of the remote playlist with its place in it (the number the other device gives it). */
 type Numbered = ConnectQueueItem & { number: number; addedDaysAgo: number };
+
+type StateFilter = 'all' | 'ok' | 'pending' | 'off';
+
+/** The same states and filters as a local playlist (a remote one only lists what is not on disk when it was browsed). */
+const IN_STATE: Record<StateFilter, (item: ConnectQueueItem) => boolean> = {
+  all: () => true,
+  ok: item => !item.status,
+  pending: item => item.status === 'pending' || item.status === 'failed',
+  off: item => item.status === 'unavailable',
+};
+
+function relative(days: number): string {
+  const { key, amount } = ago(days);
+  return t(key, amount);
+}
+
+/** What goes on the right of a file: when it was downloaded there, or why it is not on that device. */
+function stateCell(item: ConnectQueueItem & { addedDaysAgo: number }): HTMLElement {
+  if (!item.status) return h('span', { class: 'd', text: item.addedDaysAgo >= 0 && item.addedDaysAgo < 100000 ? relative(item.addedDaysAgo) : '' });
+  const text = t(item.status === 'unavailable' ? 'files.filter.off' : 'files.filter.pending');
+  return h('span', { class: 'st', title: text }, h('span', { class: `pill ${item.status === 'unavailable' ? 'off' : 'warn'} ellipsis`, text }));
+}
 
 function numberCell(current: boolean, number: number): HTMLElement {
   return current
@@ -76,26 +99,30 @@ function libraryRow(entry: ConnectLibraryEntry): HTMLElement {
   return element;
 }
 
-function row(item: ConnectQueueItem, number: number): HTMLElement {
+function row(item: ConnectQueueItem & { addedDaysAgo: number }, number: number): HTMLElement {
   const state = stateOf(item);
   const current = state !== 'idle';
+  // Listed but not on that device: it cannot be played from here.
+  const off = !!item.status;
   // The thumbnail of the video, by its id (the same one the local lists use: it is fetched if this device does not have it).
   const thumb = cover(item.title, false, 40);
   showPicture(thumb, { kind: 'thumbnail', id: item.videoId });
-  const element = h('div', { class: `track track-row${current ? ' playing' : ''}`, attrs: { role: 'button', tabindex: '0' } },
+  const element = h('div', { class: `track track-row${current ? ' playing' : ''}${off ? ' off' : ''}`, attrs: { role: 'button', tabindex: off ? '-1' : '0' } },
     h('span', { class: 'n' }, numberCell(current, number), h('span', { class: 'hover-play' }, icon(state === 'playing' ? 'pause' : 'play', 14, true))),
     thumb,
     h('span', { class: 't row-title ellipsis', text: item.title }),
-    h('span', { class: 'd' }));
+    stateCell(item));
   element.dataset.id = item.videoId;
   element.dataset.number = String(number);
   element.dataset.state = state;
-  element.addEventListener('click', () => pick(item.videoId));
-  element.addEventListener('keydown', event => {
-    if (event.key !== 'Enter') return;
-    event.preventDefault();
-    pick(item.videoId);
-  });
+  if (!off) {
+    element.addEventListener('click', () => pick(item.videoId));
+    element.addEventListener('keydown', event => {
+      if (event.key !== 'Enter') return;
+      event.preventDefault();
+      pick(item.videoId);
+    });
+  }
   return element;
 }
 
@@ -120,6 +147,7 @@ export function remotePlaylistView(): HTMLElement {
   const COLUMNS: { key: SortKey; class: string; label: string }[] = [
     { key: 'number', class: 'n', label: '#' },
     { key: 'title', class: '', label: t('player.column.title') },
+    { key: 'added', class: 'added', label: t('player.column.added') },
   ];
   const headers = new Map<SortKey, HTMLElement>();
   for (const column of COLUMNS) {
@@ -132,7 +160,27 @@ export function remotePlaylistView(): HTMLElement {
       },
     }, h('span', { text: column.label }), icon('chevron-down', 12)));
   }
-  const cols = h('div', { class: 'cols' }, headers.get('number')!, h('span', { class: 'thumb-col' }), headers.get('title')!, h('span', { class: 'added' }));
+  const cols = h('div', { class: 'cols' }, headers.get('number')!, h('span', { class: 'thumb-col' }), headers.get('title')!, headers.get('added')!);
+  // The states of the files as filters (shown only when the playlist has files in more than one state).
+  const chips = h('div', { class: 'state-chips' });
+  let stateFilter: StateFilter = 'all';
+  const refreshChips = () => {
+    const all = shownQueue()?.items ?? [];
+    const counts: Record<StateFilter, number> = { all: all.length, ok: all.filter(IN_STATE.ok).length, pending: all.filter(IN_STATE.pending).length, off: all.filter(IN_STATE.off).length };
+    if (counts[stateFilter] === 0) stateFilter = 'all';
+    const shown: StateFilter[] = ['all'];
+    if (counts.ok > 0 && counts.ok < counts.all) shown.push('ok');
+    if (counts.pending > 0) shown.push('pending');
+    if (counts.off > 0) shown.push('off');
+    chips.hidden = libraryMode() || shown.length === 1;
+    chips.replaceChildren(...shown.map(state => h('button', {
+      class: `fchip${stateFilter === state ? ' on' : ''}`,
+      onclick: () => {
+        stateFilter = state;
+        fillTracks();
+      },
+    }, h('span', { text: t(`files.filter.${state}`) }), h('small', { text: String(counts[state]) }))));
+  };
   const refreshHeaders = () => {
     const order = orderOf(orderKey());
     for (const column of COLUMNS) {
@@ -146,6 +194,7 @@ export function remotePlaylistView(): HTMLElement {
   };
   const fillTracks = () => {
     refreshHeaders();
+    refreshChips();
     cols.hidden = libraryMode();
     if (libraryMode()) {
       const entries = filterByTitle(connect.library.map(entry => ({ ...entry })), filter);
@@ -154,8 +203,8 @@ export function remotePlaylistView(): HTMLElement {
       none.textContent = !connect.library.length ? t('remotePlaylist.libraryEmpty', device.name) : t('player.search.none', filter.trim());
       return;
     }
-    const items: Numbered[] = (shownQueue()?.items ?? []).map((item, index) => ({ ...item, number: index + 1, addedDaysAgo: 0 }));
-    const shown = sortTracks(filterByTitle(items, filter), orderOf(orderKey()));
+    const items: Numbered[] = (shownQueue()?.items ?? []).map((item, index) => ({ ...item, number: index + 1, addedDaysAgo: item.addedDaysAgo ?? 100000 }));
+    const shown = sortTracks(filterByTitle(items.filter(IN_STATE[stateFilter]), filter), orderOf(orderKey()));
     tracks.replaceChildren(...shown.map(item => row(item, item.number)));
     none.hidden = shown.length > 0;
     none.textContent = connect.browsed && !connect.browsed.queue ? t('remotePlaylist.loading') : !items.length ? t('remotePlaylist.empty') : t('player.search.none', filter.trim());
@@ -282,7 +331,7 @@ export function remotePlaylistView(): HTMLElement {
       heroPlay, shuffle, switchButton,
       h('div', { class: 'spacer' }),
       search, searchToggle));
-  const scroller = h('div', { class: 'scroller' }, hero, cols, tracks, none);
+  const scroller = h('div', { class: 'scroller' }, hero, chips, cols, tracks, none);
   const detail = h('div', { class: 'detail' },
     h('div', { class: 'mini' }, miniPlay, icon('monitor', 18), miniTitle, h('span', { class: 'fmt', text: device.name }), backButton()),
     scroller);

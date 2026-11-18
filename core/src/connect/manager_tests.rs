@@ -234,7 +234,7 @@ fn discovery_losing_a_device_whose_connection_is_up_does_not_make_it_flicker() {
 // === THE PLAYLIST THAT PLAYS ===
 
 fn queue(playlist: &str, ids: &[&str]) -> QueueInfo {
-    QueueInfo { playlist: playlist.into(), items: ids.iter().map(|id| QueueItem { video_id: (*id).into(), title: format!("Canción {id}") }).collect() }
+    QueueInfo { playlist: playlist.into(), items: ids.iter().map(|id| QueueItem { video_id: (*id).into(), title: format!("Canción {id}"), added_days_ago: None, status: None }).collect() }
 }
 
 #[test]

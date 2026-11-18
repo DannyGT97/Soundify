@@ -318,7 +318,14 @@ export interface ConnectPlayerState {
   shuffle: boolean;
   repeat: 'off' | 'all' | 'one';
 }
-export interface ConnectQueueItem { videoId: string; title: string }
+export interface ConnectQueueItem {
+  videoId: string;
+  title: string;
+  /** Days since it was downloaded. */
+  addedDaysAgo?: number | null;
+  /** A file listed that is not on disk (absent = on disk). */
+  status?: 'pending' | 'failed' | 'unavailable' | null;
+}
 /** The playlist a device is playing, in its order: what a controller lists to pick a song from (its «remote playlist»). */
 export interface ConnectQueue { playlist: string; items: ConnectQueueItem[] }
 /** What a controller asks a player to do. */

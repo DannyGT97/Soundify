@@ -128,6 +128,13 @@ impl Default for PlayerState {
 pub struct QueueItem {
     pub video_id: String,
     pub title: String,
+    /// Days since the file was downloaded (calendar days, as the lists count them). Absent from older versions.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub added_days_ago: Option<u32>,
+    /// `pending`, `failed` or `unavailable`: a file that is listed but not on disk (absent = on disk). Only a playlist that a
+    /// controller browses lists those; what plays is always on disk.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub status: Option<String>,
 }
 
 /// The playlist a device is playing, in the order it shows it: what a controller lists (a remote playlist) to pick a song from.
@@ -420,16 +427,19 @@ mod tests {
         assert!(Command::PlayTrack { video_id: String::new() }.validate().is_err());
         assert!(Command::PlayTrack { video_id: "x".repeat(129) }.validate().is_err());
         assert!(Command::PlayTrack { video_id: "dQw4w9WgXcQ".into() }.validate().is_ok());
-        let items = (0..MAX_QUEUE + 10).map(|n| QueueItem { video_id: n.to_string(), title: n.to_string() }).collect();
+        let items = (0..MAX_QUEUE + 10).map(|n| QueueItem { video_id: n.to_string(), title: n.to_string(), added_days_ago: None, status: None }).collect();
         assert_eq!(QueueInfo { playlist: "P".into(), items }.limited().items.len(), MAX_QUEUE);
     }
 
     #[test]
     fn the_queue_travels_as_its_own_message() {
-        let message = ServerMessage::Queue { queue: Some(QueueInfo { playlist: "P".into(), items: vec![QueueItem { video_id: "a".into(), title: "A".into() }] }) };
+        let message = ServerMessage::Queue { queue: Some(QueueInfo { playlist: "P".into(), items: vec![QueueItem { video_id: "a".into(), title: "A".into(), added_days_ago: Some(3), status: None }] }) };
         let json = serde_json::to_value(&message).unwrap();
-        assert_eq!(json, serde_json::json!({ "t": "queue", "queue": { "playlist": "P", "items": [{ "videoId": "a", "title": "A" }] } }));
+        assert_eq!(json, serde_json::json!({ "t": "queue", "queue": { "playlist": "P", "items": [{ "videoId": "a", "title": "A", "addedDaysAgo": 3 }] } }));
         assert_eq!(serde_json::from_value::<ServerMessage>(json).unwrap(), message);
+        // A queue from a version before the date and the state existed still reads.
+        let old: ServerMessage = serde_json::from_str(r#"{"t":"queue","queue":{"playlist":"P","items":[{"videoId":"a","title":"A"}]}}"#).unwrap();
+        assert!(matches!(old, ServerMessage::Queue { queue: Some(q) } if q.items[0].added_days_ago.is_none() && q.items[0].status.is_none()));
     }
 
     #[test]

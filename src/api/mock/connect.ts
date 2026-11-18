@@ -6,7 +6,7 @@
 // something of it, make a device start playing, or drop the connection.
 
 import type { Api } from '..';
-import type { ConnectLibraryEntry, ConnectCommand, ConnectDevice, ConnectFirewall, ConnectIncoming, ConnectPlayerState, ConnectQueue, ConnectStatus } from '../types';
+import type { ConnectQueueItem, ConnectLibraryEntry, ConnectCommand, ConnectDevice, ConnectFirewall, ConnectIncoming, ConnectPlayerState, ConnectQueue, ConnectStatus } from '../types';
 
 type ConnectApi = Pick<Api,
   | 'connectRequestLocalNetwork' | 'connectFirewallStatus' | 'connectFirewallAllow' | 'connectNetworkPrivate' | 'connectStatus' | 'connectSetEnabled' | 'connectSetName' | 'connectSetOpen' | 'connectDevices' | 'connectAdd' | 'connectPin' | 'connectRenewPin'
@@ -38,9 +38,10 @@ let onCommand: (incoming: ConnectIncoming) => void = () => {};
 let onRemoteBrowse: (deviceId: string, key: string, queue: ConnectQueue | null) => void = () => {};
 
 /** «Salón» has its own library: two playlists to list and browse even when nothing plays there. */
-const salonLibrary: Array<ConnectLibraryEntry & { items: Array<{ videoId: string; title: string }> }> = [
-  { key: 'salon:mix', title: 'Mix', format: 'MP3', video: false, count: 3, cover: 'remote-1', items: [{ videoId: 'remote-1', title: 'Canción del salón' }, { videoId: 'remote-2', title: 'Siguiente del salón' }, { videoId: 'remote-3', title: 'Tercera del salón' }] },
-  { key: 'salon:cocina', title: 'Cocina', format: 'MP3', video: false, count: 2, cover: 'kitchen-1', items: [{ videoId: 'kitchen-1', title: 'Para cocinar' }, { videoId: 'kitchen-2', title: 'Para fregar' }] },
+const salonLibrary: Array<ConnectLibraryEntry & { items: ConnectQueueItem[] }> = [
+  { key: 'salon:mix', title: 'Mix', format: 'MP3', video: false, count: 3, cover: 'remote-1', items: [{ videoId: 'remote-1', title: 'Canción del salón', addedDaysAgo: 0 }, { videoId: 'remote-2', title: 'Siguiente del salón', addedDaysAgo: 3 }, { videoId: 'remote-3', title: 'Tercera del salón', addedDaysAgo: 40 }] },
+  // «Cocina» has a file that is not on disk there yet: it is listed (dimmed, with its state) when the playlist is browsed.
+  { key: 'salon:cocina', title: 'Cocina', format: 'MP3', video: false, count: 2, cover: 'kitchen-1', items: [{ videoId: 'kitchen-1', title: 'Para cocinar', addedDaysAgo: 5 }, { videoId: 'kitchen-2', title: 'Para fregar', addedDaysAgo: 1 }, { videoId: 'kitchen-3', title: 'Aún sin bajar', status: 'pending' }] },
 ];
 // `?mockManyPlaylists`: «Salón» has six playlists instead of two (to see the library with a mosaic).
 if (typeof location !== 'undefined' && new URLSearchParams(location.search).has('mockManyPlaylists')) {
@@ -106,7 +107,8 @@ function apply(command: ConnectCommand): void {
       if (!entry) break;
       salonIdle = false;
       remoteQueue.playlist = entry.title;
-      remoteQueue.items = entry.items.map(i => ({ ...i }));
+      // What plays is only what is on disk there.
+      remoteQueue.items = entry.items.filter(i => !i.status).map(i => ({ ...i }));
       playItem(remoteQueue.items.findIndex(item => item.videoId === command.videoId), true);
       window.setTimeout(() => onRemoteQueue('tv', { ...remoteQueue, items: [...remoteQueue.items] }), 0);
       break;
