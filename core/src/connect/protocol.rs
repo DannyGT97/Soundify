@@ -205,6 +205,10 @@ pub struct LibraryEntry {
     pub video: bool,
     /// Files on that device (the ones that can be played).
     pub count: u32,
+    /// The video id of its first file: its picture is that video's thumbnail (the same one the lists use), which the
+    /// controller fetches itself if it does not have it. Absent from older versions.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub cover: Option<String>,
 }
 
 /// The most playlists of a library that are listed to a controller.
@@ -493,7 +497,7 @@ mod tests {
 
     #[test]
     fn browsing_a_library_travels_and_is_checked() {
-        let entry = LibraryEntry { key: "pl1:MP3".into(), title: "Rock".into(), format: "MP3".into(), video: false, count: 12 };
+        let entry = LibraryEntry { key: "pl1:MP3".into(), title: "Rock".into(), format: "MP3".into(), video: false, count: 12, cover: Some("abc".into()) };
         let message = ServerMessage::Library { playlists: vec![entry] };
         let json = serde_json::to_value(&message).unwrap();
         assert_eq!(json["t"], "library");

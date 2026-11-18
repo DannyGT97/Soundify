@@ -257,6 +257,7 @@ export const ca: Record<string, string> = {
   'remotePlaylist.loading': 'Carregant les cançons…',
   'remotePlaylist.allPlaylists': 'Totes les playlists',
   'remotePlaylist.backToPlaying': 'El que sona',
+  'remotePlaylist.libraryEyebrow': 'Biblioteca de «{0}»',
   'connect.castFrom': 'Des de «{0}»',
   'connect.said.castEnd': '{0} ja no reprodueix aquí',
   'connect.castLost': 'S\'ha perdut la connexió amb «{0}»: s\'ha aturat la música',

@@ -49,6 +49,8 @@ function pick(videoId: string): void {
 
 function libraryRow(entry: ConnectLibraryEntry): HTMLElement {
   const tile = cover(entry.title, entry.video, 40);
+  // Its picture: the thumbnail of its first file (this device fetches it if it does not have it, like in every list).
+  if (entry.cover) showPicture(tile, { kind: 'thumbnail', id: entry.cover });
   const element = h('div', { class: 'track lib-row', attrs: { role: 'button', tabindex: '0', 'data-library': entry.key } },
     tile,
     h('span', { class: 't row-title ellipsis', text: entry.title }),
@@ -95,6 +97,7 @@ export function remotePlaylistView(): HTMLElement {
   const back = () => navigate('now-playing');
   const backButton = (extra = '') => h('button', { class: `icon-button${extra}`, title: t('player.back'), onclick: back }, icon('back', 18));
   const heading = h('h1');
+  const eyebrow = h('div', { class: 'eyebrow' });
   const sub = h('div', { class: 'pl-sub' });
   const tracks = h('div', { class: 'tracks' });
   const none = h('p', { class: 'none' });
@@ -219,7 +222,10 @@ export function remotePlaylistView(): HTMLElement {
     miniTitle.textContent = title;
     detail.style.setProperty('--h', String(hueOf(title)));
     sub.textContent = [t('remotePlaylist.on', device.name), library ? t('remotePlaylist.playlists', connect.library.length) : queue ? t('remotePlaylist.files', queue.items.length) : ''].filter(Boolean).join(' · ');
-    showPicture(heroCover, library ? null : queuePicture(queue));
+    // The big picture: the playlist's, or (in the list) the first one's, so it is never an empty tile.
+    const firstCover = connect.library.find(entry => entry.cover)?.cover;
+    showPicture(heroCover, library ? (firstCover ? { kind: 'thumbnail', id: firstCover } : null) : queuePicture(queue));
+    eyebrow.textContent = library ? t('remotePlaylist.libraryEyebrow', device.name) : t('remotePlaylist.eyebrow');
     searchToggle.hidden = false;
     paintSwitch();
     fillTracks();
@@ -247,7 +253,7 @@ export function remotePlaylistView(): HTMLElement {
     h('div', { class: 'hero' },
       h('span', { class: 'hero-cover' }, heroCover),
       h('div', { class: 'grow min0' },
-        h('div', { class: 'eyebrow', text: t('remotePlaylist.eyebrow') }),
+        eyebrow,
         heading,
         sub)),
     h('div', { class: 'actions' },

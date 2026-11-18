@@ -169,8 +169,10 @@ function libraryEntries(): ConnectLibraryEntry[] {
   const entries: ConnectLibraryEntry[] = [];
   for (const playlist of libraryOf.playlists) {
     for (const block of playlist.formats) {
-      const count = onDisk(block.tracks).length;
-      if (count > 0 && player.isPlayable(block.format)) entries.push({ key: block.key, title: playlist.title, format: block.format, video: block.video, count });
+      const files = onDisk(block.tracks);
+      if (files.length > 0 && player.isPlayable(block.format)) {
+        entries.push({ key: block.key, title: playlist.title, format: block.format, video: block.video, count: files.length, cover: files[0]?.id ?? null });
+      }
     }
   }
   return entries;

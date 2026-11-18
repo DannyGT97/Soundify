@@ -530,6 +530,7 @@ test('a device that plays nothing lists its playlists, and a song of one can be 
   // Nothing plays there: the playlists of its library, not an empty list.
   await expect(page.locator('.np-head-name, h1').first()).toContainText('Playlists');
   await expect(page.locator('[data-library]')).toHaveCount(2);
+  await expect(page.locator('.eyebrow')).toHaveText('Biblioteca de «Salón»');
   await expect(page.locator('[data-library="salon:cocina"]')).toContainText('2 canciones');
   // One of them: its songs (nothing starts by looking).
   await page.locator('[data-library="salon:cocina"]').click();

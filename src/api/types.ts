@@ -341,7 +341,7 @@ export type ConnectCommand =
   /** Plays that file of that playlist of the device's own library, from the start. */
   | { cmd: 'playFrom'; key: string; videoId: string };
 /** One playlist of a device's own library, as it lists it to a controller (no files). */
-export interface ConnectLibraryEntry { key: string; title: string; format: string; video: boolean; count: number }
+export interface ConnectLibraryEntry { key: string; title: string; format: string; video: boolean; count: number; /** The video id of its first file: its picture is that video's thumbnail. */ cover?: string | null }
 /** One file of a queue passed to this device. */
 export interface ConnectCastItem { videoId: string; title: string; duration: number; format: string; video: boolean; cover: boolean }
 /** A pass that sounds on this device, as the back remembers it: to take it back up after the page was reloaded (Android). */

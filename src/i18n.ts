@@ -269,6 +269,7 @@ export const es: Record<string, string> = {
   'remotePlaylist.loading': 'Cargando las canciones…',
   'remotePlaylist.allPlaylists': 'Todas las playlists',
   'remotePlaylist.backToPlaying': 'Lo que suena',
+  'remotePlaylist.libraryEyebrow': 'Biblioteca de «{0}»',
   'connect.castFrom': 'Desde «{0}»',
   'connect.said.castEnd': '{0} ya no reproduce aquí',
   'connect.castLost': 'Se perdió la conexión con «{0}»: se paró la música',

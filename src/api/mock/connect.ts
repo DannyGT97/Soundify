@@ -39,8 +39,8 @@ let onRemoteBrowse: (deviceId: string, key: string, queue: ConnectQueue | null) 
 
 /** «Salón» has its own library: two playlists to list and browse even when nothing plays there. */
 const salonLibrary: Array<ConnectLibraryEntry & { items: Array<{ videoId: string; title: string }> }> = [
-  { key: 'salon:mix', title: 'Mix', format: 'MP3', video: false, count: 3, items: [{ videoId: 'remote-1', title: 'Canción del salón' }, { videoId: 'remote-2', title: 'Siguiente del salón' }, { videoId: 'remote-3', title: 'Tercera del salón' }] },
-  { key: 'salon:cocina', title: 'Cocina', format: 'MP3', video: false, count: 2, items: [{ videoId: 'kitchen-1', title: 'Para cocinar' }, { videoId: 'kitchen-2', title: 'Para fregar' }] },
+  { key: 'salon:mix', title: 'Mix', format: 'MP3', video: false, count: 3, cover: 'remote-1', items: [{ videoId: 'remote-1', title: 'Canción del salón' }, { videoId: 'remote-2', title: 'Siguiente del salón' }, { videoId: 'remote-3', title: 'Tercera del salón' }] },
+  { key: 'salon:cocina', title: 'Cocina', format: 'MP3', video: false, count: 2, cover: 'kitchen-1', items: [{ videoId: 'kitchen-1', title: 'Para cocinar' }, { videoId: 'kitchen-2', title: 'Para fregar' }] },
 ];
 /** `?mockSalonIdle` (or `__connect.salonIdle()`): «Salón» plays nothing, so no playlist is its current one. */
 let salonIdle = typeof location !== 'undefined' && new URLSearchParams(location.search).has('mockSalonIdle');
