@@ -343,6 +343,8 @@ export type ConnectCommand =
   | ({ cmd: 'cast' } & ConnectCast)
   /** The controller ended its pass: what it passed stops here. */
   | { cmd: 'castEnd'; reason?: string }
+  /** «Escuchar aquí»: the sender wants to listen to what plays on this device: it passes it (no confirmation). */
+  | { cmd: 'passMe' }
   /** Asks for the files of a playlist of the device's own library (a `ConnectLibraryEntry.key`): it answers with `onConnectRemoteBrowse`. */
   | { cmd: 'browse'; key: string }
   /** Plays that file of that playlist of the device's own library, from the start. */
@@ -354,6 +356,7 @@ export interface ConnectCastItem { videoId: string; title: string; duration: num
 /** A pass that sounds on this device, as the back remembers it: to take it back up after the page was reloaded (Android). */
 export interface ConnectCastCurrent {
   from: string;
+  fromId: string;
   pass: ConnectCast;
   /** Where the native player reads its files: the audio is the native player's and goes on by itself. */
   castBase: string | null;
@@ -438,6 +441,8 @@ export interface ConnectFirewall {
 }
 export interface ConnectIncoming {
   from: string;
+  /** The id of that device (to answer it: «Escuchar aquí» passes what plays here to whoever asked). */
+  fromId?: string;
   command: ConnectCommand;
   /** A pass on Android: where the native player reads its files (127.0.0.1, with a secret). */
   castBase?: string;
@@ -452,6 +457,8 @@ export interface Preferences {
   playerPlacement: string;
   /** A video goes to the floating panel by itself when Reproduciendo is left. */
   autoPip: boolean;
+  /** The explanatory windows marked «No volver a mostrar» (their ids): `preferences.ts` hides them, Ajustes brings them back. */
+  hiddenNotices: string[];
   includeIdInTitleName: boolean;
   /** Ajustes → Avanzado: yt-dlp fetches two fragments at once (only DASH/HLS; off by default). */
   concurrentFragments: boolean;

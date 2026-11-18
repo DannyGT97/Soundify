@@ -53,7 +53,7 @@ let memory: PlayerMemory = { volume: ui.volume, last: null };
  * `CAST_KEY`: nothing of the library, nothing kept in `PlayerMemory` (the last file of THIS device stays the one it was).
  */
 export const CAST_KEY = 'cast:';
-let cast: { from: string; playlist: string; tracks: Track[]; items: Map<string, ConnectCastItem> } | null = null;
+let cast: { from: string; fromId: string; playlist: string; tracks: Track[]; items: Map<string, ConnectCastItem> } | null = null;
 let castLost: (from: string) => void = () => {};
 
 engine.onTime(seconds => {
@@ -222,13 +222,16 @@ export function currentQueue(): { playlist: string; items: ConnectQueueItem[]; i
  * «Escuchar en»: `from` passed what it plays. It sounds here from the same file and second, in the order it had (already
  * shuffled there, so «next» is the same file on both sides). What this device played is left where it was.
  */
-export function playCast(from: string, pass: ConnectCast, nativeBase?: string): boolean {
+export function playCast(from: string, pass: ConnectCast, nativeBase?: string, fromId = ''): boolean {
   const items = pass.items.filter(item => item.videoId);
   if (items.length === 0 || pass.index < 0 || pass.index >= items.length) return false;
   void savePosition();
   const tracks = castTracks(items, nativeBase);
-  cast = { from, playlist: pass.playlist, tracks, items: new Map(items.map(item => [item.videoId, item])) };
+  // Another device was passing its music here: it is told this one is not listening to it any more.
+  if (cast?.fromId && cast.fromId !== fromId) void api.connectCastLeave(cast.fromId).catch(() => {});
+  cast = { from, fromId, playlist: pass.playlist, tracks, items: new Map(items.map(item => [item.videoId, item])) };
   ui.castFrom = from;
+  ui.castFromId = fromId || null;
   ui.shuffle = pass.shuffle;
   ui.repeat = pass.repeat;
   queue = new PlayerQueue(tracks, pass.index);
@@ -252,8 +255,9 @@ async function resumeCast(): Promise<boolean> {
   const tracks = castTracks(pass.items, current.castBase);
   const found = tracks.findIndex(track => track.id === state.nowPlaying?.videoId);
   const index = found >= 0 ? found : Math.min(pass.index, tracks.length - 1);
-  cast = { from: current.from, playlist: pass.playlist, tracks, items: new Map(pass.items.map(item => [item.videoId, item])) };
+  cast = { from: current.from, fromId: current.fromId, playlist: pass.playlist, tracks, items: new Map(pass.items.map(item => [item.videoId, item])) };
   ui.castFrom = current.from;
+  ui.castFromId = current.fromId || null;
   ui.shuffle = state.shuffle;
   ui.repeat = state.repeat;
   queue = new PlayerQueue(tracks, index);
@@ -280,6 +284,18 @@ function castTracks(items: ConnectCastItem[], nativeBase?: string): Track[] {
 /** The device that passed it took it back (or stopped it): nothing of it sounds here any more. */
 export function endCast(): void {
   if (!cast) return;
+  // It was the sender who ended it: nothing to tell it.
+  cast.fromId = '';
+  stop();
+}
+
+/** What another device passes here, for the view of its queue (null when nothing is passed). */
+export function castNow(): { from: string; playlist: string; items: Array<{ id: string; title: string }> } | null {
+  return cast ? { from: cast.from, playlist: cast.playlist, items: cast.tracks.map(tr => ({ id: tr.id, title: tr.title })) } : null;
+}
+
+/** «Escuchar en este dispositivo»: what another device passes stops, and this device is free (the sender is told, see `leaveCast`). */
+export function stopHere(): void {
   stop();
 }
 
@@ -620,8 +636,11 @@ function isVideoTrack(track: Track): boolean {
 
 /** Done with what another device passed: the back stops reading from it. */
 function leaveCast(): void {
+  // Playing something of its own, or stopping: the device that was passing is told (not when it was that device that ended it).
+  if (cast?.fromId) void api.connectCastLeave(cast.fromId).catch(() => {});
   cast = null;
   ui.castFrom = null;
+  ui.castFromId = null;
   if (currentBlock === CAST_KEY) currentBlock = '';
   void api.connectCastClear().catch(() => {});
 }

@@ -47,7 +47,9 @@ export function nowPlayingView(): HTMLElement {
   // Back to the playlist that is playing, in the Reproductor (its list when nothing is); while another device is
   // controlled, to its playlist (a remote playlist: the songs are there, and one can be picked from here).
   const goToPlaylist = () => {
-    if (ui.remote) navigate('remote-playlist');
+    // What another device passes here has no playlist of this one: its own view, with the way back to this device's.
+    if (castHere()) navigate('cast-queue');
+    else if (ui.remote) navigate('remote-playlist');
     else if (ui.nowPlaying) navigate('player', { b: ui.nowPlaying.blockKey });
     else navigate('player');
   };
@@ -110,8 +112,8 @@ export function nowPlayingView(): HTMLElement {
     headEyebrow.textContent = passed ? t('connect.castFrom', passed.from) : np && ui.remote ? t('remotePlaylist.eyebrow') : '';
     headEyebrow.hidden = !(np && (ui.remote || passed));
     headTitle.textContent = name;
-    head.title = name && !passed ? t(ui.remote ? 'nowPlaying.backRemote' : 'nowPlaying.back') : '';
-    head.disabled = !name || !!passed;
+    head.title = passed ? t('nowPlaying.backCast') : name ? t(ui.remote ? 'nowPlaying.backRemote' : 'nowPlaying.back') : '';
+    head.disabled = !name;
     if (!name) headCover.replaceChildren();
     else if (passed) headCover.replaceChildren(cover(name, false, 36));
     else if (ui.remote) headCover.replaceChildren(cover(name, false, 36, queuePicture(connect.queue)));

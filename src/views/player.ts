@@ -11,7 +11,9 @@ import { ago } from '../relativeTime';
 import { navigate, onLeave, type Params } from '../router';
 import { subscribe, ui } from '../state';
 import { cover } from '../components/cover';
-import { connect } from '../connect';
+import { connect, controlDevice } from '../connect';
+import { listenFrom, stopListening } from '../cast';
+import { onAndroid } from '../platform';
 import { openMenu } from '../components/floating';
 import { liveBar, liveChip, patchLive } from '../components/live';
 import { queuedFor, runningFor } from '../tasks';
@@ -43,6 +45,13 @@ function relative(days: number): string {
 const canPlayBlock = (block: FormatBlock) => block.tracks.some(track => canPlayTrack(block, track));
 const firstPlayable = (playlist: Playlist) => playlist.formats.find(canPlayBlock) ?? null;
 const newest = (playlist: Playlist) => Math.min(Infinity, ...playlist.formats.flatMap(block => onDisk(block.tracks).map(track => track.addedDaysAgo)));
+/** «Este dispositivo» (grey, this device's icon) or the name of another (green, the cast icon): where something is. */
+function where(kind: 'local' | 'remote', text: string, iconName: IconName): HTMLElement {
+  return h('span', { class: `where ${kind}` }, icon(iconName, 14), h('span', { text }));
+}
+const hereIcon = (): IconName => (onAndroid ? 'device' : 'monitor');
+const kindIcon = (kind: string): IconName => (kind === 'desktop' ? 'monitor' : 'device');
+
 const size = (playlist: Playlist) => playlist.formats.reduce((n, block) => n + onDisk(block.tracks).length, 0);
 const isOffline = (playlist: Playlist) => playlist.formats.every(block => block.accessible === false);
 
@@ -93,6 +102,11 @@ function libraryView(): HTMLElement {
   });
 
   const resumeSlot = h('div');
+  // While another device passes its music here this device is only the speaker: what arrives, and this device's own
+  // playlists locked below (`.locked`) until it ends. With nothing passed, the devices whose music can be listened to.
+  const castSlot = h('div');
+  const devicesSlot = h('div');
+  const localBox = h('div', { class: 'local-box' });
   // While another device is controlled, its playlist is here too (with the device it is on), above this device's own.
   const remoteSlot = h('div');
   const fillRemote = () => {
@@ -105,6 +119,7 @@ function libraryView(): HTMLElement {
     const card = h('div', { class: 'pl-card', title: queue?.playlist ?? '', attrs: { role: 'button', tabindex: '0' }, onclick: () => navigate('remote-playlist') },
       h('div', { class: 'pl-art' },
         cover(queue?.playlist || device.name, false, 160, queuePicture(queue)),
+        h('span', { class: 'src-badge remote' }, icon('cast', 13)),
         h('span', { class: 'badge' }, icon('monitor', 11), h('span', { text: device.name }))),
       h('div', { class: 'pl-title ellipsis', text: queue?.playlist || (connect.library.length ? t('remotePlaylist.libraryTitle') : t('remotePlaylist.eyebrow')) }),
       // Nothing plays there: its playlists are listed instead of waiting for it to say one.
@@ -119,6 +134,54 @@ function libraryView(): HTMLElement {
   const count = h('span', { class: 'muted' });
   const grid = h('div', { class: 'pgrid' });
   const none = h('p', { class: 'none' });
+
+  let castKey = '';
+  const fillCast = () => {
+    const now = player.castNow();
+    localBox.classList.toggle('locked', !!now);
+    const key = now ? `${now.from}|${now.playlist}|${ui.nowPlaying?.track.id}` : '';
+    if (key === castKey) return;
+    castKey = key;
+    if (!now) {
+      castSlot.replaceChildren();
+      return;
+    }
+    const card = h('div', { class: 'pl-card cast-now', attrs: { role: 'button', tabindex: '0' }, onclick: () => navigate('cast-queue') },
+      h('div', { class: 'pl-art' },
+        cover(now.playlist, false, 160, queuePicture({ items: now.items.map(item => ({ videoId: item.id })) })),
+        h('span', { class: 'src-badge remote' }, icon('cast', 13))),
+      h('div', { class: 'pl-title ellipsis', text: now.playlist }),
+      h('div', { class: 'pl-sub ellipsis', text: `${t('connect.castFrom', now.from)} · ${t('remotePlaylist.files', now.items.length)}` }));
+    card.addEventListener('keydown', event => {
+      if (event.key === 'Enter' && event.target === card) navigate('cast-queue');
+    });
+    castSlot.replaceChildren(
+      h('div', { class: 'cast-banner' }, icon('cast', 20),
+        h('div', { class: 'grow min0' }, h('b', { text: t('player.cast.banner.title', now.from) }), h('span', { text: t('player.cast.banner.body') })),
+        h('button', { class: 'primary-button', onclick: stopListening }, icon(hereIcon(), 16), h('span', { text: t('castQueue.listenHere') }))),
+      h('div', { class: 'section-head' }, where('remote', now.from, 'cast'), h('b', { text: t('player.cast.now') })),
+      h('div', { class: 'pgrid' }, card));
+  };
+
+  const fillDevices = () => {
+    const ready = connect.devices.filter(device => device.paired && device.ready && !device.version);
+    if (ui.castFrom || ui.remote || !connect.status?.running || ready.length === 0) {
+      devicesSlot.replaceChildren();
+      return;
+    }
+    devicesSlot.replaceChildren(
+      h('div', { class: 'section-head' }, where('remote', t('player.devices.others'), 'cast'), h('b', { text: t('player.devices.title') })),
+      h('p', { class: 'help devices-help', text: t('player.devices.help') }),
+      h('div', { class: 'devcards' }, ...ready.map(device => h('div', { class: 'devcard remote', attrs: { 'data-device': device.id } },
+        h('span', { class: 'devcard-icon' }, icon(kindIcon(device.kind), 20)),
+        h('div', { class: 'grow min0' },
+          h('div', { class: 'row-title ellipsis', text: device.name }),
+          h('div', { class: 'subtitle ellipsis' }, h('span', { class: 'dot' }), device.playing && device.nowPlaying ? t('connect.playing', device.nowPlaying.title) : t('player.devices.idle'))),
+        h('div', { class: 'devcard-actions' },
+          h('button', { class: 'secondary-button small', attrs: { 'data-library': device.id }, onclick: () => { void controlDevice(device).then(ok => ok && navigate('remote-playlist')); } }, icon('manager', 15), h('span', { text: t('player.devices.library') })),
+          h('button', { class: 'primary-button small', attrs: { 'data-listen': device.id }, onclick: () => { void listenFrom(device); } }, icon('cast', 15), h('span', { text: t('player.devices.listen') })))))),
+      h('p', { class: 'help devices-note', text: t('player.devices.note') }));
+  };
 
   function fill(): void {
     chipButtons.forEach(button => button.classList.toggle('on', button.dataset.chip === chip));
@@ -173,18 +236,27 @@ function libraryView(): HTMLElement {
   let shownKey = '';
   const playingKey = () => `${ui.nowPlaying?.blockKey}|${ui.nowPlaying?.track.id}|${ui.playing}`;
   onLeave(subscribe('player', () => {
+    fillCast();
     if (playingKey() === shownKey) { patchResume(); return; }
     shownKey = playingKey();
     fill();
+    fillDevices();
   }));
   onLeave(subscribe('library', fill));
-  onLeave(subscribe('connect', fillRemote));
+  onLeave(subscribe('connect', () => {
+    fillRemote();
+    fillCast();
+    fillDevices();
+  }));
   shownKey = playingKey();
   fillRemote();
+  fillCast();
+  fillDevices();
   fill();
 
-  return h('div', { class: 'screen' },
-    h('div', { class: 'screen-head' }, titleRow('player', t('player.title'))),
+  // This device's own playlists, marked as such when there are other devices around (or one is passing its music here).
+  const mine = () => connect.status?.running ? where('local', t('player.here'), hereIcon()) : null;
+  localBox.append(
     h('div', { class: 'toolbar' },
       h('div', { class: 'search-box' }, icon('search', 15), search),
       ...chipButtons,
@@ -192,10 +264,18 @@ function libraryView(): HTMLElement {
     resumeSlot,
     remoteSlot,
     h('div', { class: 'section-head' },
+      mine(),
       h('b', { text: t('player.playlists') }),
-      count),
+      count,
+      h('span', { class: 'locked-note' }, icon('lock', 13), h('span', { text: t('player.library.locked') }))),
     grid,
     none);
+
+  return h('div', { class: 'screen' },
+    h('div', { class: 'screen-head' }, titleRow('player', t('player.title'))),
+    castSlot,
+    localBox,
+    devicesSlot);
 }
 
 /** One card per playlist, whatever its formats: which one to open is on the card. */
@@ -223,6 +303,7 @@ function libraryCard(playlist: Playlist): HTMLElement {
   },
     h('div', { class: 'pl-art' },
       cover(playlist.title, onlyVideo, 160, playlistPicture(playlist)),
+      connect.status?.running ? h('span', { class: 'src-badge local', title: t('player.here') }, icon(hereIcon(), 13)) : null,
       device ? h('span', { class: 'badge' }, icon('device', 11), h('span', { text: device.deviceName }))
         : onlyVideo ? h('span', { class: 'badge' }, icon('video', 11), h('span', { text: t('player.library.video') })) : null,
       playable ? h('button', { class: 'round-play card-play', title: t(sounding ? 'player.pause' : 'player.play'), onclick: event => {

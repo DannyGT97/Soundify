@@ -191,6 +191,9 @@ pub enum Command {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         reason: Option<String>,
     },
+    /// «Escuchar aquí»: the sender wants to listen to what THIS device plays: this device passes it (as if its user had pressed
+    /// «Escuchar en» on the sender). No confirmation: whoever is paired may ask. Nothing happens if nothing plays here.
+    PassMe,
     /// Asks for the files of one playlist of this device's library (the key of a [`LibraryEntry`]): the device answers with a
     /// `ServerMessage::Browse`. Changes nothing of what plays: it is how a controller lists a playlist that is not playing.
     Browse { key: String },
@@ -520,5 +523,7 @@ mod tests {
         assert!(Command::Browse { key: String::new() }.validate().is_err());
         assert!(Command::PlayFrom { key: "k".into(), video_id: "x".repeat(129) }.validate().is_err());
         assert!(Command::Browse { key: "pl1:MP3".into() }.validate().is_ok());
+        assert_eq!(serde_json::to_value(Command::PassMe).unwrap(), serde_json::json!({ "cmd": "passMe" }));
+        assert!(Command::PassMe.validate().is_ok());
     }
 }

@@ -12,7 +12,7 @@ type ConnectApi = Pick<Api,
   | 'connectRequestLocalNetwork' | 'connectFirewallStatus' | 'connectFirewallAllow' | 'connectNetworkPrivate' | 'connectStatus' | 'connectSetEnabled' | 'connectSetName' | 'connectSetOpen' | 'connectDevices' | 'connectAdd' | 'connectPin' | 'connectRenewPin'
   | 'connectPair' | 'connectForget' | 'connectForgetController' | 'connectSelect' | 'connectDeselect' | 'connectSend' | 'connectPublish' | 'connectPublishQueue' | 'connectQueueOf'
   | 'onConnectDevices' | 'onConnectRemoteState' | 'onConnectRemoteQueue' | 'onConnectRemoteClosed' | 'onConnectCommand'
-  | 'connectCast' | 'connectCastEnd' | 'connectLibraryOf' | 'connectPublishLibrary' | 'connectPublishBrowse' | 'onConnectRemoteLibrary' | 'onConnectRemoteBrowse'>;
+  | 'connectCast' | 'connectCastEnd' | 'connectPassRequest' | 'connectCastLeave' | 'connectLibraryOf' | 'connectPublishLibrary' | 'connectPublishBrowse' | 'onConnectRemoteLibrary' | 'onConnectRemoteBrowse'>;
 
 const PIN_OF_STRICT = '123456';
 
@@ -61,6 +61,8 @@ const published: ConnectPlayerState[] = [];
 /** What this device passed to another one, and the reasons its passes ended (for the tests to read). */
 const casts: Array<{ deviceId: string; playlist: string; index: number; position: number; items: Array<{ videoId: string; title: string }> }> = [];
 const castEnds: string[] = [];
+/** The devices this one told it stopped listening to (what a receiver does: the sender goes back to its own player). */
+const leaves: string[] = [];
 const publishedQueues: Array<ConnectQueue | null> = [];
 /** The playlist «Salón» plays. */
 const remoteQueue: ConnectQueue = {
@@ -142,9 +144,10 @@ if (typeof window !== 'undefined') {
     published,
     casts,
     castEnds,
+    leaves,
     publishedQueues,
     /** The other side asks this device for something. */
-    incoming: (command: ConnectCommand) => onCommand({ from: 'Móvil de prueba', command }),
+    incoming: (command: ConnectCommand, fromId?: string) => onCommand({ from: 'Móvil de prueba', fromId, command }),
     /** The device being controlled drops. */
     drop: () => { const id = selected; selected = null; change(); if (id) onRemoteClosed(id); },
     /** «Salón» starts playing another playlist (it says so to whoever controls it). */
@@ -247,6 +250,21 @@ export const mockConnect: ConnectApi = {
     const id = request.deviceId;
     window.setTimeout(() => { onRemoteState(id, { ...remote }); onDevices(); }, 0);
   },
+  // «Escuchar aquí»: «Salón» passes what it plays to this device (as the real one would answer).
+  connectPassRequest: async deviceId => {
+    const device = devices.find(d => d.id === deviceId);
+    if (!device?.paired || !device.online) failure('connect.error.offline');
+    window.setTimeout(() => {
+      onCommand({
+        from: device.name, fromId: deviceId,
+        command: {
+          cmd: 'cast', playlist: remoteQueue.playlist, index: Math.max(0, positionInQueue()), position: remote.position, playing: true, shuffle: false, repeat: 'off',
+          items: remoteQueue.items.map(item => ({ videoId: item.videoId, title: item.title, duration: 200, format: 'mp3', video: false, cover: false })),
+        },
+      });
+    }, 300);
+  },
+  connectCastLeave: async deviceId => { leaves.push(deviceId); },
   connectCastEnd: async reason => {
     castEnds.push(reason);
     remote = { ...remote, playing: false };

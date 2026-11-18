@@ -132,6 +132,8 @@ pub struct UserSettings {
     pub explorer_favorites: Vec<String>,
     /// The folders the explorer last chose, the newest first.
     pub explorer_recents: Vec<String>,
+    /// The explanatory windows the user marked «No volver a mostrar» (their ids). Ajustes can bring them all back.
+    pub hidden_notices: Vec<String>,
 }
 
 impl Default for UserSettings {
@@ -162,6 +164,7 @@ impl Default for UserSettings {
             parallel_blocks: false,
             explorer_favorites: Vec::new(),
             explorer_recents: Vec::new(),
+            hidden_notices: Vec::new(),
         }
     }
 }
@@ -183,6 +186,7 @@ pub struct Preferences {
     pub auto_updates: bool,
     pub cookies_file: String,
     pub last_app_update_check: String,
+    pub hidden_notices: Vec<String>,
 }
 
 /// A change from Ajustes: only what is set is touched.
@@ -201,6 +205,7 @@ pub struct PreferencesPatch {
     pub app_update_check_enabled: Option<bool>,
     pub auto_updates: Option<bool>,
     pub cookies_file: Option<String>,
+    pub hidden_notices: Option<Vec<String>>,
 }
 
 /// What the player keeps between launches (a slice of [`UserSettings`]): the

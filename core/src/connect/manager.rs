@@ -942,6 +942,38 @@ impl Connect {
         }
     }
 
+    /// «Escuchar aquí»: asks the device (a paired one this device is connected to) to pass what it plays to THIS one.
+    pub fn request_pass(&self, device_id: &str) -> Result<(), ConnectError> {
+        if self.known.get(device_id).is_none() {
+            return Err(ConnectError::NotPaired);
+        }
+        if self.send_to(device_id, Command::PassMe) { Ok(()) } else { Err(ConnectError::Offline) }
+    }
+
+    /// This device was receiving what `device_id` passed and stops (it plays something of its own, or the user pressed
+    /// «Escuchar en este dispositivo»): the sender is told, so it goes back to its own player.
+    pub fn leave_pass(&self, device_id: &str) {
+        self.send_to(device_id, Command::CastEnd { reason: Some("left".into()) });
+    }
+
+    /// The device that was receiving what this one passed has stopped: the permission to read is withdrawn and the pass is
+    /// over here. False if that device was not the one this passed to (a late or foreign message).
+    pub fn receiver_left(&self, controller_id: &str) -> bool {
+        {
+            let mut casting = self.casting.lock().unwrap();
+            if casting.as_deref() != Some(controller_id) {
+                return false;
+            }
+            *casting = None;
+        }
+        if let Some(running) = self.running.lock().unwrap().as_ref() {
+            running.server.tickets().revoke();
+        }
+        info!("Soundify Connect: #{} stopped listening to what this device passed", short(controller_id));
+        self.listener.devices_changed();
+        true
+    }
+
     /// The device this one passed what it plays to, if any.
     pub fn casting(&self) -> Option<String> {
         self.casting.lock().unwrap().clone()

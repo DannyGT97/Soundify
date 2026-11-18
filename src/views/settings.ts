@@ -10,7 +10,7 @@ import { SCALE_STEPS, currentScale, onScaleChange, setScale } from '../scale';
 import { themePicker } from '../components/themePicker';
 import { notify } from '../components/toasts';
 import { pickCookiesFile } from '../pickers';
-import { chooseAutoPip, chooseLanguage, choosePlayerPlacement, preferences, resetPreferences, save } from '../preferences';
+import { chooseAutoPip, chooseLanguage, choosePlayerPlacement, hiddenNoticeCount, preferences, resetNotices, resetPreferences, save } from '../preferences';
 import { onAndroid } from '../platform';
 import { buildIndex, searchIndex } from '../settingsSearch';
 import { checkForUpdate, onUpdateChange, updateState } from '../appUpdate';
@@ -142,10 +142,29 @@ function connectControl(): HTMLElement {
     h('button', { class: 'secondary-button', text: t('settings.general.connect.open'), onclick: openDevicesOverlay }), box);
 }
 
+/** Brings back every explanatory window the user marked «No volver a mostrar». */
+function noticesControl(): HTMLElement {
+  const note = h('span', { class: 'subtitle' });
+  const button = h('button', { class: 'secondary-button', text: t('settings.general.notices.reset') });
+  const paint = () => {
+    const count = hiddenNoticeCount();
+    note.textContent = count > 0 ? t('settings.general.notices.hidden', count) : t('settings.general.notices.none');
+    button.disabled = count === 0;
+  };
+  button.addEventListener('click', () => {
+    resetNotices();
+    paint();
+    notify({ tone: 'success', text: t('settings.general.notices.done') });
+  });
+  paint();
+  return h('div', { class: 'row center gap-10 wrap' }, note, button);
+}
+
 function general(): HTMLElement[] {
   return [
     setting('settings.general.connect', connectControl()),
     setting('settings.general.includeIds', checkbox('includeIdInTitleName')),
+    setting('settings.general.notices', noticesControl()),
   ];
 }
 

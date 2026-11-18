@@ -74,6 +74,7 @@ export function describeCommand(command: ConnectCommand, from: string): { key: s
     case 'take': return { key: 'connect.said.take', args: [from] };
     case 'cast': return { key: 'connect.said.cast', args: [from] };
     case 'castEnd': return { key: 'connect.said.castEnd', args: [from] };
+    case 'passMe': return { key: 'connect.said.passMe', args: [from] };
     default: return null;
   }
 }
@@ -92,6 +93,7 @@ export type LocalAction =
   | { kind: 'seek'; seconds: number } | { kind: 'volume'; volume: number }
   | { kind: 'shuffle' } | { kind: 'repeat'; times: number }
   | { kind: 'play'; videoId: string }
+  | { kind: 'passMe' }
   | { kind: 'browse'; key: string }
   | { kind: 'playFrom'; key: string; videoId: string };
 
@@ -113,6 +115,7 @@ export function actionsFor(command: ConnectCommand, now: { playing: boolean; shu
     }
     case 'playTrack': return [{ kind: 'play', videoId: command.videoId }];
     case 'take': return [];
+    case 'passMe': return [{ kind: 'passMe' }];
     case 'browse': return [{ kind: 'browse', key: command.key }];
     case 'playFrom': return [{ kind: 'playFrom', key: command.key, videoId: command.videoId }];
     // A pass is not a press of a button: `connect.ts` hands it to the player as a whole.

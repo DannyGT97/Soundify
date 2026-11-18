@@ -16,6 +16,7 @@ import { managerView } from './views/manager';
 import { newPlaylistView } from './views/newPlaylist';
 import { nowPlayingView } from './views/nowPlaying';
 import { remotePlaylistView } from './views/remotePlaylist';
+import { castQueueView } from './views/castQueue';
 import { playerView } from './views/player';
 import { settingsView } from './views/settings';
 import { mountToasts, notify } from './components/toasts';
@@ -104,6 +105,7 @@ if (app) {
     'player': playerView,
     'now-playing': nowPlayingView,
     'remote-playlist': remotePlaylistView,
+    'cast-queue': castQueueView,
     'settings': settingsView,
   }, route => {
     app.dataset.route = route;

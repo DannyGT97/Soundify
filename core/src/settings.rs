@@ -66,7 +66,24 @@ pub fn preferences(settings: &UserSettings) -> Preferences {
         auto_updates: settings.auto_updates,
         cookies_file: settings.cookies_file.clone(),
         last_app_update_check: settings.last_app_update_check.clone(),
+        hidden_notices: settings.hidden_notices.clone(),
     }
+}
+
+/// The most notices that can be hidden, and how long an id may be (the app has a handful).
+pub const MAX_HIDDEN_NOTICES: usize = 64;
+
+/// Ids as the front writes them: letters, digits, `-`, `_`, `.`; nothing else is kept.
+fn tidy_notices(list: &[String]) -> Vec<String> {
+    let mut out: Vec<String> = Vec::new();
+    for id in list.iter().map(|id| id.trim()) {
+        let valid = !id.is_empty() && id.len() <= 64 && id.bytes().all(|b| b.is_ascii_alphanumeric() || matches!(b, b'-' | b'_' | b'.'));
+        if valid && !out.iter().any(|seen| seen == id) {
+            out.push(id.to_string());
+        }
+    }
+    out.truncate(MAX_HIDDEN_NOTICES);
+    out
 }
 
 /// Writes a change from Ajustes into `settings`. A value the app does not know
@@ -109,6 +126,9 @@ pub fn apply(settings: &mut UserSettings, patch: &PreferencesPatch) {
     }
     if let Some(cookies) = &patch.cookies_file {
         settings.cookies_file = cookies.trim().to_string();
+    }
+    if let Some(notices) = &patch.hidden_notices {
+        settings.hidden_notices = tidy_notices(notices);
     }
 }
 
@@ -384,5 +404,19 @@ mod tests {
         let settings = UserSettings { theme: Theme::Light, ..Default::default() };
         save(&storage, &file, &settings).unwrap();
         assert_eq!(load(&storage, &file).theme, Theme::Light);
+    }
+
+    #[test]
+    fn hidden_notices_are_kept_tidy_and_an_old_file_has_none() {
+        let mut settings = UserSettings::default();
+        assert!(preferences(&settings).hidden_notices.is_empty());
+        let noisy = vec!["stopListening".to_string(), " stopListening ".into(), "".into(), "a b".into(), "x".repeat(65), "ok-1_2.3".into()];
+        apply(&mut settings, &PreferencesPatch { hidden_notices: Some(noisy), ..Default::default() });
+        assert_eq!(preferences(&settings).hidden_notices, ["stopListening", "ok-1_2.3"]);
+        // Bringing them all back is an empty list.
+        apply(&mut settings, &PreferencesPatch { hidden_notices: Some(Vec::new()), ..Default::default() });
+        assert!(preferences(&settings).hidden_notices.is_empty());
+        let old: UserSettings = serde_json::from_str("{}").unwrap();
+        assert!(old.hidden_notices.is_empty());
     }
 }

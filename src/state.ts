@@ -47,6 +47,8 @@ export const ui = {
   remote: null as { deviceId: string; name: string } | null,
   /** «Escuchar en»: the name of the device whose music plays HERE, read from it (null when it is this device's own). */
   castFrom: null as string | null,
+  /** Its id (to tell it when this device stops listening). */
+  castFromId: null as string | null,
   /** «Escuchar en»: the device THIS one passed what it plays to (it sounds there, read from here). */
   castTo: null as { deviceId: string; name: string } | null,
   /** The first task running (what the pill and Tareas lead with); null when nothing runs. */

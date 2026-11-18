@@ -200,7 +200,7 @@ const MOCK_UPDATE = {
 let playerMemory: PlayerMemory = { volume: 0.7, last: null };
 
 const FACTORY_PREFERENCES: Preferences = {
-  appearance: 'dark', language: 'es', uiScale: 100, playerPlacement: 'both', autoPip: true,
+  appearance: 'dark', language: 'es', uiScale: 100, playerPlacement: 'both', autoPip: true, hiddenNotices: [],
   includeIdInTitleName: false, concurrentFragments: false, parallelDownloads: false, parallelBlocks: false, appUpdateCheckEnabled: true, autoUpdates: true, cookiesFile: '', lastAppUpdateCheck: '',
 };
 const PREFERENCES_KEY = 'soundify.mock.preferences';

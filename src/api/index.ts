@@ -162,6 +162,10 @@ export interface Api {
   connectCastEnd(reason: string): Promise<void>;
   /** A pass that sounds here and the page does not know (it was reloaded), or null. */
   connectCastCurrent(): Promise<ConnectCastCurrent | null>;
+  /** «Escuchar aquí»: asks a paired device to pass what it plays to this one (no confirmation there). */
+  connectPassRequest(deviceId: string): Promise<void>;
+  /** This device stops listening to what `deviceId` passes: that device is told and goes back to its own player. */
+  connectCastLeave(deviceId: string): Promise<void>;
   /** The playlists of the library of a device (the one being controlled), as it last said. */
   connectLibraryOf(deviceId: string): Promise<ConnectLibraryEntry[]>;
   /** This device's own library (playlists without files), for those who control it. */

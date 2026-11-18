@@ -46,6 +46,27 @@ export function chooseAutoPip(value: boolean): void {
   save({ autoPip: value });
 }
 
+// === NOTICES ===
+// Explanatory windows («¿Dejar de escuchar…?», guides) that can be marked «No volver a mostrar»: each has an id, the ids the
+// user hid are in settings.json, and Ajustes → General → Avisos y guías brings them all back.
+
+export function noticeHidden(id: string): boolean {
+  return prefs?.hiddenNotices.includes(id) ?? false;
+}
+
+export function hideNotice(id: string): void {
+  if (noticeHidden(id)) return;
+  save({ hiddenNotices: [...(prefs?.hiddenNotices ?? []), id] });
+}
+
+export function hiddenNoticeCount(): number {
+  return prefs?.hiddenNotices.length ?? 0;
+}
+
+export function resetNotices(): void {
+  save({ hiddenNotices: [] });
+}
+
 export function chooseLanguage(code: string): void {
   save({ language: code });
   setLanguage(code);

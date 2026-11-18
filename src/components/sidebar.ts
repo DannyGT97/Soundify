@@ -77,7 +77,7 @@ function navButton(route: Route, labelKey: string, iconName: IconName): HTMLButt
   return button;
 }
 export function markActive(route: Route): void {
-  const active: Route = route === 'now-playing' || route === 'remote-playlist' ? 'player' : route;
+  const active: Route = route === 'now-playing' || route === 'remote-playlist' || route === 'cast-queue' ? 'player' : route;
   buttons.forEach((button, r) => button.classList.toggle('selected', r === active));
   // The phone has one tab for both ways of downloading.
   buttons.get('download')?.classList.toggle('phone-selected', route === 'new-playlist');

@@ -473,7 +473,7 @@ test('controlling another device is said in its own colour, with the way out, an
   await page.goto('/?mockConnect#/player');
   await playSomething(page, '#/player');
   await page.locator('.devices-button:visible').first().click();
-  await page.locator('[data-device="tv"]').click();
+  await page.locator('.overlay-window [data-device="tv"]').click();
   await expect(barTitle(page)).toHaveText('Canción del salón');
   await expect(page.locator('.devices-button:visible').first()).toHaveClass(/(^| )is-control( |$)/);
   await page.locator('.devices-button:visible').first().click();
@@ -573,4 +573,78 @@ test('the big picture of a device library is a mosaic of its playlists (up to fo
   // Opening one: its own picture, not the mosaic.
   await page.locator('[data-library="salon:cocina"]').click();
   await expect(page.locator('.cover-mosaic')).toBeHidden();
+});
+
+// «Escuchar aquí» and the receiver: what another device passes arrives in its own view, this device's playlists wait, and
+// «Escuchar en este dispositivo» ends it (asking first, unless the user hid that notice).
+const leaves = (page: Page) => page.evaluate(() => (window as unknown as { __connect: { leaves: string[] } }).__connect.leaves);
+
+async function listenFromSalon(page: Page): Promise<void> {
+  await page.goto('/?mockConnect#/player');
+  await page.evaluate(() => (window as unknown as { __connect: { salonPlays: (p: boolean) => void } }).__connect.salonPlays(true));
+  await page.locator('[data-listen="tv"]').click();
+  await expect(page.locator('.eyebrow.cast-eyebrow')).toContainText('Escuchando desde «Salón»');
+}
+
+test('the free Reproductor offers the devices to listen to, and «Escuchar aquí» opens what arrives', async ({ page }) => {
+  await page.goto('/?mockConnect#/player');
+  await expect(page.locator('.devcard[data-device="tv"]')).toContainText('Salón');
+  await expect(page.locator('.devcard[data-device="tv"] [data-library]')).toContainText('Ver biblioteca');
+  await listenFromSalon(page);
+  await expect(page.locator('.cast-callout')).toContainText('Lo controla «Salón»');
+  await expect(page.locator('.cast-list .track-row')).not.toHaveCount(0);
+});
+
+test('while receiving, the Reproductor says so, shows what sounds and locks this device’s playlists', async ({ page }) => {
+  await listenFromSalon(page);
+  await page.evaluate(() => { location.hash = '#/player'; });
+  await expect(page.locator('.cast-banner')).toContainText('Estás escuchando en «Salón»');
+  await expect(page.locator('.cast-now')).toBeVisible();
+  await expect(page.locator('.local-box')).toHaveClass(/locked/);
+  // The devices to listen to are not offered while one is being listened to.
+  await expect(page.locator('.devcards')).toHaveCount(0);
+  // The arrow of Reproduciendo goes to what arrives, not to a playlist of this device.
+  await page.evaluate(() => { location.hash = '#/now-playing'; });
+  await page.locator('.np-head-name').click();
+  await expect(page.locator('.eyebrow.cast-eyebrow')).toBeVisible();
+});
+
+test('«Escuchar en este dispositivo» asks first, tells the sender, and «No volver a mostrar» skips it next time', async ({ page }) => {
+  await listenFromSalon(page);
+  await page.getByRole('button', { name: 'Escuchar en este dispositivo' }).click();
+  const dialog = page.locator('.overlay-window');
+  await expect(dialog).toContainText('¿Dejar de escuchar en «Salón»?');
+  // Cancelled: still receiving.
+  await page.keyboard.press('Escape');
+  await expect(page.locator('.eyebrow.cast-eyebrow')).toBeVisible();
+  expect(await leaves(page)).toEqual([]);
+
+  await page.getByRole('button', { name: 'Escuchar en este dispositivo' }).click();
+  await dialog.getByLabel('No volver a mostrar este aviso').check();
+  await dialog.getByRole('button', { name: 'Dejar de escuchar' }).click();
+  await expect.poll(() => leaves(page)).toEqual(['tv']);
+  await expect(page.locator('.eyebrow.cast-eyebrow')).toHaveCount(0);
+
+  // The notice stays hidden: the second time it goes straight through.
+  await page.locator('[data-listen="tv"]').click();
+  await expect(page.locator('.eyebrow.cast-eyebrow')).toBeVisible();
+  await page.getByRole('button', { name: 'Escuchar en este dispositivo' }).click();
+  await expect.poll(() => leaves(page)).toEqual(['tv', 'tv']);
+  await expect(page.locator('.overlay-window')).toHaveCount(0);
+
+  // Ajustes brings it back.
+  await page.evaluate(() => { location.hash = '#/settings'; });
+  await page.getByRole('button', { name: 'Restablecer avisos y guías' }).click();
+  await expect(page.getByRole('button', { name: 'Restablecer avisos y guías' })).toBeDisabled();
+  await page.evaluate(() => { location.hash = '#/player'; });
+  await page.locator('[data-listen="tv"]').click();
+  await page.getByRole('button', { name: 'Escuchar en este dispositivo' }).click();
+  await expect(page.locator('.overlay-window')).toContainText('¿Dejar de escuchar en «Salón»?');
+});
+
+test('when the device it passed music to stops listening, this one is back on its own player', async ({ page }) => {
+  await passToSalon(page);
+  await page.evaluate(() => (window as unknown as { __connect: { incoming: (c: object, id?: string) => void } }).__connect.incoming({ cmd: 'castEnd', reason: 'left' }, 'tv'));
+  await expect(page.locator('.devices-button:visible').first()).not.toHaveClass(/(^| )is-cast( |$)/);
+  await expect(page.locator('.toast').first()).toBeVisible();
 });

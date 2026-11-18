@@ -27,6 +27,7 @@ pub struct CastMemory(pub std::sync::Mutex<Option<CastSnapshot>>);
 #[serde(rename_all = "camelCase")]
 pub struct CastSnapshot {
     pub from: String,
+    pub from_id: String,
     pub pass: soundify_core::connect::protocol::CastStart,
     /// Android: where the native player reads the files (so the page knows the audio is the native player's).
     pub cast_base: Option<String>,

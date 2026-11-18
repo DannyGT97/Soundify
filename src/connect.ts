@@ -18,7 +18,7 @@ import { findBlock, library as libraryOf, onDisk } from './library';
 import * as player from './player';
 import { emit, subscribe, ui } from './state';
 import { errorText } from './transfer';
-import { passEnded } from './cast';
+import { passEnded, passToRequester, receiverLeft } from './cast';
 
 export const connect = {
   status: null as ConnectStatus | null,
@@ -73,7 +73,7 @@ export function startConnect(): void {
   // This device's own library, for whoever controls it: said when it changes (and the back keeps it for whoever connects).
   subscribe('library', publishLibrarySoon);
   api.onConnectRemoteClosed(onRemoteClosed);
-  api.onConnectCommand(incoming => onCommand(incoming.command, incoming.from, incoming.castBase));
+  api.onConnectCommand(incoming => onCommand(incoming.command, incoming.from, incoming.castBase, incoming.fromId));
   player.onCastLost(from => {
     logEvent('warn', 'connect', `cast from ${from}: its files stopped answering`);
     notify({ tone: 'error', text: t('connect.castLost', from) });
@@ -131,7 +131,7 @@ function publishIfWorth(force = false): void {
  * What a controller asked: done with the functions the buttons use. A device is either a controller or a player at a time, and
  * the last to ask wins: if this one was controlling another device, it stops (back to its own player) and does what it is asked.
  */
-function onCommand(command: Parameters<typeof actionsFor>[0], from = '', castBase?: string): void {
+function onCommand(command: Parameters<typeof actionsFor>[0], from = '', castBase?: string, fromId = ''): void {
   count('commandIn');
   // A slider dragged sends dozens: they are counted, not written.
   if (command.cmd !== 'volume' && command.cmd !== 'seek') logEvent('info', 'connect', `command ${command.cmd} from ${from || '?'}${ui.remote ? ` (this device was controlling ${ui.remote.name}: it stops)` : ''}`);
@@ -143,9 +143,11 @@ function onCommand(command: Parameters<typeof actionsFor>[0], from = '', castBas
   sayWhoDid(command, from);
   // «Escuchar en»: what the other device plays sounds here now, read from it (or stops, when it takes it back).
   if (command.cmd === 'cast') {
-    if (!player.playCast(from || t('connect.someone'), command, castBase)) logEvent('warn', 'connect', `cast from ${from || '?'} refused: empty or bad queue`);
+    if (!player.playCast(from || t('connect.someone'), command, castBase, fromId)) logEvent('warn', 'connect', `cast from ${from || '?'} refused: empty or bad queue`);
   } else if (command.cmd === 'castEnd') {
-    player.endCast();
+    // The device this one passed its music to stopped listening: back to its own player. Otherwise, the sender ended it.
+    if (ui.castTo) void receiverLeft();
+    else player.endCast();
   }
   for (const action of actionsFor(command, ui)) {
     switch (action.kind) {
@@ -157,6 +159,7 @@ function onCommand(command: Parameters<typeof actionsFor>[0], from = '', castBas
       case 'shuffle': player.toggleShuffle(); break;
       case 'repeat': for (let press = 0; press < action.times; press++) player.cycleRepeat(); break;
       case 'play': player.playTrackById(action.videoId); break;
+      case 'passMe': void passToRequester(fromId); break;
       case 'browse': api.connectPublishBrowse(action.key, player.browseQueue(action.key)); break;
       case 'playFrom': player.playFromBlock(action.key, action.videoId); break;
     }

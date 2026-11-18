@@ -102,6 +102,8 @@ impl AppPlayer {
 #[serde(rename_all = "camelCase")]
 struct IncomingCommand<'a> {
     from: &'a str,
+    /// The id of that device (a command that needs to answer it, like «Escuchar aquí», knows who asked).
+    from_id: &'a str,
     command: &'a Command,
     /// A pass on Android: where the native player reads its files (`LocalRelay`, on 127.0.0.1 with a secret).
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -123,12 +125,20 @@ impl Player for AppPlayer {
                 if cast_base.is_some()
                     && let Some(memory) = self.app.try_state::<crate::cast::CastMemory>()
                 {
-                    *memory.0.lock().unwrap() = Some(crate::cast::CastSnapshot { from: who.name.clone(), pass: (*cast).clone(), cast_base: cast_base.clone() });
+                    *memory.0.lock().unwrap() = Some(crate::cast::CastSnapshot { from: who.name.clone(), from_id: who.controller_id.clone(), pass: (*cast).clone(), cast_base: cast_base.clone() });
                 }
                 Command::Cast(cast)
             }
             // An older pass of another device does not end the one that plays now.
             Command::CastEnd { reason } => {
+                // The device this one passed its music to stopped listening: the pass ends here, and the page goes back to
+                // its own player (it is told with the same command, which it reads on the sender's side).
+                if let Some(state) = self.app.try_state::<ConnectState>()
+                    && state.connect.receiver_left(&who.controller_id)
+                {
+                    crate::mobile::set_casting(&self.app, false);
+                    return self.app.emit("connect-command", IncomingCommand { from: &who.name, from_id: &who.controller_id, command: &Command::CastEnd { reason }, cast_base: None }).map_err(|e| e.to_string());
+                }
                 if !self.inbox.end_from(&who.controller_id) {
                     return Ok(());
                 }
@@ -139,7 +149,7 @@ impl Player for AppPlayer {
             }
             other => other,
         };
-        self.app.emit("connect-command", IncomingCommand { from: &who.name, command: &command, cast_base }).map_err(|e| e.to_string())
+        self.app.emit("connect-command", IncomingCommand { from: &who.name, from_id: &who.controller_id, command: &command, cast_base }).map_err(|e| e.to_string())
     }
 }
 
@@ -721,6 +731,18 @@ pub struct CastCurrent {
 pub fn connect_cast_current(state: State<'_, ConnectState>, memory: State<'_, crate::cast::CastMemory>) -> Option<CastCurrent> {
     let snapshot = memory.0.lock().unwrap().clone()?;
     Some(CastCurrent { snapshot, state: state.connect.own_state() })
+}
+
+/// «Escuchar aquí»: asks a paired device to pass what it plays to this one. No confirmation there.
+#[tauri::command(async)]
+pub fn connect_pass_request(state: State<'_, ConnectState>, device_id: String) -> Result<(), CommandError> {
+    state.connect.request_pass(&device_id).map_err(error)
+}
+
+/// This device stops listening to what `deviceId` passes to it: that device is told, and goes back to its own player.
+#[tauri::command(async)]
+pub fn connect_cast_leave(state: State<'_, ConnectState>, device_id: String) {
+    state.connect.leave_pass(&device_id);
 }
 
 /// The pass ends: nothing more can be read from here, and the other device stops.

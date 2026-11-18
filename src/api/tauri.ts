@@ -118,6 +118,8 @@ export const tauriApi: Api = {
   connectCast: request => invoke('connect_cast', { request }),
   connectCastEnd: reason => invoke('connect_cast_end', { reason }),
   connectCastCurrent: () => invoke<ConnectCastCurrent | null>('connect_cast_current'),
+  connectPassRequest: deviceId => invoke('connect_pass_request', { deviceId }),
+  connectCastLeave: deviceId => invoke('connect_cast_leave', { deviceId }),
   connectLibraryOf: deviceId => invoke<ConnectLibraryEntry[]>('connect_library_of', { deviceId }),
   connectPublishLibrary: playlists => void invoke('connect_publish_library', { playlists }).catch(() => {}),
   connectPublishBrowse: (key, queue) => void invoke('connect_publish_browse', { key, queue }).catch(() => {}),

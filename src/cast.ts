@@ -8,10 +8,12 @@
 import { api, type ConnectDevice } from './api';
 import { notify } from './components/toasts';
 import { connect, endPassControl, startPassControl } from './connect';
+import { showNotice } from './overlays/notice';
+import { navigate } from './router';
 import { logEvent } from './diag';
 import { t } from './i18n';
 import * as player from './player';
-import { emit, ui } from './state';
+import { emit, subscribe, ui } from './state';
 import { errorText } from './transfer';
 
 /** Can what plays here be passed now? (Something of THIS device plays, and it is not another device's pass.) */
@@ -74,6 +76,79 @@ export function passEnded(reason: string): void {
 async function finish(reason: string): Promise<void> {
   ui.castTo = null;
   await api.connectCastEnd(reason).catch(error => notify({ tone: 'error', text: errorText(error) }));
+  await endPassControl();
+  emit('connect');
+}
+
+// === THE DEVICE THAT RECEIVES ===
+
+/** «Escuchar en este dispositivo»: asks first (unless the user turned the notice off), then what comes from the other device stops. */
+export function stopListening(): void {
+  const from = ui.castFrom;
+  if (!from) return;
+  showNotice({
+    id: 'stopListening',
+    title: t('connect.listen.stop.title'),
+    header: t('connect.listen.stop.header', from),
+    body: t('connect.listen.stop.body', from),
+    confirm: t('connect.listen.stop.confirm'),
+    run: () => {
+      logEvent('info', 'connect', `stop listening to ${from}`);
+      player.stopHere();
+      navigate('player');
+    },
+  });
+}
+
+/** «Escuchar aquí»: asks `device` to pass what it plays; when it arrives, the view of what is received opens. */
+export async function listenFrom(device: ConnectDevice): Promise<void> {
+  if (!device.playing) {
+    notify({ tone: 'neutral', text: t('connect.listen.idle', device.name) });
+    return;
+  }
+  logEvent('info', 'connect', `listen from ${device.name} #${device.id.slice(0, 6)}`);
+  try {
+    await api.connectPassRequest(device.id);
+  } catch (error) {
+    notify({ tone: 'error', text: errorText(error) });
+    return;
+  }
+  if (await arrives()) navigate('cast-queue');
+  else notify({ tone: 'warning', text: t('connect.listen.timeout', device.name) });
+}
+
+/** True when something is passed here (it answers within a few seconds), false if it never comes. */
+function arrives(): Promise<boolean> {
+  if (ui.castFrom) return Promise.resolve(true);
+  return new Promise(resolve => {
+    const done = (value: boolean) => {
+      window.clearTimeout(timer);
+      stop();
+      resolve(value);
+    };
+    const stop = subscribe('player', () => { if (ui.castFrom) done(true); });
+    const timer = window.setTimeout(() => done(false), 8000);
+  });
+}
+
+// === THE DEVICE THAT PASSES, ASKED OR TOLD ===
+
+/** A paired device asked to listen to what plays here («Escuchar aquí»): it is passed, no questions. */
+export async function passToRequester(deviceId: string): Promise<void> {
+  const device = connect.devices.find(other => other.id === deviceId);
+  if (!device) return;
+  if (!canPass()) {
+    notify({ tone: 'neutral', text: t('connect.listen.nothingHere', device.name) });
+    return;
+  }
+  await passTo(device);
+}
+
+/** The device this one passed its music to stopped listening: this device goes back to its own player (paused where it was). */
+export async function receiverLeft(): Promise<void> {
+  if (!ui.castTo) return;
+  logEvent('info', 'connect', `${ui.castTo.name} stopped listening`);
+  ui.castTo = null;
   await endPassControl();
   emit('connect');
 }

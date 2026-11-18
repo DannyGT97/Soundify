@@ -1,12 +1,12 @@
 // Hash routing between the screens (#/manager, #/player?b=pl1:MP3). Each
 // screen is rebuilt on every visit; what has to survive lives in `ui`.
 
-export type Route = 'home' | 'download' | 'new-playlist' | 'manager' | 'player' | 'now-playing' | 'remote-playlist' | 'settings';
+export type Route = 'home' | 'download' | 'new-playlist' | 'manager' | 'player' | 'now-playing' | 'remote-playlist' | 'cast-queue' | 'settings';
 
 export type Params = Record<string, string>;
 export type View = (params: Params) => HTMLElement;
 
-const ROUTES: Route[] = ['home', 'download', 'new-playlist', 'manager', 'player', 'now-playing', 'remote-playlist', 'settings'];
+const ROUTES: Route[] = ['home', 'download', 'new-playlist', 'manager', 'player', 'now-playing', 'remote-playlist', 'cast-queue', 'settings'];
 
 let views: Partial<Record<Route, View>> = {};
 let onRoute: (route: Route) => void = () => {};

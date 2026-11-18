@@ -170,6 +170,8 @@ pub fn run() {
       cast::connect_cast_clear,
       connect::connect_cast,
       connect::connect_cast_end,
+      connect::connect_pass_request,
+      connect::connect_cast_leave,
       connect::connect_cast_current,
       connect::connect_library_of,
       connect::connect_publish_library,
