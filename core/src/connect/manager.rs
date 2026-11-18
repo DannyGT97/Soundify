@@ -531,16 +531,17 @@ impl Connect {
         }
         if manual {
             self.forgotten.lock().unwrap().remove(&info.device_id);
-        } else if self.forgotten.lock().unwrap().contains(&info.device_id) {
-            return Err(ConnectError::Other("forgotten".into()));
         }
+        // A device the user forgot is listed again when it shows up (it can be paired with its PIN); what is not done is pairing
+        // with it by itself (`pair_by_itself`).
+        let needs_pin = !info.open || self.forgotten.lock().unwrap().contains(&info.device_id);
         {
             let mut nearby = self.nearby.lock().unwrap();
             // Already known (announced on the network, or typed in): what is known about it is better than a guess.
             if !manual && nearby.contains_key(&info.device_id) {
                 return Ok(info);
             }
-            nearby.insert(info.device_id.clone(), Nearby { info: info.clone(), addr, manual, state: None, queue: None, library: Vec::new(), needs_pin: !info.open, learned: !manual, version: None });
+            nearby.insert(info.device_id.clone(), Nearby { info: info.clone(), addr, manual, state: None, queue: None, library: Vec::new(), needs_pin, learned: !manual, version: None });
         }
         self.listener.devices_changed();
         self.connect_to(&info.device_id);
@@ -646,9 +647,6 @@ impl Connect {
 
     /// An open device lets anybody in: asks it for a token with no PIN. A strict one is marked as needing the PIN.
     fn pair_by_itself(&self, id: &str, addr: SocketAddr) -> Option<(String, String)> {
-        if self.forgotten.lock().unwrap().contains(id) {
-            return None;
-        }
         let info = match client::fetch_info(addr) {
             Ok(info) => info,
             // Found by a way that does not say its version (the UDP beacon): it is another one. Shown as such, left alone.
@@ -660,10 +658,12 @@ impl Connect {
             }
             Err(_) => return None,
         };
+        // A device the user forgot is not paired with by itself, even if it is open: the user does it, with its PIN.
+        let forgotten = self.forgotten.lock().unwrap().contains(id);
         if let Some(nearby) = self.nearby.lock().unwrap().get_mut(id) {
-            nearby.needs_pin = !info.open;
+            nearby.needs_pin = !info.open || forgotten;
         }
-        if !info.open {
+        if !info.open || forgotten {
             return None;
         }
         let me = self.identity();
@@ -766,7 +766,8 @@ impl Connect {
             return;
         }
         let mut nearby = self.nearby.lock().unwrap();
-        if nearby.get(id).is_some_and(|n| n.learned) {
+        // One that needs its PIN has no connection by design: it stays listed so it can be paired.
+        if nearby.get(id).is_some_and(|n| n.learned && !n.needs_pin) {
             nearby.remove(id);
             self.departures.lock().unwrap().insert(id.to_string(), Instant::now());
         }

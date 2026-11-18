@@ -242,6 +242,7 @@ export const ca: Record<string, string> = {
   'connect.cast.playingYours': 'Sonant la teva música',
   'connect.cast.needsMusic': 'Posa alguna cosa al Reproductor per poder-la passar a un altre dispositiu.',
   'connect.cast.whileControlling': 'Deixa de controlar «{0}» per passar la teva música.',
+  'connect.cast.whileListening': 'Estàs escoltant el que passa «{0}». Per passar la teva música, escolta abans en aquest dispositiu.',
   'connect.control.help': "Controla els fitxers multimèdia d'un altre dispositiu.",
   'connect.control.go': 'Controlar',
   'connect.control.banner': 'Controlant «{0}»',

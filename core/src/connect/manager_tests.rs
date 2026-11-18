@@ -417,3 +417,17 @@ fn a_computer_that_comes_back_with_a_new_id_does_not_leave_its_old_one_in_the_li
     wait(|| device(&controller, "tv-old").is_none());
     assert!(device(&controller, "other").is_some(), "a device with another name stays");
 }
+
+#[test]
+fn a_device_forgotten_here_can_be_paired_again_when_it_reappears_without_restarting_anything() {
+    let (player, controller) = strict_pair();
+    controller.connect.forget("tv").unwrap();
+    // The other device goes away and comes back (its app closed and opened, or the network blinked).
+    player.connect.stop();
+    wait(|| device(&controller, "tv").is_none());
+    player.connect.start(0).unwrap();
+    wait(|| device(&controller, "tv").is_some_and(|d| d.needs_pin));
+    let pin = player.connect.pin().unwrap();
+    controller.connect.pair("tv", &pin).unwrap();
+    wait(|| device(&controller, "tv").is_some_and(|d| d.paired && d.ready));
+}

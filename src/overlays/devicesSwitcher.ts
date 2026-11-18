@@ -7,7 +7,7 @@
 
 import type { ConnectDevice } from '../api';
 import { closeOverlay, closeOverlayThen, openOverlay } from '../components/overlay';
-import { bringHere, canPass, passTo, stopPass } from '../cast';
+import { bringHere, canPass, passTo, stopListening, stopPass } from '../cast';
 import { connect, controlDevice, loadConnect, stopControlling } from '../connect';
 import { h } from '../dom';
 import { t } from '../i18n';
@@ -32,10 +32,11 @@ export function openDevicesSwitcher(): void {
   };
   const unsubscribe = subscribe('connect', refresh);
   // The player ticks several times a second: only whether there is something to pass changes what this shows.
-  let couldPass = canPass();
+  const mode = () => `${canPass()}|${ui.castFrom ?? ''}`;
+  let before = mode();
   const unsubscribePlayer = subscribe('player', () => {
-    if (canPass() === couldPass) return;
-    couldPass = canPass();
+    if (mode() === before) return;
+    before = mode();
     refresh();
   });
   void loadConnect();
@@ -117,6 +118,16 @@ function content(): Node[] {
       h('div', { class: 'cx-banner-actions' },
         h('button', { class: 'primary-button', text: t('connect.cast.bring'), onclick: () => { void bringHere().then(() => closeOverlay()); } }),
         h('button', { class: 'secondary-button', text: t('connect.cast.stop'), onclick: () => { void stopPass().then(() => closeOverlay()); } }))));
+  } else if (ui.castFrom) {
+    // Another device passes its music here: who, and the ways out (what arrives, or end it and go back to this device's own).
+    nodes.push(h('div', { class: 'card cx-banner cx-banner-cast', attrs: { 'data-listening': ui.castFromId ?? '' } },
+      h('div', { class: 'cx-banner-head' }, icon('cast', 20),
+        h('div', { class: 'min0' },
+          h('div', { class: 'row-title', text: t('castQueue.eyebrow', ui.castFrom) }),
+          h('div', { class: 'subtitle', text: t('castQueue.callout.title', ui.castFrom) }))),
+      h('div', { class: 'cx-banner-actions' },
+        h('button', { class: 'primary-button', text: t('castQueue.listenHere'), onclick: () => { closeOverlay(); stopListening(); } }),
+        h('button', { class: 'secondary-button', text: t('nowPlaying.backCast'), onclick: () => closeOverlayThen(() => navigate('cast-queue')) }))));
   } else if (ui.remote) {
     nodes.push(h('div', { class: 'card cx-banner cx-banner-control', attrs: { 'data-controlling': ui.remote.deviceId } },
       h('div', { class: 'cx-banner-head' }, icon('control', 20),
@@ -131,7 +142,7 @@ function content(): Node[] {
   const passing = canPass();
   nodes.push(...section('cast', t('connect.cast.section'), t('connect.cast.help')));
   if (!passing && !ui.castTo) {
-    nodes.push(h('p', { class: 'help cx-empty', text: ui.remote ? t('connect.cast.whileControlling', ui.remote.name) : t('connect.cast.needsMusic') }));
+    nodes.push(h('p', { class: 'help cx-empty', text: ui.castFrom ? t('connect.cast.whileListening', ui.castFrom) : ui.remote ? t('connect.cast.whileControlling', ui.remote.name) : t('connect.cast.needsMusic') }));
   } else {
     nodes.push(row({
       attr: 'data-pass', id: 'this', name: status.name, kind: onAndroid ? 'phone' : 'desktop',

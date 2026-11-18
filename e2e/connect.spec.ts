@@ -648,3 +648,14 @@ test('when the device it passed music to stops listening, this one is back on it
   await expect(page.locator('.devices-button:visible').first()).not.toHaveClass(/(^| )is-cast( |$)/);
   await expect(page.locator('.toast').first()).toBeVisible();
 });
+
+test('while another device passes its music here, the devices window says who and offers to listen on this one', async ({ page }) => {
+  await listenFromSalon(page);
+  await page.locator('.devices-button:visible').first().click();
+  const window = page.locator('.overlay-window');
+  await expect(window.locator('.cx-banner-cast')).toContainText('Escuchando desde «Salón»');
+  await expect(window).toContainText('Estás escuchando lo de «Salón»');
+  await window.getByRole('button', { name: 'Escuchar en este dispositivo' }).click();
+  await page.getByRole('button', { name: 'Dejar de escuchar' }).click();
+  await expect.poll(() => leaves(page)).toEqual(['tv']);
+});
