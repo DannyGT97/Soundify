@@ -615,6 +615,8 @@ button.dev-row:hover { background: var(--sp-nav-hover); }
 .cast-banner > .primary-button { flex: 0 0 auto; }
 @media (max-width: 600px) { .cast-banner > .primary-button { flex: 1 1 100%; justify-content: center; } }
 .locked-note { display: none; align-items: center; gap: 6px; color: var(--sp-muted); font-size: 12px; }
+.local-box { display: flex; flex-direction: column; gap: 12px; flex: none; }
+.screen > div:empty, .local-box > div:empty { display: none; }
 .local-box.locked .locked-note { display: inline-flex; }
 .local-box.locked .toolbar, .local-box.locked .pgrid, .local-box.locked .resume { opacity: .42; filter: saturate(.35); pointer-events: none; user-select: none; }
 .eyebrow.cast-eyebrow { display: flex; align-items: center; gap: 7px; color: var(--sp-live); }
