@@ -299,7 +299,17 @@ fn discovery() -> std::io::Result<Arc<dyn Discovery>> {
         Ok(mdns) => parts.push(Arc::new(mdns)),
         Err(e) => warn!("Soundify Connect: no mDNS: {e}"),
     }
-    match Beacon::new() {
+    // The port may still be held for a moment by the copy this one replaces (an update hands over while the old one closes):
+    // tried again for a few seconds before giving up (it runs in a thread of its own, nothing waits for it).
+    let mut beacon = Beacon::new();
+    for _ in 0..8 {
+        if !matches!(&beacon, Err(e) if e.kind() == std::io::ErrorKind::AddrInUse) {
+            break;
+        }
+        std::thread::sleep(std::time::Duration::from_millis(500));
+        beacon = Beacon::new();
+    }
+    match beacon {
         Ok(beacon) => parts.push(Arc::new(beacon)),
         Err(e) => warn!("Soundify Connect: no UDP beacon: {e}"),
     }

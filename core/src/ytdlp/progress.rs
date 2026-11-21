@@ -88,9 +88,12 @@ impl ProgressParser {
         }
 
         if line.starts_with("[download]") && let Some(percent_index) = line.find('%') {
+            // The start of the number: right after the last character that is not part of it (which may be wider than a byte:
+            // a title in Japanese or with accents comes before it in the «Destination» lines).
             let start = line[..percent_index]
-                .rfind(|c: char| !(c.is_ascii_digit() || c == '.'))
-                .map_or(0, |i| i + 1);
+                .char_indices()
+                .rfind(|&(_, c)| !(c.is_ascii_digit() || c == '.'))
+                .map_or(0, |(i, c)| i + c.len_utf8());
             let raw = line[start..percent_index].trim();
             if !raw.is_empty() && self.total_items > 0 {
                 let item_percent = raw.parse::<f64>().ok()? / 100.0;
@@ -123,6 +126,16 @@ mod tests {
     fn close(actual: Option<f64>, expected: f64) {
         let actual = actual.expect("no progress was emitted");
         assert!((actual - expected).abs() < 1e-9, "{actual} != {expected}");
+    }
+
+    #[test]
+    fn a_title_with_a_wide_character_before_a_percent_does_not_panic() {
+        let mut p = ProgressParser::new();
+        p.parse("[youtube:tab] Playlist Canciones: Downloading 10 items of 10");
+        p.parse("[download] Downloading item 3 of 10");
+        // yt-dlp also prints the destination, with the title in it: CJK (3 bytes) right before digits and a percent.
+        let _ = p.parse("[download] Destination: 003 - 完璧100% Phonk.mp3");
+        let _ = p.parse("[download] Destination: 004 - ñ5% – 99%.mp3");
     }
 
     // === AN UNBOUNDED RUN: the total is yt-dlp's word ===

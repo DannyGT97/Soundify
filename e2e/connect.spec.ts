@@ -582,6 +582,8 @@ const leaves = (page: Page) => page.evaluate(() => (window as unknown as { __con
 async function listenFromSalon(page: Page): Promise<void> {
   await page.goto('/?mockConnect#/player');
   await page.evaluate(() => (window as unknown as { __connect: { salonPlays: (p: boolean) => void } }).__connect.salonPlays(true));
+  // The list says it plays before it is asked (the check is made with what the list shows).
+  await expect(page.locator('.devcard[data-device="tv"]')).toContainText('Sonando');
   await page.locator('[data-listen="tv"]').click();
   await expect(page.locator('.eyebrow.cast-eyebrow')).toContainText('Escuchando desde «Salón»');
 }

@@ -45,10 +45,16 @@ pub fn device_playlist_sub_path(base: Option<&str>, title: &str, format: &str) -
 static FORBIDDEN: LazyLock<Regex> = LazyLock::new(|| Regex::new(r#"[\\/:*?"<>|]"#).unwrap());
 static SPACES: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"\s+").unwrap());
 
-/// The characters Windows forbids become `_`, runs of spaces one space.
+/// The longest title a folder name keeps (a component is at most 255 characters on Windows, and it carries a prefix and a hash).
+const MAX_FOLDER_TITLE: usize = 200;
+
+/// The characters Windows forbids become `_`, runs of spaces one space, control characters go, and a title that is too long
+/// for a folder name is cut (the hash that follows it still tells playlists apart).
 pub fn sanitize_folder_name(name: &str) -> String {
     let replaced = FORBIDDEN.replace_all(name, "_");
-    SPACES.replace_all(&replaced, " ").trim().to_string()
+    let clean: String = replaced.chars().filter(|c| !c.is_control()).collect();
+    let spaced = SPACES.replace_all(&clean, " ");
+    spaced.trim().chars().take(MAX_FOLDER_TITLE).collect::<String>().trim_end().to_string()
 }
 
 // === ARCHIVE LOCATIONS ===
@@ -299,6 +305,10 @@ mod tests {
         assert_eq!(sanitize_folder_name("AC/DC : Live?"), "AC_DC _ Live_");
         assert_eq!(sanitize_folder_name("a\\b*c\"d<e>f"), "a_b_c_d_e_f");
         assert_eq!(sanitize_folder_name("  Mi    Playlist  "), "Mi Playlist");
+        // Control characters cannot be in a folder name; a very long title is cut (by characters, never in the middle of one).
+        assert_eq!(sanitize_folder_name("abc"), "abc");
+        let long = sanitize_folder_name(&"ñ".repeat(300));
+        assert_eq!(long.chars().count(), 200);
     }
 
     #[test]

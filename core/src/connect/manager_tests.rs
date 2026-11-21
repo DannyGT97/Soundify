@@ -431,3 +431,43 @@ fn a_device_forgotten_here_can_be_paired_again_when_it_reappears_without_restart
     controller.connect.pair("tv", &pin).unwrap();
     wait(|| device(&controller, "tv").is_some_and(|d| d.paired && d.ready));
 }
+
+// === «ESCUCHAR EN» / «ESCUCHAR AQUÍ» BETWEEN TWO APPS ===
+
+fn pass_of(video_id: &str) -> (CastStart, Vec<(String, super::cast::SharedFile)>) {
+    let item = CastItem { video_id: video_id.into(), title: "Una".into(), duration: 10.0, format: "mp3".into(), video: false, cover: false };
+    let start = CastStart {
+        host: String::new(), port: 1, fingerprint: String::new(), ticket: String::new(), playlist: "Lista".into(),
+        items: vec![item], index: 0, position: 0.0, playing: true, shuffle: false, repeat: "off".into(),
+    };
+    (start, vec![(video_id.to_string(), super::cast::SharedFile { media: std::path::PathBuf::from("/x.mp3"), cover: None })])
+}
+
+#[test]
+fn listen_here_reaches_the_other_app_only_from_a_paired_device_that_is_there() {
+    let (player, controller) = strict_pair();
+    assert_eq!(controller.connect.request_pass("nobody"), Err(ConnectError::NotPaired));
+    controller.connect.request_pass("tv").unwrap();
+    wait(|| player.commands.0.lock().unwrap().contains(&Command::PassMe));
+    player.connect.stop();
+    wait(|| !device(&controller, "tv").is_some_and(|d| d.online && d.ready));
+    assert!(matches!(controller.connect.request_pass("tv"), Err(ConnectError::Offline) | Err(ConnectError::NotPaired)));
+}
+
+#[test]
+fn the_device_that_stops_listening_ends_the_pass_here_and_a_stranger_cannot() {
+    // Open devices pair each other in both directions: `player` can pass to `controller`.
+    let (player, controller) = open_pair();
+    let (start, files) = pass_of("a");
+    wait(|| device(&player, "phone").is_some_and(|d| d.ready));
+    player.connect.cast_to("phone", start, files).unwrap();
+    assert_eq!(player.connect.casting().as_deref(), Some("phone"));
+    // Somebody that is not the receiver says it left: nothing changes.
+    assert!(!player.connect.receiver_left("stranger"));
+    assert_eq!(player.connect.casting().as_deref(), Some("phone"));
+    // The receiver leaves: the pass is over here.
+    assert!(player.connect.receiver_left("phone"));
+    assert_eq!(player.connect.casting(), None);
+    assert!(!player.connect.receiver_left("phone"), "a second, late message does nothing");
+    let _ = controller;
+}
