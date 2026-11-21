@@ -19,6 +19,9 @@ pub struct MediaUpdate {
     pub shuffle: bool,
     /// `off`, `all` or `one`.
     pub repeat: String,
+    /// The tooltips of the buttons under the window's preview in the taskbar (`thumbbar.rs`), in the language of the app.
+    #[serde(default)]
+    pub tips: crate::thumbbar::Tips,
 }
 
 /// What a key asked for.
@@ -151,8 +154,7 @@ pub struct Session;
 pub fn start(app: &tauri::AppHandle) {
     #[cfg(windows)]
     smtc::start(app);
-    #[cfg(not(windows))]
-    let _ = app;
+    crate::thumbbar::start(app);
 }
 
 /// The page says what plays here (and in which state): Windows shows it next to the keys.
@@ -162,6 +164,6 @@ pub fn media_session(app: tauri::AppHandle, update: MediaUpdate) {
     if let Err(e) = smtc::update(&app, &update) {
         log::warn!("Media keys: could not update the session: {e}");
     }
-    #[cfg(not(windows))]
-    let _ = (app, update);
+    // The buttons under the window's preview in the taskbar say the same.
+    crate::thumbbar::update(&app, &update);
 }

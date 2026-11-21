@@ -5,6 +5,7 @@
 
 import { api } from './api';
 import type { MediaKey, MediaSessionUpdate } from './api/types';
+import { t } from './i18n';
 import { onAndroid } from './platform';
 import * as player from './player';
 import { subscribe, ui } from './state';
@@ -19,6 +20,10 @@ export function currentSession(): MediaSessionUpdate {
     playing: ui.playing,
     shuffle: ui.shuffle,
     repeat: ui.repeat,
+    tips: {
+      previous: t('player.previous'), play: t('player.play'), pause: t('player.pause'), next: t('player.next'),
+      shuffle: t('player.shuffle'), repeat: t(`player.repeat.${ui.repeat}`),
+    },
   };
 }
 
@@ -57,7 +62,7 @@ export function startMediaKeys(): void {
   const publish = () => {
     const session = currentSession();
     // The player ticks several times a second: only what changed is told.
-    const signature = `${session.active}|${session.title}|${session.subtitle}|${session.playing}|${session.shuffle}|${session.repeat}`;
+    const signature = `${session.active}|${session.title}|${session.subtitle}|${session.playing}|${session.shuffle}|${session.repeat}|${session.tips.play}`;
     if (signature === said) return;
     said = signature;
     api.mediaSession(session);

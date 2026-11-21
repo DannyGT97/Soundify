@@ -19,6 +19,7 @@ mod mtp;
 mod window_menu;
 mod process;
 mod secret;
+mod thumbbar;
 mod tools;
 
 use std::sync::Arc;

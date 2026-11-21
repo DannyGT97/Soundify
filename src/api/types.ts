@@ -338,6 +338,8 @@ export interface MediaSessionUpdate {
   playing: boolean;
   shuffle: boolean;
   repeat: 'off' | 'all' | 'one';
+  /** The tooltips of the buttons under the window's preview in the taskbar (Windows), in the language of the app. */
+  tips: { previous: string; play: string; pause: string; next: string; shuffle: string; repeat: string };
 }
 
 /** What a media key (the keyboard's, a headset's) asked for. `value`: shuffle `'true'`/`'false'`, repeat `'off'`/`'all'`/`'one'`. */
