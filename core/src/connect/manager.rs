@@ -34,6 +34,8 @@ const RECONNECT_DELAYS: [u64; 8] = [1, 2, 4, 8, 16, 30, 30, 30];
 /// What the app does when a controller asks for something. It must not block.
 pub trait Player: Send + Sync {
     fn command(&self, who: &Trusted, command: Command) -> Result<(), String>;
+    /// A controller's connection ended. The app uses it for a pass it receives from that controller (see `Connect::has_controller`).
+    fn controller_left(&self, _who: &Trusted) {}
 }
 
 /// What the screen is told.
@@ -193,6 +195,10 @@ impl Host for HostAdapter {
         if let Some(connect) = self.me.upgrade() {
             connect.learn(SocketAddr::new(ip, port));
         }
+    }
+
+    fn controller_left(&self, who: &Trusted) {
+        self.player.controller_left(who);
     }
 }
 
@@ -973,6 +979,12 @@ impl Connect {
         info!("Soundify Connect: #{} stopped listening to what this device passed", short(controller_id));
         self.listener.devices_changed();
         true
+    }
+
+    /// Is this controller connected to this device right now? (A device that receives what another passes asks it after the other
+    /// disconnects: if it is back, the pass goes on.)
+    pub fn has_controller(&self, controller_id: &str) -> bool {
+        self.running.lock().unwrap().as_ref().is_some_and(|running| running.server.has_controller(controller_id))
     }
 
     /// The device this one passed what it plays to, if any.

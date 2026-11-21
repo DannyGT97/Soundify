@@ -329,6 +329,23 @@ export interface ConnectQueueItem {
 /** The playlist a device is playing, in its order: what a controller lists to pick a song from (its «remote playlist»). */
 export interface ConnectQueue { playlist: string; items: ConnectQueueItem[] }
 /** What a controller asks a player to do. */
+/** What the media keys of the system show about what plays here (Windows: `media_keys.rs`). */
+export interface MediaSessionUpdate {
+  /** False when nothing plays (the player is closed): the session hides. */
+  active: boolean;
+  title: string;
+  subtitle: string;
+  playing: boolean;
+  shuffle: boolean;
+  repeat: 'off' | 'all' | 'one';
+}
+
+/** What a media key (the keyboard's, a headset's) asked for. `value`: shuffle `'true'`/`'false'`, repeat `'off'`/`'all'`/`'one'`. */
+export interface MediaKey {
+  action: 'play' | 'pause' | 'stop' | 'next' | 'previous' | 'shuffle' | 'repeat';
+  value?: string | null;
+}
+
 export type ConnectCommand =
   | { cmd: 'play' | 'pause' | 'toggle' | 'next' | 'previous' }
   /** This device is the one being controlled from now on (sent when it is chosen): it stops controlling and says who took it. */
@@ -459,6 +476,9 @@ export interface Preferences {
   autoPip: boolean;
   /** The explanatory windows marked «No volver a mostrar» (their ids): `preferences.ts` hides them, Ajustes brings them back. */
   hiddenNotices: string[];
+  /** The Reproductor's library as it was left: the chip and the order (empty = the default). */
+  playerFilter: string;
+  playerSort: string;
   includeIdInTitleName: boolean;
   /** Ajustes → Avanzado: yt-dlp fetches two fragments at once (only DASH/HLS; off by default). */
   concurrentFragments: boolean;

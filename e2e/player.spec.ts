@@ -524,3 +524,12 @@ test('the bar that slides in when the list is scrolled stops short of the scroll
   // Whatever width the scrollbar has on this system, the bar leaves exactly that free.
   expect(Math.round(edges.gap)).toBe(Math.round(edges.scrollbar));
 });
+
+test('the Reproductor remembers the chip and the order it was left with, also after the app starts again', async ({ page }) => {
+  await page.goto('/#/player');
+  await page.locator('.fchip', { hasText: 'Vídeo' }).first().click();
+  await page.locator('select.sort').selectOption('az');
+  await page.reload();
+  await expect(page.locator('.fchip.on').first()).toHaveText('Vídeo');
+  await expect(page.locator('select.sort')).toHaveValue('az');
+});

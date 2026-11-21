@@ -43,6 +43,9 @@
   .nav-label-short { display: block; max-width: 100%; overflow: hidden; text-overflow: ellipsis; }
   /* Big scale: «Descargar» and «Reproductor» would be cut to «Desc…» and «Repro…»: icons only (the tab keeps its title for screen readers). */
   :root[data-scale="150"] .nav-label-short, :root[data-scale="175"] .nav-label-short { display: none; }
+  /* A little bigger (125 %) or a narrow phone: the labels get smaller before they get cut («Reprod…»). */
+  :root[data-scale="125"] .nav-label-short, .nav-label-short { font-size: inherit; }
+  :root[data-scale="125"] .sidebar .nav-button { font-size: 9.5px; letter-spacing: -0.2px; padding-left: 0; padding-right: 0; }
   .nav-button.selected, .nav-button.phone-selected { background: transparent; color: var(--sp-text-strong); }
   .nav-button.phone-selected .icon, .nav-button.selected .icon { color: var(--sp-accent); }
 

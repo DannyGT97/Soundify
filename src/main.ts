@@ -31,6 +31,9 @@ import { watchAppUpdates } from './appUpdate';
 import { messageText, noticeTone, pointsToSettings } from './tasks';
 import { loadTools, missingRequired, openAdvancedSettings, tools, watchTools } from './tools';
 import { openToolsSetup } from './overlays/toolsSetup';
+import { showGuide } from './overlays/guide';
+import { startMediaKeys } from './mediaKeys';
+import { androidGuide, welcomeGuide } from './guides';
 import { installSpaceToPlay } from './keys';
 import { subscribe, ui } from './state';
 import { installPlatform, isPhone, onAndroid } from './platform';
@@ -76,6 +79,8 @@ if (app) {
   watchActivity();
   setTitleTools(activityButtons);
   installSpaceToPlay();
+  // The keyboard's media keys and the headset's buttons (Windows), and what plays shown next to them.
+  startMediaKeys();
   watchToolHealth();
   watchTools();
   watchAppUpdates();
@@ -128,9 +133,13 @@ if (app) {
   // REQUIRED one is missing. Asked after the first screen, so it is not waited for.
   // On Android they come in the APK: there is nothing to install, only the
   // storage access to ask for (Inicio and Descarga say it, with a button).
-  void loadTools().then(() => {
-    if (!onAndroid && missingRequired(tools.report).length) openToolsSetup();
-  }).catch(() => {});
+  // Before it, the first-start guides (welcome, and on Android what the permissions are for): the assistant comes after them.
+  const setup = () => {
+    void loadTools().then(() => {
+      if (!onAndroid && missingRequired(tools.report).length) openToolsSetup();
+    }).catch(() => {});
+  };
+  showGuide(welcomeGuide(() => { if (onAndroid) showGuide(androidGuide(setup)); else setup(); }));
   if (onAndroid) {
     // They come back from the system's screen having decided.
     document.addEventListener('visibilitychange', () => {

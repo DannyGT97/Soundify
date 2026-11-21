@@ -7,7 +7,7 @@
 
 import { api, type ConnectDevice } from './api';
 import { notify } from './components/toasts';
-import { connect, endPassControl, startPassControl } from './connect';
+import { connect, connectFailure, endPassControl, startPassControl } from './connect';
 import { showNotice } from './overlays/notice';
 import { navigate } from './router';
 import { logEvent } from './diag';
@@ -110,7 +110,7 @@ export async function listenFrom(device: ConnectDevice): Promise<void> {
   try {
     await api.connectPassRequest(device.id);
   } catch (error) {
-    notify({ tone: 'error', text: errorText(error) });
+    connectFailure(error);
     return;
   }
   if (await arrives()) navigate('cast-queue');

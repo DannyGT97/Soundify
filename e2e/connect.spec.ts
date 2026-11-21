@@ -59,7 +59,16 @@ test('asking for a PIN is a switch: this device then shows its own PIN', async (
   await expect(page.locator('.cx-pin-code')).toHaveCount(0);
   await page.locator('.cx-switch', { hasText: 'Pedir un PIN' }).locator('.switch').check();
   await expect(page.locator('.cx-pin-code')).toHaveText('482 915');
-  await page.locator('.cx-switch', { hasText: 'Pedir un PIN' }).locator('.switch').uncheck();
+  // Turning the PIN off lets anybody in: it is asked first, and nothing changes until it is accepted.
+  await page.locator('.cx-switch', { hasText: 'Pedir un PIN' }).locator('.switch').click();
+  await expect(page.locator('.overlay-scrim:not(.overlay-leaving) .overlay-window')).toContainText('¿Dejar de pedir PIN?');
+  await page.locator('.overlay-scrim:not(.overlay-leaving) .overlay-window').getByRole('button', { name: 'Cancelar' }).click();
+  await page.getByRole('button', { name: 'Dispositivos…' }).click();
+  await expect(page.locator('.cx-switch', { hasText: 'Pedir un PIN' }).locator('.switch')).toBeChecked();
+  await expect(page.locator('.cx-pin-code')).toHaveText('482 915');
+  await page.locator('.cx-switch', { hasText: 'Pedir un PIN' }).locator('.switch').click();
+  await page.locator('.overlay-scrim:not(.overlay-leaving) .overlay-window').getByRole('button', { name: 'Dejar de pedir PIN' }).click();
+  await page.getByRole('button', { name: 'Dispositivos…' }).click();
   await expect(page.locator('.cx-pin-code')).toHaveCount(0);
 });
 
@@ -637,9 +646,12 @@ test('«Escuchar en este dispositivo» asks first, tells the sender, and «No vo
   // Ajustes brings it back.
   await page.evaluate(() => { location.hash = '#/settings'; });
   await page.getByRole('button', { name: 'Restablecer avisos y guías' }).click();
-  await expect(page.getByRole('button', { name: 'Restablecer avisos y guías' })).toBeDisabled();
+  await expect(page.getByText('Todas las ventanas se muestran')).toBeVisible();
   await page.evaluate(() => { location.hash = '#/player'; });
   await page.locator('[data-listen="tv"]').click();
+  // The guides come back too: «Escuchar aquí» is explained again before it goes ahead.
+  await page.locator('.overlay-scrim:not(.overlay-leaving) .overlay-window').getByRole('button', { name: 'Escuchar aquí' }).click();
+  await expect(page.locator('.eyebrow.cast-eyebrow')).toBeVisible();
   await page.getByRole('button', { name: 'Escuchar en este dispositivo' }).click();
   await expect(page.locator('.overlay-window')).toContainText('¿Dejar de escuchar en «Salón»?');
 });
@@ -660,4 +672,12 @@ test('while another device passes its music here, the devices window says who an
   await window.getByRole('button', { name: 'Escuchar en este dispositivo' }).click();
   await page.getByRole('button', { name: 'Dejar de escuchar' }).click();
   await expect.poll(() => leaves(page)).toEqual(['tv']);
+});
+
+test('when the device that passes its music here disappears, the pass ends here and the user is told', async ({ page }) => {
+  await listenFromSalon(page);
+  await page.evaluate(() => (window as unknown as { __connect: { incoming: (c: object, id?: string) => void } }).__connect.incoming({ cmd: 'castEnd', reason: 'lost' }, 'tv'));
+  await expect(page.locator('.toast', { hasText: 'Móvil de prueba se ha desconectado: la música se ha detenido' })).toBeVisible();
+  await expect(page.locator('.eyebrow.cast-eyebrow')).toHaveCount(0);
+  await expect(page.locator('.cast-banner')).toHaveCount(0);
 });

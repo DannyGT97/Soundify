@@ -48,6 +48,9 @@ pub trait Host: Send + Sync {
     fn command(&self, who: &Trusted, command: Command) -> Result<(), String>;
     /// A controller connected and said where its own server listens: a chance to find it back (when mDNS did not).
     fn controller_seen(&self, _who: &Trusted, _ip: std::net::IpAddr, _port: u16) {}
+    /// A controller's connection ended (it left, the network dropped, its app closed). It may come back a moment later: whoever
+    /// depends on it (a device receiving what it passes) waits before giving up, and asks `Server::has_controller`.
+    fn controller_left(&self, _who: &Trusted) {}
 }
 
 /// What is waiting to go out to ONE controller: only the LAST state and the LAST playlist. A controller that reads slowly (or a device that
@@ -93,6 +96,8 @@ impl Mailbox {
 /// One controller's mailbox, with the number it is taken out by when it leaves.
 struct Outbox {
     number: u64,
+    /// The controller this connection belongs to.
+    controller_id: String,
     mailbox: Arc<Mailbox>,
 }
 
@@ -147,6 +152,11 @@ impl Server {
     /// The fingerprint of this device's certificate (what a controller pins, and what a pass tells the receiver to expect).
     pub fn fingerprint(&self) -> &str {
         self.shared.tls.fingerprint()
+    }
+
+    /// Is this controller connected right now?
+    pub fn has_controller(&self, controller_id: &str) -> bool {
+        self.shared.outboxes.lock().unwrap().iter().any(|o| o.controller_id == controller_id)
     }
 
     /// The permission to read what this device passes to another one («Escuchar en»).
@@ -398,7 +408,7 @@ fn websocket(shared: &Arc<Shared>, mut stream: Conn, request: &Request) -> io::R
     let number = shared.next_outbox.fetch_add(1, Ordering::SeqCst);
     let now = {
         let mut outboxes = shared.outboxes.lock().unwrap();
-        outboxes.push(Outbox { number, mailbox: mailbox.clone() });
+        outboxes.push(Outbox { number, controller_id: who.controller_id.clone(), mailbox: mailbox.clone() });
         outboxes.len()
     };
     let (from, started) = (stream.peer_addr().map(|a| a.ip().to_string()).unwrap_or_else(|_| "?".into()), Instant::now());
@@ -409,6 +419,7 @@ fn websocket(shared: &Arc<Shared>, mut stream: Conn, request: &Request) -> io::R
     let result = session(shared, stream, &who, peer, &mailbox);
     shared.pairing.touch(&who.controller_id, pairing::now_secs());
     shared.outboxes.lock().unwrap().retain(|o| o.number != number);
+    shared.host.controller_left(&who);
     stats::closed(1);
     let lasted = format!("after {:.1}s", started.elapsed().as_secs_f32());
     match &result {

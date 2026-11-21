@@ -67,7 +67,14 @@ pub fn preferences(settings: &UserSettings) -> Preferences {
         cookies_file: settings.cookies_file.clone(),
         last_app_update_check: settings.last_app_update_check.clone(),
         hidden_notices: settings.hidden_notices.clone(),
+        player_filter: settings.player_filter.clone(),
+        player_sort: settings.player_sort.clone(),
     }
+}
+
+/// A choice of the Reproductor as the front writes it (`recent`, `az`...): short, lower-case letters, digits and `-`; nothing else is kept.
+fn tidy_choice(text: &str) -> String {
+    text.trim().to_ascii_lowercase().chars().take(16).filter(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || *c == '-').collect()
 }
 
 /// The most notices that can be hidden, and how long an id may be (the app has a handful).
@@ -129,6 +136,12 @@ pub fn apply(settings: &mut UserSettings, patch: &PreferencesPatch) {
     }
     if let Some(notices) = &patch.hidden_notices {
         settings.hidden_notices = tidy_notices(notices);
+    }
+    if let Some(filter) = &patch.player_filter {
+        settings.player_filter = tidy_choice(filter);
+    }
+    if let Some(sort) = &patch.player_sort {
+        settings.player_sort = tidy_choice(sort);
     }
 }
 
@@ -418,5 +431,20 @@ mod tests {
         assert!(preferences(&settings).hidden_notices.is_empty());
         let old: UserSettings = serde_json::from_str("{}").unwrap();
         assert!(old.hidden_notices.is_empty());
+    }
+
+    #[test]
+    fn the_reproductor_remembers_its_chip_and_order_tidied_and_a_reset_forgets_them() {
+        let mut settings = UserSettings::default();
+        assert_eq!(preferences(&settings).player_filter, "");
+        apply(&mut settings, &PreferencesPatch { player_filter: Some(" Audio ".into()), player_sort: Some("az; DROP".into()), ..Default::default() });
+        // Only lower-case letters, digits and «-», at most 16: what the front writes, nothing else.
+        assert_eq!(preferences(&settings).player_filter, "audio");
+        assert_eq!(preferences(&settings).player_sort, "azdrop");
+        apply(&mut settings, &PreferencesPatch { player_filter: Some("audio".into()), ..Default::default() });
+        assert_eq!(preferences(&settings).player_filter, "audio");
+        assert_eq!(reset(&settings).player_filter, "");
+        let old: UserSettings = serde_json::from_str("{}").unwrap();
+        assert_eq!(old.player_sort, "");
     }
 }

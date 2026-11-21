@@ -8,7 +8,7 @@ use serde::Serialize;
 use tauri::AppHandle;
 
 #[cfg(target_os = "android")]
-pub use android::{plugin, prepare_in_background};
+pub use android::{KeystoreSealer, plugin, prepare_in_background};
 
 /// The storage as the front needs it (`StorageInfo` in `src/api/types.ts`).
 #[derive(Debug, Serialize)]
@@ -411,6 +411,45 @@ mod android {
         let Ok(bridge) = bridge(app) else { return };
         if let Err(e) = bridge.0.run_mobile_plugin::<serde_json::Value>("castingLock", serde_json::json!({ "on": on })) {
             log::warn!("Could not keep the Wi-Fi awake for a pass: {e}");
+        }
+    }
+
+    #[derive(serde::Serialize)]
+    struct SecretArgs {
+        data: String,
+    }
+
+    #[derive(Deserialize)]
+    struct SecretWire {
+        data: String,
+    }
+
+    /// Seals with the Android Keystore (`Secrets.kt`): the key never leaves it.
+    pub struct KeystoreSealer {
+        app: AppHandle,
+    }
+
+    impl KeystoreSealer {
+        pub fn new(app: &AppHandle) -> Self {
+            Self { app: app.clone() }
+        }
+
+        fn call(&self, command: &str, bytes: &[u8]) -> std::io::Result<Vec<u8>> {
+            use base64::Engine;
+            use base64::engine::general_purpose::STANDARD;
+            let bridge = bridge(&self.app).map_err(std::io::Error::other)?;
+            let wire: SecretWire = bridge.0.run_mobile_plugin(command, SecretArgs { data: STANDARD.encode(bytes) }).map_err(std::io::Error::other)?;
+            STANDARD.decode(wire.data).map_err(std::io::Error::other)
+        }
+    }
+
+    impl soundify_core::secret::Sealer for KeystoreSealer {
+        fn seal(&self, plain: &[u8]) -> std::io::Result<Vec<u8>> {
+            self.call("sealSecret", plain)
+        }
+
+        fn open(&self, sealed: &[u8]) -> std::io::Result<Vec<u8>> {
+            self.call("openSecret", sealed)
         }
     }
 

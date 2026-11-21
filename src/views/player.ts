@@ -13,6 +13,9 @@ import { subscribe, ui } from '../state';
 import { cover } from '../components/cover';
 import { connect, controlDevice } from '../connect';
 import { listenFrom, stopListening } from '../cast';
+import { listenGuide } from '../guides';
+import { preferences, save } from '../preferences';
+import { showGuide } from '../overlays/guide';
 import { onAndroid } from '../platform';
 import { openMenu } from '../components/floating';
 import { liveBar, liveChip, patchLive } from '../components/live';
@@ -77,13 +80,27 @@ const SORTS: Record<Sort, (a: Playlist, b: Playlist) => number> = {
 let query = '';
 let chip: Chip = 'all';
 let sort: Sort = 'recent';
+/** The chip and the order the user left it with last time are read once, when the library is first shown. */
+let restored = false;
+const CHIPS: Chip[] = ['all', 'audio', 'video', 'device'];
+const SORT_KEYS: Sort[] = ['recent', 'az', 'size'];
+
+function restoreLibraryView(): void {
+  if (restored) return;
+  restored = true;
+  const { playerFilter, playerSort } = preferences();
+  chip = CHIPS.find(key => key === playerFilter) ?? chip;
+  sort = SORT_KEYS.find(key => key === playerSort) ?? sort;
+}
 
 function libraryView(): HTMLElement {
+  restoreLibraryView();
   const search = h('input', { class: 'input', attrs: { type: 'search', placeholder: t('player.library.search') } });
   search.value = query;
   const chipButtons = (['all', 'audio', 'video', 'device'] as Chip[]).map(key => {
     const button = h('button', { class: 'fchip', text: t(`player.library.chip.${key}`), onclick: () => {
       chip = key;
+      save({ playerFilter: key });
       fill();
     } });
     button.dataset.chip = key;
@@ -94,6 +111,7 @@ function libraryView(): HTMLElement {
   sortSelect.value = sort;
   sortSelect.addEventListener('change', () => {
     sort = sortSelect.value as Sort;
+    save({ playerSort: sort });
     fill();
   });
   search.addEventListener('input', () => {
@@ -179,7 +197,7 @@ function libraryView(): HTMLElement {
           h('div', { class: 'subtitle ellipsis' }, h('span', { class: 'dot' }), device.playing && device.nowPlaying ? t('connect.playing', device.nowPlaying.title) : t('player.devices.idle'))),
         h('div', { class: 'devcard-actions' },
           h('button', { class: 'secondary-button small', attrs: { 'data-library': device.id }, onclick: () => { void controlDevice(device).then(ok => ok && navigate('remote-playlist')); } }, icon('manager', 15), h('span', { text: t('player.devices.library') })),
-          h('button', { class: 'primary-button small', attrs: { 'data-listen': device.id }, onclick: () => { void listenFrom(device); } }, icon('cast', 15), h('span', { text: t('player.devices.listen') })))))),
+          h('button', { class: 'primary-button small', attrs: { 'data-listen': device.id }, onclick: () => showGuide(listenGuide(device.name, () => { void listenFrom(device); })) }, icon('cast', 15), h('span', { text: t('player.devices.listen') })))))),
       h('p', { class: 'help devices-note', text: t('player.devices.note') }));
   };
 

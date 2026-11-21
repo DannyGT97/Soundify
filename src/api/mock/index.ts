@@ -5,8 +5,9 @@
 
 import type { Api } from '..';
 import type {
-  CopyOutcome, CopyProgress, CreatedPlaylist, DeleteResult, DeviceEntry, DeviceTarget, DownloadNotice, DownloadRequest, ExportResult, PlayerMemory, Preferences, TaskOrigin, WindowControls,
+  CopyOutcome, CopyProgress, CreatedPlaylist, DeleteResult, DeviceEntry, DeviceTarget, DownloadNotice, DownloadRequest, ExportResult, MediaKey, MediaSessionUpdate, PlayerMemory, Preferences, TaskOrigin, WindowControls,
 } from '../types';
+import { GUIDE_IDS } from '../../guides';
 import { onAndroid } from '../../platform';
 import { emit, ui, type RunningTask, type TaskStatus } from '../../state';
 import { activityLog, AUDIO_FORMATS, importedPlaylist, playlists, VIDEO_FORMATS } from './data';
@@ -190,7 +191,19 @@ export const mockApi: Api = {
   },
   windowControls: mockWindowControls(),
   onClosing: () => {},
+  // Nothing to show in a browser: the tests read what was said and press the keys (`window.__media`).
+  mediaSession: update => { mediaUpdates.push(update); },
+  onMediaKey: listener => { mediaListeners.push(listener); },
 };
+
+const mediaUpdates: MediaSessionUpdate[] = [];
+const mediaListeners: Array<(key: MediaKey) => void> = [];
+if (typeof window !== 'undefined') {
+  (window as unknown as { __media: object }).__media = {
+    updates: mediaUpdates,
+    press: (action: MediaKey['action'], value?: string) => mediaListeners.forEach(listener => listener({ action, value })),
+  };
+}
 
 const MOCK_UPDATE = {
   version: 'v9.9.9',
@@ -199,8 +212,20 @@ const MOCK_UPDATE = {
 
 let playerMemory: PlayerMemory = { volume: 0.7, last: null };
 
+function unseenGuides(): string[] {
+  if (typeof location === 'undefined') return [...GUIDE_IDS];
+  const asked = new URLSearchParams(location.search).get('mockGuides');
+  if (asked === null) return [...GUIDE_IDS];
+  const wanted = asked.split(',').filter(Boolean);
+  return wanted.length === 0 ? [] : GUIDE_IDS.filter(id => !wanted.includes(id));
+}
+
 const FACTORY_PREFERENCES: Preferences = {
-  appearance: 'dark', language: 'es', uiScale: 100, playerPlacement: 'both', autoPip: true, hiddenNotices: [],
+  appearance: 'dark', language: 'es', uiScale: 100, playerPlacement: 'both', autoPip: true,
+  // The first-use guides are all seen, so the tests do not meet one by surprise: `?mockGuides` brings them all (and the screenshots
+  // of them), `?mockGuides=connect,pass` only those.
+  hiddenNotices: unseenGuides(),
+  playerFilter: '', playerSort: '',
   includeIdInTitleName: false, concurrentFragments: false, parallelDownloads: false, parallelBlocks: false, appUpdateCheckEnabled: true, autoUpdates: true, cookiesFile: '', lastAppUpdateCheck: '',
 };
 const PREFERENCES_KEY = 'soundify.mock.preferences';

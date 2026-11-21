@@ -16,6 +16,7 @@ import { VOLUME_ECHO_MS, actionsFor, describeCommand, projectPosition, remoteTra
 import { t } from './i18n';
 import { findBlock, library as libraryOf, onDisk } from './library';
 import * as player from './player';
+import { navigate } from './router';
 import { emit, subscribe, ui } from './state';
 import { errorText } from './transfer';
 import { passEnded, passToRequester, receiverLeft } from './cast';
@@ -221,6 +222,25 @@ const route = (command: Parameters<typeof actionsFor>[0]): void => {
 };
 
 /** Starts controlling a paired device: from now on the player shows and drives it. */
+/**
+ * An error of asking another device for something, said to the user. When the cause is that it is not paired (it was forgotten
+ * on one side, or never paired), the notice carries the way to fix it: the window where it is paired with its PIN.
+ */
+export function connectFailure(error: unknown): void {
+  const notPaired = typeof error === 'object' && error !== null && (error as { key?: unknown }).key === 'connect.error.notPaired';
+  if (!notPaired) {
+    notify({ tone: 'error', text: errorText(error) });
+    return;
+  }
+  notify({
+    tone: 'warning', text: errorText(error),
+    action: { label: t('connect.error.pairNow'), run: () => {
+      navigate('settings');
+      void import('./overlays/devices').then(module => module.openDevicesOverlay());
+    } },
+  });
+}
+
 export async function controlDevice(device: ConnectDevice): Promise<boolean> {
   if (ui.remote?.deviceId === device.id) return true;
   logEvent('info', 'connect', `control ${device.name} #${device.id.slice(0, 6)} (ready=${device.ready}, playing=${device.playing})`);
@@ -229,7 +249,7 @@ export async function controlDevice(device: ConnectDevice): Promise<boolean> {
     current = await api.connectSelect(device.id);
   } catch (error) {
     logEvent('warn', 'connect', `could not control ${device.name}: ${JSON.stringify(error)}`);
-    notify({ tone: 'error', text: errorText(error) });
+    connectFailure(error);
     void loadConnect();
     return false;
   }

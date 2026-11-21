@@ -149,9 +149,13 @@ function noticesControl(): HTMLElement {
   const paint = () => {
     const count = hiddenNoticeCount();
     note.textContent = count > 0 ? t('settings.general.notices.hidden', count) : t('settings.general.notices.none');
-    button.disabled = count === 0;
   };
   button.addEventListener('click', () => {
+    // Nothing hidden: the button is not greyed out (it looked broken), it says so.
+    if (hiddenNoticeCount() === 0) {
+      notify({ tone: 'neutral', text: t('settings.general.notices.none') });
+      return;
+    }
     resetNotices();
     paint();
     notify({ tone: 'success', text: t('settings.general.notices.done') });

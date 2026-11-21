@@ -21,6 +21,8 @@ const WAIT: Duration = Duration::from_secs(5);
 struct FakeHost {
     state: Mutex<PlayerState>,
     received: Mutex<Vec<(String, Command)>>,
+    /// The controllers whose connection ended.
+    left: Mutex<Vec<String>>,
 }
 
 impl Host for FakeHost {
@@ -38,6 +40,10 @@ impl Host for FakeHost {
         }
         self.received.lock().unwrap().push((who.name.clone(), command));
         Ok(())
+    }
+
+    fn controller_left(&self, who: &Trusted) {
+        self.left.lock().unwrap().push(who.controller_id.clone());
     }
 }
 
@@ -299,6 +305,24 @@ fn stopping_the_server_closes_the_controllers_sessions() {
         closed = matches!(events.recv_timeout(Duration::from_millis(200)), Ok(Event::Closed(_)));
     }
     assert!(closed, "the session was told it is over");
+}
+
+#[test]
+fn the_player_knows_when_a_controller_is_connected_and_when_it_leaves() {
+    let rig = rig();
+    let token = paired(&rig);
+    assert!(!rig.server.has_controller("phone-1"));
+    let (session, events) = open(&rig, &token);
+    wait_for(&events, |m| matches!(m, ServerMessage::Hello { .. }));
+    assert!(rig.server.has_controller("phone-1"));
+    assert!(!rig.server.has_controller("someone-else"));
+    drop(session);
+    let deadline = Instant::now() + WAIT;
+    while Instant::now() < deadline && rig.host.left.lock().unwrap().is_empty() {
+        std::thread::sleep(Duration::from_millis(20));
+    }
+    assert_eq!(rig.host.left.lock().unwrap().as_slice(), ["phone-1"], "the host was told which controller left");
+    assert!(!rig.server.has_controller("phone-1"));
 }
 
 #[test]

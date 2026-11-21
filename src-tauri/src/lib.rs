@@ -13,10 +13,12 @@ mod devices;
 mod diagnostics;
 mod firewall;
 mod downloads;
+mod media_keys;
 mod mobile;
 mod mtp;
 mod window_menu;
 mod process;
+mod secret;
 mod tools;
 
 use std::sync::Arc;
@@ -72,6 +74,7 @@ pub fn run() {
   let builder = builder.plugin(mobile::plugin());
   builder
     .register_asynchronous_uri_scheme_protocol(cast::SCHEME, cast::handle)
+    .manage(media_keys::Session::default())
     .manage(cast::CastInbox::default())
     .manage(cast::CastMemory::default())
     .manage(app_update::AppUpdates::default())
@@ -88,6 +91,8 @@ pub fn run() {
       downloads: downloads::Downloads::new(BackgroundTasks::new(clock::system(), history)),
     })
     .setup(|app| {
+      // The keyboard's media keys and the headset's buttons.
+      media_keys::start(app.handle());
       // Problems noted down before the front listens are asked for with
       // `tool_health`; this carries the ones that come later.
       let handle = app.handle().clone();
@@ -169,6 +174,7 @@ pub fn run() {
       connect::connect_queue_of,
       cast::connect_cast_clear,
       connect::connect_cast,
+      media_keys::media_session,
       connect::connect_cast_end,
       connect::connect_pass_request,
       connect::connect_cast_leave,

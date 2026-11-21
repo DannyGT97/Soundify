@@ -134,6 +134,9 @@ pub struct UserSettings {
     pub explorer_recents: Vec<String>,
     /// The explanatory windows the user marked «No volver a mostrar» (their ids). Ajustes can bring them all back.
     pub hidden_notices: Vec<String>,
+    /// The Reproductor's library as it was left: the chip (`all`, `audio`...) and the order (`recent`, `az`...); empty = the default.
+    pub player_filter: String,
+    pub player_sort: String,
 }
 
 impl Default for UserSettings {
@@ -165,6 +168,8 @@ impl Default for UserSettings {
             explorer_favorites: Vec::new(),
             explorer_recents: Vec::new(),
             hidden_notices: Vec::new(),
+            player_filter: String::new(),
+            player_sort: String::new(),
         }
     }
 }
@@ -187,6 +192,8 @@ pub struct Preferences {
     pub cookies_file: String,
     pub last_app_update_check: String,
     pub hidden_notices: Vec<String>,
+    pub player_filter: String,
+    pub player_sort: String,
 }
 
 /// A change from Ajustes: only what is set is touched.
@@ -206,6 +213,8 @@ pub struct PreferencesPatch {
     pub auto_updates: Option<bool>,
     pub cookies_file: Option<String>,
     pub hidden_notices: Option<Vec<String>>,
+    pub player_filter: Option<String>,
+    pub player_sort: Option<String>,
 }
 
 /// What the player keeps between launches (a slice of [`UserSettings`]): the

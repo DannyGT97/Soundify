@@ -6,6 +6,9 @@ import { api, type ConnectDevice, type ConnectFirewall } from '../api';
 import { notify } from '../components/toasts';
 import { closeOverlay, openOverlay } from '../components/overlay';
 import { connect, controlDevice, loadConnect, stopControlling } from '../connect';
+import { connectGuide } from '../guides';
+import { showGuide } from './guide';
+import { showNotice } from './notice';
 import { h } from '../dom';
 import { t } from '../i18n';
 import { icon, type IconName } from '../icons';
@@ -20,7 +23,12 @@ let ownPin: string | null = null;
 /** What Windows' firewall says about this app; read when the window opens and after asking for the rule. */
 let firewall: ConnectFirewall | null = null;
 
+/** The window of Ajustes → Dispositivos; the first time, Soundify Connect is explained before it opens (`guides.ts`). */
 export function openDevicesOverlay(): void {
+  showGuide(connectGuide(openOverlayNow));
+}
+
+function openOverlayNow(): void {
   const body = h('div', { class: 'stack-12 cx' });
   // It redraws now and then (the list, the PIN): what is being typed must survive it, focus and caret included.
   const refresh = () => {
@@ -246,7 +254,18 @@ function strictSwitch(): HTMLInputElement {
   const box = h('input', { class: 'switch', attrs: { type: 'checkbox' } });
   box.checked = !(connect.status?.open ?? false);
   box.addEventListener('change', () => {
-    void api.connectSetOpen(!box.checked).then(() => loadConnect()).then(() => refreshPin());
+    const apply = (open: boolean) => void api.connectSetOpen(open).then(() => loadConnect()).then(() => refreshPin());
+    if (box.checked) {
+      apply(false);
+      return;
+    }
+    // Turning the PIN off lets anybody on the network in: said first, and the switch only moves if it is accepted.
+    box.checked = true;
+    showNotice({
+      id: 'openMode', danger: true,
+      title: t('connect.open.confirm.title'), header: t('connect.open.confirm.header'), body: t('connect.open.confirm.body'),
+      confirm: t('connect.open.confirm.ok'), run: () => apply(true),
+    });
   });
   return box;
 }

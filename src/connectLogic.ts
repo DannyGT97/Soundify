@@ -73,7 +73,7 @@ export function describeCommand(command: ConnectCommand, from: string): { key: s
   switch (command.cmd) {
     case 'take': return { key: 'connect.said.take', args: [from] };
     case 'cast': return { key: 'connect.said.cast', args: [from] };
-    case 'castEnd': return { key: command.reason === 'left' ? 'connect.said.left' : 'connect.said.castEnd', args: [from] };
+    case 'castEnd': return { key: command.reason === 'left' ? 'connect.said.left' : command.reason === 'lost' ? 'connect.said.lost' : 'connect.said.castEnd', args: [from] };
     case 'passMe': return { key: 'connect.said.passMe', args: [from] };
     default: return null;
   }

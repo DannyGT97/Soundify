@@ -29,6 +29,7 @@ use spake2::{Ed25519Group, Identity, Password, Spake2};
 
 use super::protocol::PairRequest;
 use crate::Location;
+use crate::secret::{self, Opened, Plain, Sealer};
 use crate::storage::Storage;
 
 /// How long a PIN is good for.
@@ -375,15 +376,41 @@ pub struct KnownDevices {
     storage: Arc<dyn Storage>,
     file: Location,
     list: Mutex<Vec<Known>>,
+    /// Seals the file: the tokens in it are what lets this device into the others (`secret.rs`).
+    sealer: Arc<dyn Sealer>,
 }
 
 impl KnownDevices {
+    /// The file as plain text (what it always was).
     pub fn load(storage: Arc<dyn Storage>, file: Location) -> Self {
-        let list: Vec<Known> = storage.read(&file).ok().and_then(|bytes| serde_json::from_slice(&bytes).ok()).unwrap_or_default();
+        Self::load_sealed(storage, file, Arc::new(Plain))
+    }
+
+    /// The file sealed with `sealer`. A plain file (from before) opens and is sealed straight away; a sealed one that this user
+    /// cannot open (the folder was moved to another computer) is kept under another name and the list starts empty: the
+    /// devices are paired again with their PIN, nothing is lost that was not lost already.
+    pub fn load_sealed(storage: Arc<dyn Storage>, file: Location, sealer: Arc<dyn Sealer>) -> Self {
+        let bytes = storage.read(&file).ok();
+        let (list, needs_sealing): (Vec<Known>, bool) = match bytes.as_deref().map(|bytes| secret::read(sealer.as_ref(), bytes)) {
+            None => (Vec::new(), false),
+            Some(Opened::Plain(plain)) => (serde_json::from_slice(&plain).unwrap_or_default(), sealer.protects()),
+            Some(Opened::Sealed(plain)) => (serde_json::from_slice(&plain).unwrap_or_default(), false),
+            Some(Opened::Unreadable) => {
+                log::warn!("Soundify Connect: the file of paired devices cannot be opened by this user here (another computer?): kept aside, pair again");
+                if let Some(bytes) = &bytes {
+                    let _ = storage.write(&Location::path(format!("{file}.unreadable")), bytes);
+                }
+                (Vec::new(), false)
+            }
+        };
         // Paired before TLS (no certificate pinned): their tokens travelled in the clear and the devices no longer accept
         // them. They would only show as «paired, offline» for ever; pairing again with the PIN brings them back.
-        let list = list.into_iter().filter(|known| !known.fingerprint.is_empty()).collect();
-        Self { storage, file, list: Mutex::new(list) }
+        let list: Vec<Known> = list.into_iter().filter(|known| !known.fingerprint.is_empty()).collect();
+        let known = Self { storage, file, list: Mutex::new(list.clone()), sealer };
+        if needs_sealing {
+            let _ = known.save(&list);
+        }
+        known
     }
 
     pub fn all(&self) -> Vec<Known> {
@@ -408,7 +435,8 @@ impl KnownDevices {
     }
 
     fn save(&self, list: &[Known]) -> io::Result<()> {
-        let bytes = serde_json::to_vec_pretty(list).map_err(io::Error::other)?;
+        let plain = serde_json::to_vec_pretty(list).map_err(io::Error::other)?;
+        let (bytes, _) = secret::write(self.sealer.as_ref(), &plain);
         self.storage.write(&self.file, &bytes)
     }
 }
@@ -666,6 +694,61 @@ mod tests {
         assert!(KnownDevices::load(storage.clone(), file.clone()).get("old").is_none());
         known.forget("tv").unwrap();
         assert!(KnownDevices::load(storage, file).all().is_empty());
+    }
+
+    fn paired(token: &str) -> Known {
+        Known { device_id: "tv".into(), name: "Salón".into(), kind: "desktop".into(), token: token.into(), fingerprint: "ab".repeat(32) }
+    }
+
+    fn data() -> (Arc<MemoryStorage>, Location) {
+        let storage = Arc::new(MemoryStorage::default());
+        storage.create_dir_all(&Location::path("/data")).unwrap();
+        (storage, Location::path("/data/devices.json"))
+    }
+
+    #[test]
+    fn the_tokens_of_the_known_devices_are_not_written_as_plain_text_and_come_back() {
+        use crate::secret::tests::Reverse;
+        let (storage, file) = data();
+        let sealer: Arc<dyn Sealer> = Arc::new(Reverse { fail_seal: false, fail_open: false });
+        KnownDevices::load_sealed(storage.clone(), file.clone(), sealer.clone()).remember(paired("secret-token")).unwrap();
+        let on_disk = storage.read(&file).unwrap();
+        assert!(on_disk.starts_with(crate::secret::MAGIC));
+        assert!(!String::from_utf8_lossy(&on_disk).contains("secret-token"));
+        assert_eq!(KnownDevices::load_sealed(storage, file, sealer).get("tv").unwrap().token, "secret-token");
+    }
+
+    #[test]
+    fn a_plain_file_from_before_is_read_and_sealed_straight_away() {
+        use crate::secret::tests::Reverse;
+        let (storage, file) = data();
+        KnownDevices::load(storage.clone(), file.clone()).remember(paired("old-token")).unwrap();
+        assert!(String::from_utf8_lossy(&storage.read(&file).unwrap()).contains("old-token"));
+        let sealer: Arc<dyn Sealer> = Arc::new(Reverse { fail_seal: false, fail_open: false });
+        assert_eq!(KnownDevices::load_sealed(storage.clone(), file.clone(), sealer).get("tv").unwrap().token, "old-token");
+        assert!(storage.read(&file).unwrap().starts_with(crate::secret::MAGIC), "sealed now, without anybody asking");
+    }
+
+    #[test]
+    fn a_file_this_user_cannot_open_is_kept_aside_and_never_overwritten_by_the_empty_list() {
+        use crate::secret::tests::Reverse;
+        let (storage, file) = data();
+        KnownDevices::load_sealed(storage.clone(), file.clone(), Arc::new(Reverse { fail_seal: false, fail_open: false })).remember(paired("t")).unwrap();
+        let sealed = storage.read(&file).unwrap();
+        // Another computer: it cannot be opened.
+        let elsewhere = KnownDevices::load_sealed(storage.clone(), file.clone(), Arc::new(Reverse { fail_seal: false, fail_open: true }));
+        assert!(elsewhere.all().is_empty());
+        assert_eq!(storage.read(&Location::path("/data/devices.json.unreadable")).unwrap(), sealed);
+        assert_eq!(storage.read(&file).unwrap(), sealed, "loading does not touch it");
+    }
+
+    #[test]
+    fn when_sealing_fails_the_tokens_are_still_kept() {
+        use crate::secret::tests::Reverse;
+        let (storage, file) = data();
+        let broken: Arc<dyn Sealer> = Arc::new(Reverse { fail_seal: true, fail_open: false });
+        KnownDevices::load_sealed(storage.clone(), file.clone(), broken.clone()).remember(paired("kept")).unwrap();
+        assert_eq!(KnownDevices::load_sealed(storage, file, broken).get("tv").unwrap().token, "kept");
     }
 
     #[test]

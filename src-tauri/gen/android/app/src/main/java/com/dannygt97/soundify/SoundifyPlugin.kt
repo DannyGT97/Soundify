@@ -8,6 +8,7 @@ import android.os.Build
 import android.os.Environment
 import android.provider.DocumentsContract
 import android.provider.Settings
+import android.util.Base64
 import androidx.activity.result.ActivityResult
 import app.tauri.annotation.ActivityCallback
 import app.tauri.annotation.Command
@@ -41,6 +42,12 @@ class RemoteArgs {
   var shuffle: Boolean = false
   var repeat: String = "off"
   var volume: Double = 1.0
+}
+
+@InvokeArg
+class SecretArgs {
+  /** The bytes to seal or open, in base64. */
+  var data: String = ""
 }
 
 @InvokeArg
@@ -357,6 +364,29 @@ class SoundifyPlugin(private val activity: Activity) : Plugin(activity) {
   }
 
   // === KEEPING THE APP ALIVE ===
+
+  /** Seals bytes with the Keystore's key (`Secrets`): what the app keeps on disk that must not be readable as it is. */
+  @Command
+  fun sealSecret(invoke: Invoke) {
+    val args = invoke.parseArgs(SecretArgs::class.java)
+    try {
+      val sealed = Secrets.seal(Base64.decode(args.data, Base64.NO_WRAP))
+      invoke.resolve(JSObject().put("data", Base64.encodeToString(sealed, Base64.NO_WRAP)))
+    } catch (e: Exception) {
+      invoke.reject(e.message ?: "could not seal")
+    }
+  }
+
+  @Command
+  fun openSecret(invoke: Invoke) {
+    val args = invoke.parseArgs(SecretArgs::class.java)
+    try {
+      val plain = Secrets.open(Base64.decode(args.data, Base64.NO_WRAP))
+      invoke.resolve(JSObject().put("data", Base64.encodeToString(plain, Base64.NO_WRAP)))
+    } catch (e: Exception) {
+      invoke.reject(e.message ?: "could not open")
+    }
+  }
 
   /** Starts or stops the foreground notice that keeps Android from killing the app while it downloads. */
   @Command

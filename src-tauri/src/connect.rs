@@ -110,7 +110,34 @@ struct IncomingCommand<'a> {
     cast_base: Option<String>,
 }
 
+/// How long a device that receives a pass waits for the one that passes it to come back before it gives the pass up (a blink of
+/// the Wi-Fi reconnects within seconds; a closed app or a phone that went away does not).
+const PASS_GRACE: std::time::Duration = std::time::Duration::from_secs(20);
+
 impl Player for AppPlayer {
+    fn controller_left(&self, who: &Trusted) {
+        // Only matters if this device is receiving from it.
+        if !self.inbox.current().is_some_and(|source| source.from == who.controller_id) {
+            return;
+        }
+        let (app, inbox, id, name) = (self.app.clone(), self.inbox.clone(), who.controller_id.clone(), who.name.clone());
+        let spawned = std::thread::Builder::new().name("connect-pass-grace".into()).spawn(move || {
+            std::thread::sleep(PASS_GRACE);
+            let Some(state) = app.try_state::<ConnectState>() else { return };
+            if state.connect.has_controller(&id) || !inbox.end_from(&id) {
+                return;
+            }
+            info!("Soundify Connect: {name} #{} is gone: the pass it made here ends", short(&id));
+            if let Some(memory) = app.try_state::<crate::cast::CastMemory>() {
+                *memory.0.lock().unwrap() = None;
+            }
+            let _ = app.emit("connect-command", IncomingCommand { from: &name, from_id: &id, command: &Command::CastEnd { reason: Some("lost".into()) }, cast_base: None });
+        });
+        if spawned.is_err() {
+            warn!("Could not start a thread to wait for a device that passes music here");
+        }
+    }
+
     fn command(&self, who: &Trusted, command: Command) -> Result<(), String> {
         let mut cast_base = None;
         let command = match command {
@@ -329,7 +356,8 @@ pub fn init(app: &AppHandle, paths: &AppPaths) {
     let config = load_config(&file);
     let storage: Arc<dyn Storage> = Arc::new(LocalStorage);
     let pairing = Arc::new(Pairing::load(storage.clone(), Location::path(dir.join("trusted.json"))));
-    let known = KnownDevices::load(storage.clone(), Location::path(dir.join("devices.json")));
+    // The tokens this device holds to be let into the others are sealed for this user (DPAPI, Keystore): not plain text on disk.
+    let known = KnownDevices::load_sealed(storage.clone(), Location::path(dir.join("devices.json")), crate::secret::platform(app));
     pairing.set_open(config.open);
     // This device's certificate, made once (its fingerprint is what the others pin). The key never leaves this folder.
     let tls = match TlsIdentity::load_or_create(storage.as_ref(), &Location::path(dir.join("tls-cert.der")), &Location::path(dir.join("tls-key.der"))) {

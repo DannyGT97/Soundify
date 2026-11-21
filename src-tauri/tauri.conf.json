@@ -20,7 +20,8 @@
         "resizable": true,
         "maximized": true,
         "decorations": false,
-        "fullscreen": false
+        "fullscreen": false,
+        "additionalBrowserArgs": "--disable-features=msWebOOUI,msPdfOOUI,msSmartScreenProtection,HardwareMediaKeyHandling,MediaSessionService,GlobalMediaControls"
       }
     ],
     "security": {

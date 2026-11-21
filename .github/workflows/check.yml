@@ -1,0 +1,51 @@
+# Everything that must be green before calling a change done, on every push to main and every pull request:
+# `npm run check` (tsc, vitest, cargo test, clippy) and the interface tests (Playwright, against the mock API).
+# It builds nothing that is published and signs nothing: releases are made by hand (see CLAUDE.md).
+name: check
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+concurrency:
+  group: check-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  check:
+    # Windows, because the app is built there (the ffmpeg that travels with it is not in git: its folder only needs to exist).
+    runs-on: windows-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy
+
+      - uses: Swatinem/rust-cache@v2
+
+      - run: npm ci
+
+      - name: Check (tsc, vitest, cargo test, clippy)
+        run: npm run check
+
+      - name: Install the browser of the interface tests
+        run: npx playwright install chromium
+
+      - name: Interface tests
+        run: npm run test:ui
+
+      - name: Keep what the interface tests left when they fail
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-results
+          path: test-results
+          if-no-files-found: ignore

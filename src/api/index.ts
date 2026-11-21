@@ -7,7 +7,7 @@
 import type { ConnectLibraryEntry, ConnectCastCurrent, ConnectCastRequest,
   AppUpdate, AppUpdateProgress, BrowseEntry, BrowseRoots, ExplorerMemory, FindResult, ConnectCommand, ConnectDevice, ConnectFirewall, ConnectIncoming, ConnectPlayerState, ConnectQueue, ConnectStatus, CopyOutcome, CopyProgress, CreatedPlaylist, DeleteResult, DeviceEntry, DeviceImportScan, DevicesView, DeviceTarget, DownloadNotice, DownloadRequest,
   ExportResult, FormatCatalog, ImportOutcome, ImportScan, PlayerBackend, PlayerMemory, Playlist,
-  Preferences, PreferencesPatch,
+  MediaKey, MediaSessionUpdate, Preferences, PreferencesPatch,
   StorageInfo, ToolDownload, ToolId, ToolsReport, WindowControls, YtdlpCheck,
 } from './types';
 import { mockApi } from './mock';
@@ -257,6 +257,10 @@ export interface Api {
   windowControls: WindowControls | null;
   /** Runs `task` (and waits for it) before the window closes. */
   onClosing(task: () => Promise<void>): void;
+  /** Says what plays here to the system's media keys (Windows), which show it and its state. */
+  mediaSession(update: MediaSessionUpdate): void;
+  /** A media key asked for something. */
+  onMediaKey(listener: (key: MediaKey) => void): void;
 }
 
 // Each phase of MIGRATION-PLAN.md moves its part to the real one (tauri.ts);

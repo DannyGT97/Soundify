@@ -15,11 +15,18 @@ import { icon, type IconName } from '../icons';
 import { onAndroid } from '../platform';
 import { navigate } from '../router';
 import { subscribe, ui } from '../state';
+import { connectGuide, passGuide } from '../guides';
+import { showGuide } from './guide';
 import { openDevicesOverlay } from './devices';
 
 const KIND_ICON: Record<string, IconName> = { desktop: 'monitor', phone: 'device', tablet: 'device' };
 
+/** The speaker icon's window; the first time, Soundify Connect is explained before it opens (`guides.ts`). */
 export function openDevicesSwitcher(): void {
+  showGuide(connectGuide(openSwitcherNow));
+}
+
+function openSwitcherNow(): void {
   const body = h('div', { class: 'stack-12 cx cx-switcher' });
   // Redrawn only when what it shows changed: a row that is being pressed must not be swapped under the finger.
   let shown = '';
@@ -157,7 +164,8 @@ function content(): Node[] {
         attr: 'data-pass', id: device.id, name: device.name, kind: device.kind,
         state: mine ? t('connect.cast.playingYours') : usable ? t('connect.cast.ready') : stateOf(device),
         current: mine, enabled: usable && !mine, go: t('connect.cast.passHere'),
-        pick: () => { void passTo(device).then(ok => ok && closeOverlay()); },
+        // The first time, what passing does is said before it happens.
+        pick: () => showGuide(passGuide(device.name, () => { void passTo(device).then(ok => ok && closeOverlay()); })),
       }));
     }
   }

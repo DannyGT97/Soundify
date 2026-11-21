@@ -24,6 +24,7 @@ pub mod log_format;
 pub mod logs;
 pub mod model;
 pub mod paths;
+pub mod secret;
 pub mod settings;
 pub mod storage;
 pub mod task_history;

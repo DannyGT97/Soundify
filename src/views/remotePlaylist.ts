@@ -9,7 +9,9 @@ import { browseRemote, connect, playRemoteFrom, playRemoteTrack, showRemoteLibra
 import { hueOf, queuePicture, showPicture } from '../covers';
 import { h } from '../dom';
 import { t } from '../i18n';
+import { remoteGuide } from '../guides';
 import { icon } from '../icons';
+import { showGuide } from '../overlays/guide';
 import * as player from '../player';
 import { navigate, onLeave } from '../router';
 import { filterByTitle } from '../search';
@@ -133,6 +135,8 @@ export function remotePlaylistView(): HTMLElement {
     queueMicrotask(() => navigate('player'));
     return h('div', { class: 'screen' });
   }
+  // The first time, it is said that this is another device's music, not the user's own.
+  queueMicrotask(() => showGuide(remoteGuide(device.name)));
   const back = () => navigate('now-playing');
   const backButton = (extra = '') => h('button', { class: `icon-button${extra}`, title: t('player.back'), onclick: back }, icon('back', 18));
   const heading = h('h1');

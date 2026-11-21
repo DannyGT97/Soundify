@@ -8,7 +8,7 @@ import { open } from '@tauri-apps/plugin-dialog';
 import type { Api } from '.';
 import type {
   ActivityLine, AppUpdate, AppUpdateProgress, BrowseEntry, BrowseRoots, ExplorerMemory, FindResult, ConnectCastCurrent, ConnectLibraryEntry, ConnectDevice, ConnectFirewall, ConnectIncoming, ConnectPlayerState, ConnectQueue, ConnectStatus, CopyOutcome, CopyProgress, CreatedPlaylist, DeleteResult, DeviceEntry, DeviceImportScan, DevicesView, DownloadNotice, ExportResult,
-  FormatCatalog, ImportOutcome, ImportScan, PlayerMemory, Playlist, Preferences, StorageInfo, TasksViewWire, ToolDownload, ToolsReport, YtdlpCheck,
+  FormatCatalog, ImportOutcome, ImportScan, MediaKey, PlayerMemory, Playlist, Preferences, StorageInfo, TasksViewWire, ToolDownload, ToolsReport, YtdlpCheck,
 } from './types';
 import { onAndroid } from '../platform';
 import { emit, ui } from '../state';
@@ -185,6 +185,8 @@ export const tauriApi: Api = {
     // Not prevented: the handler is awaited before the window goes away.
     void getCurrentWindow().onCloseRequested(async () => { await task(); });
   },
+  mediaSession: update => void invoke('media_session', { update }).catch(() => {}),
+  onMediaKey: listener => void listen<MediaKey>('media-key', event => listener(event.payload)),
 };
 
 /** Hears `copy-progress` only while `call` runs: every copy reports on that one topic. */
