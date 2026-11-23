@@ -93,6 +93,11 @@
   #app[data-route="now-playing"] .player-bar { display: none; }
   .player-bar { position: relative; gap: 4px; padding: 7px 6px 5px 10px; }
   .player-now { flex: 1; width: auto; min-width: 0; gap: 10px; }
+  /* Two lines a finger can hit: the title (and the rest of the block) opens Reproduciendo, the line under it the playlist.
+     Each line is as tall as half the cover; the lower one reaches down into the bar's padding. */
+  .player-now-text { gap: 0; }
+  .player-now-text > .row-title, .player-now-text > .subtitle { line-height: 22px; }
+  .player-now-text > .subtitle { padding-bottom: 6px; margin-bottom: -6px; }
   .player-bar .player-center { flex: none; width: auto; max-width: none; margin: 0; }
   .player-bar .player-controls > :nth-child(1),
   .player-bar .player-controls > :nth-child(2),

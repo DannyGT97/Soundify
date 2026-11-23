@@ -377,6 +377,9 @@ button.fmt:hover { background: var(--sp-icon-btn-hover); color: var(--sp-text-st
 .tracks .track .st { display: inline-flex; align-items: center; justify-content: flex-end; gap: 6px; min-width: 0; }
 @container (max-width: 560px) {
   .hero { gap: 14px; }
+  /* A smaller cover leaves the name room to be read (at 168 px it kept barely a third of the width). */
+  .hero-cover .cover { width: 112px !important; height: 112px !important; }
+  .hero h1 { font-size: 26px; -webkit-line-clamp: 3; overflow-wrap: anywhere; }
   .cols, .tracks .track { grid-template-columns: 30px auto minmax(0, 1fr); }
   .cols .added, .tracks .track .d { display: none; }
   /* A file that is not there keeps its mark (the reason is in the tooltip) in a column of its own. */
